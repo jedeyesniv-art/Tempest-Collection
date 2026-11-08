@@ -393,9 +393,9 @@ void BuildStars(const StarCall& c, std::vector<Dot>& dots, std::vector<Line>& st
       double sx = 192.0 + x / zi / 128.0, sy = cy + y / zi / 128.0;
       if (sx < 0 || sy < 0 || sx >= 384 || sy >= h) { have = false; continue; }
       uint32_t col = CRY16ToRGB32[(st.colour & 0xFF00) | std::clamp(inten, 0, 255)] & 0xFFFFFF;
-      if (c.warp_count == 0) dots.push_back({float(sx), float(sy), col});
-      else if (have) streaks.push_back({px, py, float(sx), float(sy), pc, col, false});
-      else dots.push_back({float(sx), float(sy), col});
+      // Warp: the original plots each point separately (a dotted dash per star), so dots, not joined streaks.
+      dots.push_back({float(sx), float(sy), col});
+      (void)streaks; (void)pc; (void)have;
       px = float(sx); py = float(sy); pc = col; have = true;
     }
   }

@@ -91,7 +91,10 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   and out" - ours is solid every frame.
 - llama starfield1: 32-byte stars (x, y, z, colour word), z = (z - vp) & $1FFFFFF, intensity 255 - (z >> 17),
   zi = (z >> 14) + 1, centre 192 / 120; warp: warp_count extra points warp_add apart (drawn as streak lines).
-  Drawn as soft dots (8-triangle fans).
+  Drawn as soft dots (8-triangle fans). Warp points are separate dots, NOT joined into streaks: the original plots
+  each point (owner 2026-11-08: our joined streaks looked wrong between levels / on first level select; repro state
+  logs/owner_star.state). The lattice of short diagonal dashes seen then (and on a death) is not starfield1 (2300+
+  lit pixels in a corner vs ~800 star points a frame): another display layer, still the emulated picture.
 - horse polyo2d (solid claw / enemies / shots): long faces; 16-byte faces (colour word, 3 x (vertex, intensity
   word: $FF00 = full, byte = word >> 8), pad); x, y vertex words; rotate, <<8, + pos, / (z >> 14), >> 7, + xcent
   ($F03EFC) / ycent ($F03EF8). Kept in call order (the game sorts far to near) and drawn after the lines.
