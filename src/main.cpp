@@ -348,6 +348,7 @@ int main(int argc, char** argv) {
   SDL_Window* win = SDL_CreateWindow("Tempest 2000", 1280, 960, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
   if (settings::Num("fullscreen", 0) != 0) SDL_SetWindowFullscreen(win, true);
   SDL_Renderer* ren = SDL_CreateRenderer(win, nullptr);
+  SDL_HideCursor();
   SDL_SetRenderVSync(ren, 1);
   SDL_Texture* tex = nullptr;
   unsigned tw = 0, th = 0;
@@ -376,6 +377,8 @@ int main(int argc, char** argv) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) running = false;
+      else if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) SDL_HideCursor();   // no mouse use: keep it out of view
+      else if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) SDL_ShowCursor();
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE && !menu::IsOpen())
         menu::Open();
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F5) {
