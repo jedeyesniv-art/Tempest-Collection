@@ -33,8 +33,10 @@ original code runs unchanged in an emulator, and we add hooks around it.
 4. **QoL**: no slowdown (GPU and 68K clock options, or hooks), skip the boot logos, save states, save slots for the
    game's own high scores and keys, a CRT / bloom option, widescreen if the web projection allows it.
 
-## Open questions for the owner
-- Keep the fork private (as with touchHLE) or public (as with Llamasoft on the ST)? The GPL-3 core means our
-  app is GPL-3 too. The ROM is never included.
-- Which controller first: Xbox pad, mouse, or a real spinner?
-- Which modes do you play: Tempest 2000, Classic, Plus or Duel?
+## Owner decisions (2026-11-08)
+- Entirely offline for now: local git only, publishing decided later.
+- Project becomes "Llamasoft on the Jaguar": Tempest 2000 first, Defender 2000 later (low priority; the owner
+  finds D2K weak and wants real improvements to it, not only a sharper picture).
+- Xbox pad first. Stick controls are the main control problem to solve: both games are hard on a stick.
+- The owner plays 2000 mode, but every mode (Traditional, Plus, Duel) should be first-class: the aim is the
+  best version of the game, as with the ST ports.
