@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "controls.h"
+#include "gpulog.h"
 #include "host.h"
 #include "menu.h"
 #include "settings.h"
@@ -230,7 +231,7 @@ int main(int argc, char** argv) {
   std::vector<StickHold> sticks;
   std::vector<std::pair<std::string, std::string>> sets;
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
-  std::string save_file, load_file;
+  std::string save_file, load_file, gpulog_spec;
   std::string pause_line = "press y to quit to title";
   std::vector<std::pair<std::string, std::string>> opts;
   for (int i = 1; i < argc; ++i) {
@@ -261,6 +262,8 @@ int main(int argc, char** argv) {
       auto v = val("--savestate="); auto c = v.find(':');
       (sv ? save_at : load_at) = std::atoi(v.substr(0, c).c_str());
       (sv ? save_file : load_file) = v.substr(c + 1);
+    } else if (a.rfind("--gpulog=", 0) == 0) {
+      gpulog_spec = val("--gpulog=");
     } else if (a.rfind("--title=", 0) == 0) {
       title_at = std::atoi(val("--title=").c_str());
     } else if (a.rfind("--pauseline=", 0) == 0) {
@@ -296,6 +299,12 @@ int main(int argc, char** argv) {
   std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", rom.c_str(), host::Fps(), host::SampleRate());
   if (!t2k::Install(&err)) std::fprintf(stderr, "t2k: %s (stick controls off)\n", err.c_str());
   const fs::path udir = fs::absolute(userdata);
+  if (!gpulog_spec.empty()) {
+    auto c1 = gpulog_spec.find(':'), c2 = gpulog_spec.find(':', c1 + 1);
+    if (!gpulog::Install(std::atoi(gpulog_spec.substr(0, c1).c_str()),
+                         std::atoi(gpulog_spec.substr(c1 + 1, c2 - c1 - 1).c_str()), gpulog_spec.substr(c2 + 1).c_str()))
+      std::fprintf(stderr, "gpulog: install failed\n");
+  }
   Eeprom eeprom;
   eeprom.Load(udir);
 
@@ -313,6 +322,7 @@ int main(int argc, char** argv) {
       t2k::BeforeFrame(tp);
       t2k::SetPauseLine(pause_line);
       if (f == title_at) t2k::ReturnToTitle();
+      gpulog::SetFrame(f);
       if (f == load_at) {
         std::ifstream lf(load_file, std::ios::binary);
         std::vector<uint8_t> st((std::istreambuf_iterator<char>(lf)), {});

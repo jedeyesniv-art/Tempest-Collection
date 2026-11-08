@@ -78,3 +78,9 @@ Runs ~4-5x real time headless. Core says 60.054 fps, 48044 Hz; picture 326x240.
   core's all-zero buffer, NOT 0xFF: eepromload rejects the chip unless word 63 = $6510, and eepromsave only
   writes words that differ from epromcopy, so an all-ones start leaves stale words -> checksum fail -> reset.
   The game saves on unpause (yak.s ~14325), option changes, high scores, clearee.
+
+## Remaster renderer
+Survey + design: REMASTER.md (frame structure, GPU modules, call sites, capture / compose / interpolate plan).
+Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog.cpp).
+reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
+classifier (downloaded code) - ask the owner before trying again.
