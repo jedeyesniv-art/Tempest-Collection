@@ -31,6 +31,7 @@ constexpr uint32_t kGpurun = 0x81A4F0;
 constexpr uint32_t kLlama = 0x81A526;
 constexpr uint32_t kDonky = 0x81F6A2;
 constexpr uint32_t kHorse = 0x81EB52;
+constexpr uint32_t kXcamel = 0x81D0DA;
 constexpr uint32_t kXcent = 0xF03EFC;     // xcent (G_RAM + $EFC)
 constexpr uint32_t kYcent = 0xF03EF8;     // ycent (G_RAM + $EF8)
 constexpr uint32_t kInBuf = 0xF03F60;
@@ -80,6 +81,13 @@ struct SolidCall {
 };
 std::map<uint32_t, std::vector<SolidCall>> g_solids;  // per gpu_screen
 std::vector<Tri> g_solid_tris;                         // the displayed frame's solids (drawn after the lines)
+
+// xcamel.gas pixels: mode 5 snglpix (in_buf x, y, z, colour: one 2x2 depth-shaded pixel), mode 6 pring (count,
+// x, y, z, colour, radius, phase: count+1 2x2 pixels on a ring, depth-shaded), mode 7 pring2 (same, 1x1, intensity
+// 255 - (radius >> 16)). Captured as their inputs plus z_max / z_top / sysflags.
+struct PixCall { int mode; int32_t in[7]; int32_t zmax, ztop, sysflags; };
+std::map<uint32_t, std::vector<PixCall>> g_pix;        // per gpu_screen
+std::vector<Dot> g_pix_dots;                           // the displayed frame's (drawn last of ours)
 std::vector<Dot> g_dots;                            // the displayed frame's stars
 std::vector<Tri> g_tris;                            // the displayed frame's filled triangles
 std::vector<Line> g_streaks;                        // warp streaks of the stars
@@ -228,6 +236,16 @@ void CaptureSolid() {
   g_solids[traps::Read32(kGpuScreen)].push_back(std::move(c));
 }
 
+void CapturePix(int mode) {
+  PixCall c;
+  c.mode = mode;
+  for (int i = 0; i < 7; ++i) c.in[i] = In(i);
+  c.zmax = S32(0xF03FD8);
+  c.ztop = S32(0xF03FDC);
+  c.sysflags = S32(0xF03FD0);
+  g_pix[traps::Read32(kGpuScreen)].push_back(c);
+}
+
 void CaptureStars() {
   StarCall c;
   for (int i = 0; i < 3; ++i) c.vp[i] = In(1 + i);
@@ -265,12 +283,17 @@ bool OnGpurun() {
     CaptureSolid();
     return g_enabled && PlayBuffer(scr);
   }
+  if (mod == kXcamel && mode >= 5 && mode <= 7) {
+    CapturePix(int(mode));
+    return g_enabled && PlayBuffer(scr);
+  }
   if (mod != kLlama) return false;
   if (mode == 0) {                       // clearscreen: a new frame in this buffer
     g_lists[scr].clear();
     g_webs[scr].clear();
     g_stars[scr].clear();
     g_solids[scr].clear();
+    g_pix[scr].clear();
   }
   else if (mode == 2) {
     Capture();
@@ -396,6 +419,40 @@ void BuildSolid(const SolidCall& c, std::vector<Tri>& out) {
   }
 }
 
+void BuildPix(const PixCall& c, std::vector<Dot>& out) {
+  bool pal = (c.sysflags >> 5) & 1;
+  double cx = 192, cy = pal ? 140 : 120;
+  auto depth_i = [&](double z, int32_t zmax) {
+    double r = zmax - z;
+    return r <= 0 || zmax == 0 ? 0 : std::clamp(int(r * c.ztop / zmax / 256.0), 0, 255);
+  };
+  if (c.mode == 5) {
+    double z = double(uint32_t(c.in[2]) >> 14);
+    if (z <= 0) return;
+    int i = depth_i(z, c.zmax * 2);
+    double x = cx + c.in[0] / z / 128.0, y = (pal ? 140 : 120) + c.in[1] / z / 128.0;
+    if (x < 0 || y < 0 || x >= 382 || y >= 278) return;
+    out.push_back({float(x + 0.5), float(y + 0.5), CRY16ToRGB32[((c.in[3] & 0xFF) << 8) | i] & 0xFFFFFF, 2.f});
+    return;
+  }
+  int count = c.in[0];
+  if (count < 0 || count > 4096) return;
+  double z = double(uint32_t(c.in[3]) >> 14);
+  if (z <= 0) return;
+  int i = c.mode == 6 ? depth_i(z, c.zmax) : std::clamp(255 - (c.in[5] >> 16), 0, 255);
+  uint32_t col = CRY16ToRGB32[((c.in[4] & 0xFF) << 8) | i] & 0xFFFFFF;
+  double x0 = cx + c.in[1] / z / 128.0, y0 = cy + c.in[2] / z / 128.0, r = c.in[5] / z / 128.0;
+  int step = count ? 256 / count : 0;
+  int phase = c.in[6];
+  float size = c.mode == 6 ? 2.f : 1.f;
+  for (int k = 0; k <= count; ++k, phase += step) {
+    double sn = g_sines[phase & 0xFF], cs = g_sines[(phase + 0x40) & 0xFF];
+    double x = x0 + sn * r / 256.0, y = y0 + cs * r / 256.0;
+    if (x < 0 || y < 0 || x >= 382 || y >= (pal ? 278 : 238)) continue;
+    out.push_back({float(x + size * 0.5f), float(y + size * 0.5f), col, size});
+  }
+}
+
 void BuildLines(const VecCall& c, std::vector<Line>& out) {
   int n = int(c.verts.size());
   std::vector<Pt> pts(n);
@@ -453,12 +510,14 @@ void AfterFrame() {
   static std::vector<WebCall> prev_webs;
   static std::vector<StarCall> prev_stars;
   static std::vector<SolidCall> prev_solids;
+  static std::vector<PixCall> prev_pix;
   static const bool same = std::getenv("RM_SAME") != nullptr;   // debug: the end-of-frame cscreen instead
   g_lines.clear();
   g_tris.clear();
   g_dots.clear();
   g_streaks.clear();
   g_solid_tris.clear();
+  g_pix_dots.clear();
   uint32_t cs = traps::Read32(kCscreen);
   auto it = g_lists.find(cs);
   std::vector<VecCall> now = it != g_lists.end() ? it->second : std::vector<VecCall>{};
@@ -471,11 +530,15 @@ void AfterFrame() {
   auto so = g_solids.find(cs);
   std::vector<SolidCall> now_solids = so != g_solids.end() ? so->second : std::vector<SolidCall>{};
   for (auto& c : same ? now_solids : prev_solids) BuildSolid(c, g_solid_tris);
+  auto px = g_pix.find(cs);
+  std::vector<PixCall> now_pix = px != g_pix.end() ? px->second : std::vector<PixCall>{};
+  for (auto& c : same ? now_pix : prev_pix) BuildPix(c, g_pix_dots);
   for (auto& c : same ? now : prev) BuildLines(c, g_lines);
   prev = std::move(now);
   prev_webs = std::move(now_webs);
   prev_stars = std::move(now_stars);
   prev_solids = std::move(now_solids);
+  prev_pix = std::move(now_pix);
   ++g_frames;
 }
 
@@ -540,6 +603,10 @@ host::Frame Overlay(const host::Frame& f, int scale) {
     }
   }
   fill(g_solid_tris);
+  for (auto& dt : g_pix_dots)
+    for (int by = 0; by < std::max(1, int(scale * dt.size)); ++by)
+      for (int bx = 0; bx < std::max(1, int(scale * dt.size)); ++bx)
+        plot(int((dt.x - dt.size * 0.5f + g_ox) * scale) + bx, int((dt.y - dt.size * 0.5f + g_oy) * scale) + by, dt.c);
   // The emulated picture on top, black see-through (RM_OURS: ours alone).
   if (!std::getenv("RM_OURS"))
   for (unsigned y = 0; y < o.height; ++y)
@@ -566,6 +633,30 @@ std::string Stats() {
 
 void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy);
 
+// A dot: a small disc, full colour in the middle fading out at the edge (8-triangle fan); size in game pixels.
+void DrawDots(SDL_Renderer* ren, const std::vector<Dot>& dots, const SDL_FRect& dst, float sx, float sy) {
+  if (dots.empty()) return;
+  std::vector<SDL_Vertex> d;
+  d.reserve(dots.size() * 24);
+  static float cs[9], sn[9];
+  if (cs[0] == 0)
+    for (int k = 0; k < 9; ++k) cs[k] = std::cos(k * float(M_PI) / 4), sn[k] = std::sin(k * float(M_PI) / 4);
+  for (auto& dt : dots) {
+    float r = std::max(1.2f, sx * 0.7f * dt.size);
+    float cx = dst.x + (dt.x + g_ox + 0.5f) * sx, cy = dst.y + (dt.y + g_oy + 0.5f) * sy;
+    SDL_FColor c{((dt.c >> 16) & 255) / 255.f, ((dt.c >> 8) & 255) / 255.f, (dt.c & 255) / 255.f, 1.f};
+    SDL_FColor e = c;
+    e.a = 0;
+    for (int k = 0; k < 8; ++k) {
+      d.push_back({{cx, cy}, c, {0, 0}});
+      d.push_back({{cx + cs[k] * r, cy + sn[k] * r}, e, {0, 0}});
+      d.push_back({{cx + cs[k + 1] * r, cy + sn[k + 1] * r}, e, {0, 0}});
+    }
+  }
+  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+  SDL_RenderGeometry(ren, nullptr, d.data(), int(d.size()), nullptr, 0);
+}
+
 void DrawTris(SDL_Renderer* ren, const std::vector<Tri>& tris, const SDL_FRect& dst, float sx, float sy) {
   if (tris.empty()) return;
   std::vector<SDL_Vertex> t;
@@ -583,28 +674,7 @@ void DrawTris(SDL_Renderer* ren, const std::vector<Tri>& tris, const SDL_FRect& 
 void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   if (!fw || !fh) return;
   float sx = dst.w / fw, sy = dst.h / fh;
-  if (!g_dots.empty()) {
-    // A star: a small disc, full colour in the middle fading out at the edge (8-triangle fan).
-    std::vector<SDL_Vertex> d;
-    d.reserve(g_dots.size() * 24);
-    float r = std::max(1.2f, sx * 0.7f);
-    static float cs[9], sn[9];
-    if (cs[0] == 0)
-      for (int k = 0; k < 9; ++k) cs[k] = std::cos(k * float(M_PI) / 4), sn[k] = std::sin(k * float(M_PI) / 4);
-    for (auto& dt : g_dots) {
-      float cx = dst.x + (dt.x + g_ox + 0.5f) * sx, cy = dst.y + (dt.y + g_oy + 0.5f) * sy;
-      SDL_FColor c{((dt.c >> 16) & 255) / 255.f, ((dt.c >> 8) & 255) / 255.f, (dt.c & 255) / 255.f, 1.f};
-      SDL_FColor e = c;
-      e.a = 0;
-      for (int k = 0; k < 8; ++k) {
-        d.push_back({{cx, cy}, c, {0, 0}});
-        d.push_back({{cx + cs[k] * r, cy + sn[k] * r}, e, {0, 0}});
-        d.push_back({{cx + cs[k + 1] * r, cy + sn[k + 1] * r}, e, {0, 0}});
-      }
-    }
-    SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-    SDL_RenderGeometry(ren, nullptr, d.data(), int(d.size()), nullptr, 0);
-  }
+  DrawDots(ren, g_dots, dst, sx, sy);
   if (!g_streaks.empty()) {
     std::swap(g_lines, g_streaks);   // draw the streaks with the line code (thin), then put things back
     float w = g_width;
@@ -616,6 +686,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   DrawTris(ren, g_tris, dst, sx, sy);
   DrawLines(ren, dst, sx, sy);
   DrawTris(ren, g_solid_tris, dst, sx, sy);
+  DrawDots(ren, g_pix_dots, dst, sx, sy);
 }
 
 void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy) {

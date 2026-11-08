@@ -27,6 +27,7 @@ struct Tri {
 struct Dot {
   float x, y;
   uint32_t c;
+  float size = 1.f;   // game pixels
 };
 
 bool Install();                       // after t2k::Install
