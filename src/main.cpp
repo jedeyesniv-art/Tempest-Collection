@@ -28,6 +28,7 @@
 #include "controls.h"
 #include "gpulog.h"
 #include "host.h"
+#include "remaster.h"
 #include "menu.h"
 #include "settings.h"
 #include "t2k.h"
@@ -231,7 +232,10 @@ int main(int argc, char** argv) {
   std::vector<StickHold> sticks;
   std::vector<std::pair<std::string, std::string>> sets;
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
-  std::string save_file, load_file, gpulog_spec;
+  std::string save_file, load_file, gpulog_spec, start_state, winshot_file;
+  int winshot_at = -1;
+  std::vector<Shot> rmshots;
+  int rm_scale = 4;
   std::string pause_line = "press y to quit to title";
   std::vector<std::pair<std::string, std::string>> opts;
   for (int i = 1; i < argc; ++i) {
@@ -262,6 +266,20 @@ int main(int argc, char** argv) {
       auto v = val("--savestate="); auto c = v.find(':');
       (sv ? save_at : load_at) = std::atoi(v.substr(0, c).c_str());
       (sv ? save_file : load_file) = v.substr(c + 1);
+    } else if (a.rfind("--rmshot=", 0) == 0) {
+      auto v = val("--rmshot="); auto c = v.find(':');
+      rmshots.push_back({std::atoi(v.substr(0, c).c_str()), v.substr(c + 1)});
+    } else if (a.rfind("--rmorigin=", 0) == 0) {
+      auto v = val("--rmorigin="); auto c = v.find(',');
+      remaster::SetOrigin(float(std::atof(v.substr(0, c).c_str())), float(std::atof(v.substr(c + 1).c_str())));
+    } else if (a.rfind("--rmscale=", 0) == 0) {
+      rm_scale = std::atoi(val("--rmscale=").c_str());
+    } else if (a.rfind("--state=", 0) == 0) {
+      start_state = val("--state=");
+    } else if (a.rfind("--winshot=", 0) == 0) {
+      auto v = val("--winshot="); auto c = v.find(':');
+      winshot_at = std::atoi(v.substr(0, c).c_str());
+      winshot_file = v.substr(c + 1);
     } else if (a.rfind("--gpulog=", 0) == 0) {
       gpulog_spec = val("--gpulog=");
     } else if (a.rfind("--title=", 0) == 0) {
@@ -299,6 +317,15 @@ int main(int argc, char** argv) {
   std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", rom.c_str(), host::Fps(), host::SampleRate());
   if (!t2k::Install(&err)) std::fprintf(stderr, "t2k: %s (stick controls off)\n", err.c_str());
   const fs::path udir = fs::absolute(userdata);
+  if (!remaster::Install()) std::fprintf(stderr, "remaster: install failed\n");
+  remaster::SetEnabled(settings::Num("remaster", 1) != 0);
+  if (!start_state.empty()) {   // --state=<file>: start from a save state (tests)
+    std::ifstream sf(start_state, std::ios::binary);
+    std::vector<uint8_t> st((std::istreambuf_iterator<char>(sf)), {});
+    host::RunFrame();
+    std::fprintf(stderr, "state %s: %s\n", start_state.c_str(), host::LoadState(st) ? "loaded" : "FAILED");
+  }
+  remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
   if (!gpulog_spec.empty()) {
     auto c1 = gpulog_spec.find(':'), c2 = gpulog_spec.find(':', c1 + 1);
     if (!gpulog::Install(std::atoi(gpulog_spec.substr(0, c1).c_str()),
@@ -330,6 +357,14 @@ int main(int argc, char** argv) {
       }
       host::RunFrame();
       t2k::AfterFrame();
+      remaster::AfterFrame();
+      for (auto& s : rmshots)
+        if (s.frame == f) {
+          WriteBmp(s.path, remaster::Overlay(host::LastFrame(), rm_scale));
+          remaster::DumpLines(s.path + ".lines");
+          WriteBmp(s.path + ".orig.bmp", host::LastFrame());
+          std::fprintf(stderr, "rmshot %d -> %s (%s)\n", f, s.path.c_str(), remaster::Stats().c_str());
+        }
       if (f == save_at) {
         auto st = host::SaveState();
         std::ofstream(save_file, std::ios::binary).write(reinterpret_cast<const char*>(st.data()), std::streamsize(st.size()));
@@ -397,6 +432,10 @@ int main(int argc, char** argv) {
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F2) {
         settings::Save("stick_mode", settings::Str("stick_mode", "lr") == "aim" ? "lr" : "aim");
         menu::Toast(settings::Str("stick_mode", "lr") == "aim" ? "Stick: aim" : "Stick: left / right", now);
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F8) {
+        remaster::SetEnabled(!remaster::Enabled());
+        settings::Save("remaster", remaster::Enabled() ? "1" : "0");
+        menu::Toast(remaster::Enabled() ? "Remaster on" : "Remaster off (original picture)", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11)
         set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
@@ -486,6 +525,7 @@ int main(int argc, char** argv) {
       t2k::BeforeFrame(tp);
       host::RunFrame();
       t2k::AfterFrame();
+      remaster::AfterFrame();
       if (++frame_count % 60 == 0) eeprom.SaveIfChanged();
       auto& a = host::Audio();
       if (audio && !a.empty()) {
@@ -514,9 +554,20 @@ int main(int argc, char** argv) {
       if (sw > ww) { sw = float(ww); sh = sw * 3.f / 4.f; }
       SDL_FRect dst{(ww - sw) / 2, (wh - sh) / 2, sw, sh};
       SDL_RenderTexture(ren, tex, nullptr, &dst);
+      if (remaster::Enabled()) {
+        remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
+        remaster::Draw(ren, dst, fr.width, fr.height);
+      }
     }
     if (menu::IsOpen()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, now);
+    if (winshot_at >= 0 && int(frame_count) >= winshot_at) {   // --winshot=N:<bmp>: the window after N frames
+      if (SDL_Surface* shot = SDL_RenderReadPixels(ren, nullptr)) {
+        SDL_SaveBMP(shot, winshot_file.c_str());
+        SDL_DestroySurface(shot);
+      }
+      running = false;
+    }
     SDL_RenderPresent(ren);
   }
 

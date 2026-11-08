@@ -64,7 +64,31 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - 16:9: widen the projection (xcent / clip extents), starfield over the full width, emulated picture centred
   4:3; HUD placement later.
 
-## Next (step 2 prototype)
+## Step 2 prototype (2026-11-08): llama vect3d native - DONE
+- rmac builds here (owner allowed; tools/make_syms.py -> reference/t2k.sym, 2463 symbols: text +$802000, data +$4000,
+  bss +$EFA8 from rmac's listing of yak.s; all hand-found addresses confirmed). Rebuild: reference/tools/rmac/rmac.exe
+  -fb -isrc -lsymout/yak.lst src/yak.s -o symout/yak.cof (in reference/tempest2k), then python -I tools/make_syms.py.
+- src/remaster.cpp captures every llama mode 2 (vect3d) call at gpurun (in_buf, scaler/z_max/z_top/_sysflags from GPU
+  RAM, the vertex and connection lists), and while the remaster is on SKIPS it (the trap runs an rts) for the two play
+  buffers (cscreen $7FAC / dscreen $7FB0). Lists are kept per gpu_screen, cleared at clearscreen (llama mode 0).
+- Projection verified against the GPU's own vertex cache (RM_CHECK=1: vertex_buffer $F03B40, 24 bytes a vertex): ours
+  are within 1-2 px (the GPU truncates zi = Z>>14 and the >>7; we keep the fractions).
+- Which list to show: the picture the core returns for a frame was scanned out during it, i.e. it shows the buffer
+  that was cscreen at the END of the PREVIOUS frame (a frame draws dscreen completely; the swap is at the next VBL).
+  fit_origin.py hit rate 0.875 with that, 0.79 with the end-of-frame cscreen.
+- Mapping GPU screen -> emulated picture: x - 23.75, y + 5.25, no scale (tools/fit_origin.py on 3 moving frames).
+- Window: emulated picture, then our lines (SDL_RenderGeometry quads, 1-px feathered edges, width setting
+  remaster_line_width = 1.5 game px). F8 toggles (setting remaster). Tests: --rmshot=F:bmp (+ .lines, .orig.bmp),
+  --state=<file> --winshot=N:<bmp> (window mode: start from a state, save the rendered window after N frames).
+- Not yet: the solid web fill (donky 0), solid claw / enemies (horse polyo2d via drawpolyos), starfield (llama 3),
+  pixels / rings (xcamel 5-7), lightning (ox fline), text. Text and HUD drawn after objects now sit UNDER our lines.
+
+## Next
+1. horse polyo2d (solid claw and enemies: drawsolidxy $803A90..) and donky web3d (solid web), then llama 3 starfield
+   and the xcamel pixels, each verified the same way (GPU output vs ours) and skipped when captured.
+2. Interpolation between frames (match by caller + a6 + occurrence; lerp in_buf positions / angles and the camera),
+   presenting at display rate; run-ahead 2 by default.
+3. Compose order: once the solids are ours the emulated layer can go on top with black see-through (text over objects).
 1. Read llama vect3d fully (transform_3d tail: perspective, z clip, intensity, the line draw and colour), port it,
    and draw the web + claw + vector enemies natively on top of the untouched emulated picture (no skipping yet)
    to check alignment at 1x and 4x.

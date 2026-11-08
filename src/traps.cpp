@@ -16,23 +16,29 @@ namespace {
 struct Trap {
   uint32_t addr;
   uint16_t orig;
-  std::function<void()> handler;
+  std::vector<std::function<bool()>> handlers;
 };
 std::vector<Trap> g_traps;
 
 int Dispatch(unsigned opcode) {
   unsigned id = opcode & 0xFFF;
   if (id >= g_traps.size()) return -1;
-  g_traps[id].handler();
-  return g_traps[id].orig;
+  bool skip = false;
+  for (auto& h : g_traps[id].handlers) skip |= h();
+  return skip ? 0x4E75 : g_traps[id].orig;   // rts: back to the caller
 }
 
 }  // namespace
 
-bool Install(uint32_t addr, uint16_t expected, std::function<void()> handler) {
+bool Install(uint32_t addr, uint16_t expected, std::function<bool()> handler) {
+  for (auto& t : g_traps)
+    if (t.addr == addr && t.orig == expected) {   // already trapped: chain
+      t.handlers.push_back(std::move(handler));
+      return true;
+    }
   if (Read16(addr) != expected) return false;
   uint16_t word = uint16_t(0xA000 + g_traps.size());
-  g_traps.push_back({addr, expected, std::move(handler)});
+  g_traps.push_back({addr, expected, {std::move(handler)}});
   jagMemSpace[addr] = uint8_t(word >> 8);
   jagMemSpace[addr + 1] = uint8_t(word);
   m68kHostTrap = Dispatch;
