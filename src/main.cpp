@@ -7,9 +7,14 @@
 //     --wav=<file.wav>                    dump the audio
 //     --opt=key=value                     set a core option
 //     --userdata=<dir>                    save folder (default userdata)
+//     --stick=F:x,y[:len]                 hold the left stick at x,y (-1..1) from frame F (default 6 frames)
+//     --set=key=value                     override a settings.txt value
+//     --trace=F0:F1                       print the claw state every frame in F0..F1
+//   Keys in the window: F2 switches the stick mode (lr / aim), F5 reloads userdata\settings.txt, F11 fullscreen.
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +25,8 @@
 #include <vector>
 
 #include "host.h"
+#include "settings.h"
+#include "t2k.h"
 
 namespace fs = std::filesystem;
 
@@ -27,6 +34,7 @@ namespace {
 
 struct Shot { int frame; std::string path; };
 struct Press { int frame; int btn; int len; };
+struct StickHold { int frame; float x, y; int len; };
 
 int BtnByName(const std::string& n) {
   static const char* names[] = {"b", "y", "select", "start", "up", "down", "left", "right",
@@ -80,8 +88,9 @@ std::string FindRom(const std::string& given) {
   return {};
 }
 
-host::Input ReadPad(SDL_Gamepad* pad, const bool* keys) {
+host::Input ReadPad(SDL_Gamepad* pad, const bool* keys, t2k::Pad* tp) {
   host::Input in;
+  *tp = {};
   auto set = [&](int b, bool on) { if (on) in.buttons |= uint16_t(1u << b); };
   if (pad) {
     set(host::UP, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_UP));
@@ -105,6 +114,10 @@ host::Input ReadPad(SDL_Gamepad* pad, const bool* keys) {
     in.ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
     in.rx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTX);
     in.ry = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTY);
+    tp->dpad_lr = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_LEFT) ||
+                  SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+    tp->lx = std::max(-1.f, in.lx / 32767.f);
+    tp->ly = std::max(-1.f, in.ly / 32767.f);
     // The stick as a d-pad too, until the Tempest stick controls exist.
     set(host::LEFT, in.lx < -16000);
     set(host::RIGHT, in.lx > 16000);
@@ -116,6 +129,7 @@ host::Input ReadPad(SDL_Gamepad* pad, const bool* keys) {
     set(host::DOWN, keys[SDL_SCANCODE_DOWN]);
     set(host::LEFT, keys[SDL_SCANCODE_LEFT]);
     set(host::RIGHT, keys[SDL_SCANCODE_RIGHT]);
+    if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_RIGHT]) tp->dpad_lr = true;
     set(host::B, keys[SDL_SCANCODE_Z]);
     set(host::A, keys[SDL_SCANCODE_X]);
     set(host::Y, keys[SDL_SCANCODE_C]);
@@ -133,6 +147,9 @@ int main(int argc, char** argv) {
   int frames = 600;
   std::vector<Shot> shots;
   std::vector<Press> presses;
+  std::vector<StickHold> sticks;
+  std::vector<std::pair<std::string, std::string>> sets;
+  int trace0 = -1, trace1 = -1;
   std::vector<std::pair<std::string, std::string>> opts;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
@@ -149,6 +166,17 @@ int main(int argc, char** argv) {
       std::string b = v.substr(c1 + 1, c2 == std::string::npos ? std::string::npos : c2 - c1 - 1);
       presses.push_back({std::atoi(v.substr(0, c1).c_str()), BtnByName(b),
                          c2 == std::string::npos ? 6 : std::atoi(v.substr(c2 + 1).c_str())});
+    } else if (a.rfind("--stick=", 0) == 0) {
+      auto v = val("--stick="); auto c1 = v.find(':'); auto cm = v.find(',', c1); auto c2 = v.find(':', cm);
+      sticks.push_back({std::atoi(v.substr(0, c1).c_str()), float(std::atof(v.substr(c1 + 1, cm - c1 - 1).c_str())),
+                        float(std::atof(v.substr(cm + 1).c_str())),
+                        c2 == std::string::npos ? 6 : std::atoi(v.substr(c2 + 1).c_str())});
+    } else if (a.rfind("--set=", 0) == 0) {
+      auto v = val("--set="); auto e = v.find('=');
+      sets.push_back({v.substr(0, e), v.substr(e + 1)});
+    } else if (a.rfind("--trace=", 0) == 0) {
+      auto v = val("--trace="); auto c = v.find(':');
+      trace0 = std::atoi(v.substr(0, c).c_str()); trace1 = std::atoi(v.substr(c + 1).c_str());
     } else if (a.rfind("--opt=", 0) == 0) {
       auto v = val("--opt="); auto e = v.find('=');
       opts.push_back({v.substr(0, e), v.substr(e + 1)});
@@ -166,6 +194,8 @@ int main(int argc, char** argv) {
     return 1;
   }
   fs::create_directories(userdata);
+  settings::Load((fs::path(userdata) / "settings.txt").string());
+  for (auto& [k, v] : sets) settings::Set(k, v);
   for (auto& [k, v] : opts) host::SetOption(k, v);
   std::string err;
   if (!host::Load(rom, fs::absolute(userdata).string(), &err)) {
@@ -173,6 +203,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", rom.c_str(), host::Fps(), host::SampleRate());
+  if (!t2k::Install(&err)) std::fprintf(stderr, "t2k: %s (stick controls off)\n", err.c_str());
 
   if (headless) {
     std::vector<int16_t> all_audio;
@@ -181,8 +212,14 @@ int main(int argc, char** argv) {
       host::Input in;
       for (auto& p : presses)
         if (p.btn >= 0 && f >= p.frame && f < p.frame + p.len) in.buttons |= uint16_t(1u << p.btn);
+      t2k::Pad tp;
+      for (auto& s : sticks)
+        if (f >= s.frame && f < s.frame + s.len) { tp.lx = s.x; tp.ly = s.y; }
       host::SetInput(0, in);
+      t2k::BeforeFrame(tp);
       host::RunFrame();
+      t2k::AfterFrame();
+      if (f >= trace0 && f <= trace1) std::fprintf(stderr, "%5d %s\n", f, t2k::Status().c_str());
       if (!wav.empty()) all_audio.insert(all_audio.end(), host::Audio().begin(), host::Audio().end());
       host::Audio().clear();
       for (auto& s : shots)
@@ -201,7 +238,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  SDL_Window* win = SDL_CreateWindow("Tempest 2000", 1280, 960, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+  SDL_Window* win = SDL_CreateWindow(("Tempest 2000 - stick: " + settings::Str("stick_mode", "lr")).c_str(), 1280, 960, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
   SDL_Renderer* ren = SDL_CreateRenderer(win, nullptr);
   SDL_SetRenderVSync(ren, 1);
   SDL_Texture* tex = nullptr;
@@ -220,7 +257,13 @@ int main(int argc, char** argv) {
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) running = false;
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) running = false;
-      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11)
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F5) {
+        settings::Reload();
+        std::fprintf(stderr, "settings reloaded\n");
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F2) {
+        settings::Set("stick_mode", settings::Str("stick_mode", "lr") == "aim" ? "lr" : "aim");
+        SDL_SetWindowTitle(win, ("Tempest 2000 - stick: " + settings::Str("stick_mode", "lr")).c_str());
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11)
         SDL_SetWindowFullscreen(win, !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
       else if (e.type == SDL_EVENT_GAMEPAD_REMOVED && pad && SDL_GetGamepadID(pad) == e.gdevice.which) {
@@ -235,8 +278,11 @@ int main(int argc, char** argv) {
     while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
     if (now > next + uint64_t(frame_ns * 8)) next = now;  // stalled: resync
     for (int i = 0; i < todo; ++i) {
-      host::SetInput(0, ReadPad(pad, SDL_GetKeyboardState(nullptr)));
+      t2k::Pad tp;
+      host::SetInput(0, ReadPad(pad, SDL_GetKeyboardState(nullptr), &tp));
+      t2k::BeforeFrame(tp);
       host::RunFrame();
+      t2k::AfterFrame();
       auto& a = host::Audio();
       if (audio && !a.empty()) {
         // Keep the queue short: drop audio if more than ~100 ms is waiting.

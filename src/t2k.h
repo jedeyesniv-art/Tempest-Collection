@@ -1,0 +1,21 @@
+// t2k.h - Tempest 2000 specifics: ROM patches and the stick controls.
+#pragma once
+#include <string>
+
+namespace t2k {
+
+struct Pad {
+  float lx = 0, ly = 0;   // left stick, -1..1 (y down)
+  bool dpad_lr = false;   // a physical d-pad left/right is held: the game's own pad handling takes over
+};
+
+// Verifies the ROM in memory is the known Tempest 2000 and installs the claw hook. Call after host::Load.
+bool Install(std::string* err);
+// Before each emulated frame: computes the claw velocity and hands it to the hook.
+void BeforeFrame(const Pad& pad);
+// After each emulated frame: bookkeeping (claw ticks seen).
+void AfterFrame();
+bool InPlay();
+std::string Status();   // one line for the log / overlay
+
+}  // namespace t2k
