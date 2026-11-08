@@ -1,0 +1,14 @@
+# Game files and the closed-source reference emulator: never in git.
+*.jag
+*.j64
+*.rom
+*.abs
+BigPEmu Jaguar/
+# Nested clones (own git history; pinned commits recorded in CLAUDE.md).
+third_party/virtualjaguar/
+third_party/SDL/
+reference/
+build/
+dist/
+logs/
+userdata/
