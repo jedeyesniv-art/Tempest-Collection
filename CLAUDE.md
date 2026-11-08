@@ -84,3 +84,25 @@ Survey + design: REMASTER.md (frame structure, GPU modules, call sites, capture 
 Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog.cpp).
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
+
+## Where we are (end of 2026-11-08; start here next time)
+- Done: stage 1 host, stick controls (owner's lr tuning 0.41, aim as alternate), owner's button layout + remapping,
+  Back menu (settings, save states, return to title), quit to title on the pause screen in the game font, EEPROM
+  saves, cursor hidden. Remaster (F8, default on): native vect3d lines, solid web, starfield, solid claw / enemies,
+  pixels / rings, all verified against the original in one run (RM_NOSKIP=1 RM_OURS=1 --rmshot). Details: REMASTER.md.
+- Next (agreed with the owner): camel mode 4 "rex" scaled bitmap sprites (green shots, some explosions), then
+  interpolation between frames (unlocked frame rate) + run-ahead 2 by default, then 16:9. Later: the dash-lattice
+  layer (not a GPU call), text / HUD upscale, title and menu screens, Defender 2000.
+- Owner's test states: logs/owner_star.state (warp starfield between levels). logs/play.state = in play, level 1.
+
+## Lessons (2026-11-08)
+- Verify each native primitive against the GPU in the SAME run: skipping GPU work shifts main-loop timing, so
+  remaster-on and remaster-off runs drift apart (claw animation frames differ) and side-by-sides across runs mislead.
+- The picture for a frame shows the buffer that was cscreen at the end of the PREVIOUS frame (one-frame lag).
+- Intensity bytes: vect3d / pixels = (value >> 16) of the blitter I3 form; polyo2d intensity words are $xx00
+  (byte = word >> 8); web3d bright = r0, far = r0 / 4.
+- Read the .gas routine fully before porting; "comments say X" was wrong twice (llama mode list, warp streaks).
+- When the owner reports a visual bug with a save state: copy build\userdata\states\slotN.state into logs\ and
+  test from the copy (--loadstate=1:<file> headless, --state=<file> --winshot=N:<bmp> in the window).
+- Python edit scripts with backslashes: write them with the Write tool (Bash heredocs mangle \n here); cmd won't
+  run exes from the current folder (use full paths).
