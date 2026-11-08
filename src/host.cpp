@@ -167,6 +167,11 @@ double Fps() { return g_av.timing.fps; }
 double SampleRate() { return g_av.timing.sample_rate; }
 std::vector<int16_t>& Audio() { return g_audio; }
 
+uint8_t* SaveRam(size_t* size) {
+  *size = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+  return static_cast<uint8_t*>(retro_get_memory_data(RETRO_MEMORY_SAVE_RAM));
+}
+
 std::vector<uint8_t> SaveState() {
   std::vector<uint8_t> s(retro_serialize_size());
   if (!retro_serialize(s.data(), s.size())) s.clear();

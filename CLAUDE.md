@@ -60,3 +60,21 @@ Runs ~4-5x real time headless. Core says 60.054 fps, 48044 Hz; picture 326x240.
   select. Setting camera_view is written every in-play frame, so the choice persists.
 - Menu: src/menu.cpp (SDL debug font, placeholder look). Changes save at once via settings::Save (keeps the
   file's comments). Esc opens it on the keyboard. Owner's top speed choice: lr_max_speed 0.41.
+
+## Pause line, quit to title, remapping, save states, EEPROM (2026-11-08)
+- Pause screen hook: paustuff's npspri $80DE3C "tst vadj" ($E9F8) -> jsr $DFFD80: if port $DFFE20 != 0 it prints
+  the 0-terminated string at $DFFC00 with the game's centext ($80408A) + cfont ($7B58) at y 200. Lower-case
+  text = the font's small caps. Main shows "press <first Option button> to quit to title" while pawsed ($E854).
+- Quit to title: write z ($E9B0) = 1 and auto ($E9B6) = 0, as checkpause ($80DD48) does for keypad * + #.
+  Works from the pause screen (melt transition to the title). Also in the Back menu.
+- Remapping: src/controls.cpp, settings bind_<a|b|x|y|lb|rb|lt|rt|start|ls|rs> = fire|jump|zap|option|pause|
+  camera|none. Menu: A on a function, then the button (pressing a bound one again unbinds it); Back cancels.
+  Back, d-pad and left stick are fixed. Defaults: A fire, X/LT/RT jump, B/RB zap, Y option, Start pause, LB cam.
+- Save states: menu slot 1-5, userdata\states\slotN.state (~2.6 MB, core format v17). Headless
+  --savestate=F:file / --loadstate=F:file: restored run is pixel-identical to the original 149 frames on.
+- EEPROM: the frontend's job in libretro (the core packs eeprom_ram into its SAVE_RAM buffer on every write and
+  unpacks the buffer on the first retro_run). userdata\tempest2000.eeprom, loaded before the first frame,
+  written when changed (checked every 60 frames) and at exit, old copy -> .bak. Keep a missing file as the
+  core's all-zero buffer, NOT 0xFF: eepromload rejects the chip unless word 63 = $6510, and eepromsave only
+  writes words that differ from epromcopy, so an all-ones start leaves stale words -> checksum fail -> reset.
+  The game saves on unpause (yak.s ~14325), option changes, high scores, clearee.

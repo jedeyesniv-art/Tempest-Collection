@@ -6,12 +6,13 @@
 #include <cstdio>
 #include <vector>
 
+#include "controls.h"
 #include "settings.h"
 
 namespace menu {
 namespace {
 
-enum class Kind { Header, Choice, Number, Button };
+enum class Kind { Header, Choice, Number, Button, Bind };
 
 struct Item {
   Kind kind;
@@ -22,7 +23,8 @@ struct Item {
   double lo = 0, hi = 0, step = 0;      // Number
   const char* fmt = "%.2f";
   Action action = Action::None;         // Button
-  bool lr_only = false, aim_only = false;
+  controls::Fn fn = controls::kNone;    // Bind
+  bool lr_only = false, aim_only = false, slot_info = false, reset_binds = false;
 };
 
 std::vector<Item> Items() {
@@ -40,9 +42,22 @@ std::vector<Item> Items() {
     i.values = std::move(vals); i.names = std::move(names);
     v.push_back(i);
   };
-  auto button = [&](const char* label, Action a) { Item i{Kind::Button, label}; i.action = a; v.push_back(i); };
+  auto button = [&](const char* label, Action a) {
+    Item i{Kind::Button, label};
+    i.action = a;
+    v.push_back(i);
+    return &v.back();
+  };
 
-  header("CONTROLS");
+  header("GAME");
+  button("Resume", Action::Close);
+  button("Return to title", Action::ReturnToTitle);
+  choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
+  button("  Save state", Action::SaveState)->slot_info = true;
+  button("  Load state", Action::LoadState)->slot_info = true;
+  choice("Camera view", "camera_view", {"0", "1", "2"}, {"Standard", "Whole web", "Close-up"});
+  button("Music on / off", Action::ToggleMusic);
+  header("STICK");
   choice("Stick mode", "stick_mode", {"lr", "aim"}, {"Left / right", "Aim (point at lane)"});
   num("  Top speed", "lr_max_speed", 0.20, 0.80, 0.01, "%.2f")->lr_only = true;
   num("  Ramp to top speed (frames)", "lr_ramp_frames", 1, 40, 1, "%.0f")->lr_only = true;
@@ -53,13 +68,16 @@ std::vector<Item> Items() {
   num("  Top speed", "aim_max_speed", 0.2, 1.2, 0.05, "%.2f")->aim_only = true;
   num("  Closing speed", "aim_gain", 0.1, 1.0, 0.05, "%.2f")->aim_only = true;
   num("  Push needed to aim", "aim_threshold", 0.3, 0.9, 0.05, "%.2f")->aim_only = true;
-  header("GAME");
-  choice("Camera view (LB)", "camera_view", {"0", "1", "2"}, {"Standard", "Whole web", "Close-up"});
-  button("Music on / off", Action::ToggleMusic);
+  header("BUTTONS (A on a function, then press a button; again removes it)");
+  for (int f = controls::kFire; f < controls::kFnCount; ++f) {
+    Item i{Kind::Bind, controls::FnName(controls::Fn(f))};
+    i.fn = controls::Fn(f);
+    v.push_back(i);
+  }
+  button("Reset buttons to defaults", Action::None)->reset_binds = true;
   header("DISPLAY");
   button("Fullscreen on / off", Action::ToggleFullscreen);
   header("");
-  button("Resume", Action::Close);
   button("Quit", Action::Quit);
   return v;
 }
@@ -69,8 +87,10 @@ int g_sel = 1;
 Nav g_prev;
 int g_repeat_dir = 0;      // -1 left / +1 right / -2 up / +2 down
 uint64_t g_repeat_at = 0;
+controls::Fn g_capture = controls::kNone;
 std::string g_toast;
 uint64_t g_toast_until = 0;
+std::function<std::string()> g_slot_info;
 
 bool Visible(const Item& i) {
   bool aim = settings::Str("stick_mode", "lr") == "aim";
@@ -91,6 +111,8 @@ std::string ValueText(const Item& i) {
     std::snprintf(buf, sizeof buf, i.fmt, settings::Num(i.key, i.lo));
     return buf;
   }
+  if (i.kind == Kind::Bind) return g_capture == i.fn ? "press a button..." : controls::ButtonsFor(i.fn);
+  if (i.slot_info && g_slot_info) return g_slot_info();
   return "";
 }
 
@@ -124,21 +146,37 @@ void Move(const std::vector<Item>& items, int dir) {
 bool IsOpen() { return g_open; }
 void Open() {
   g_open = true;
-  g_prev = Nav{true, true, true, true, true, true};  // ignore buttons already held
+  g_prev = Nav{true, true, true, true, true, true, true};  // ignore buttons already held
   g_repeat_dir = 0;
+  g_capture = controls::kNone;
 }
-void Close() { g_open = false; }
+void Close() { g_open = false; g_capture = controls::kNone; }
+void SetSlotInfo(std::function<std::string()> f) { g_slot_info = std::move(f); }
 
 Action Update(const Nav& nav, uint64_t now) {
   auto items = Items();
   if (!Selectable(items[g_sel])) Move(items, 1);
   Nav p = g_prev;
   g_prev = nav;
+
+  if (g_capture != controls::kNone) {            // waiting for a button to bind
+    if (nav.cancel && !p.cancel) g_capture = controls::kNone;
+    else if (nav.new_button >= 0) {
+      controls::Assign(g_capture, nav.new_button);
+      g_capture = controls::kNone;
+    }
+    return Action::None;
+  }
+
   if (nav.back && !p.back) { g_open = false; return Action::Close; }
   if (nav.ok && !p.ok) {
     const Item& it = items[g_sel];
+    if (it.kind == Kind::Bind) { g_capture = it.fn; return Action::None; }
     if (it.kind == Kind::Button) {
-      if (it.action == Action::Close || it.action == Action::Quit) g_open = false;
+      if (it.reset_binds) { controls::ResetDefaults(); return Action::None; }
+      if (it.action == Action::Close || it.action == Action::Quit || it.action == Action::ReturnToTitle ||
+          it.action == Action::LoadState)
+        g_open = false;
       return it.action;
     }
     Change(it, 1);
@@ -164,16 +202,16 @@ Action Update(const Nav& nav, uint64_t now) {
 
 void Draw(SDL_Renderer* ren, int w, int h) {
   auto items = Items();
-  float scale = std::max(1.f, std::floor(h / 400.f));
   int rows = 0;
   for (auto& i : items) rows += Visible(i);
-  float cw = 8, lh = 12;
-  float bw = 52 * cw, bh = (rows + 4) * lh;
+  float cw = 8, lh = 11;
+  float bw = 66 * cw, bh = (rows + 4) * lh;
+  float scale = std::max(1.f, std::floor(std::min(h / (bh + 40), w / (bw + 40))));
   float x0 = (w / scale - bw) / 2, y0 = (h / scale - bh) / 2;
 
   SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
   SDL_SetRenderScale(ren, scale, scale);
-  SDL_SetRenderDrawColor(ren, 0, 0, 0, 200);
+  SDL_SetRenderDrawColor(ren, 0, 0, 0, 210);
   SDL_FRect bg{x0 - 12, y0 - 12, bw + 24, bh + 24};
   SDL_RenderFillRect(ren, &bg);
   SDL_SetRenderDrawColor(ren, 60, 90, 255, 255);
@@ -199,7 +237,7 @@ void Draw(SDL_Renderer* ren, int w, int h) {
       SDL_RenderDebugText(ren, x0 + 8, y, i.label.c_str());
       std::string v = ValueText(i);
       if (!v.empty()) {
-        if (sel) v = "< " + v + " >";
+        if (sel && (i.kind == Kind::Choice || i.kind == Kind::Number)) v = "< " + v + " >";
         SDL_SetRenderDrawColor(ren, 255, 220, 0, 255);
         SDL_RenderDebugText(ren, x0 + bw - v.size() * cw, y, v.c_str());
       }
@@ -207,7 +245,10 @@ void Draw(SDL_Renderer* ren, int w, int h) {
     y += lh;
   }
   SDL_SetRenderDrawColor(ren, 140, 140, 140, 255);
-  SDL_RenderDebugText(ren, x0, y + lh, "Up/Down choose   Left/Right change   A select   B/Back close");
+  const char* help = g_capture != controls::kNone
+                         ? "Press the button to bind (Back cancels). A bound button pressed again is removed."
+                         : "Up/Down choose   Left/Right change   A select   B/Back close";
+  SDL_RenderDebugText(ren, x0, y + lh, help);
   SDL_SetRenderScale(ren, 1, 1);
 }
 

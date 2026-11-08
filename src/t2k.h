@@ -17,5 +17,12 @@ void BeforeFrame(const Pad& pad);
 void AfterFrame();
 bool InPlay();
 std::string Status();   // one line for the log / overlay
+// The game's own pause screen is up (Start in play).
+bool Paused();
+// A line printed under "paused" in the game's small font (empty = none). The game's charset: letters, digits,
+// space and a little punctuation; upper / lower case pick different styles.
+void SetPauseLine(const std::string& text);
+// Ends the current game and goes back to the title, the way the game's own * + # reset does.
+void ReturnToTitle();
 
 }  // namespace t2k

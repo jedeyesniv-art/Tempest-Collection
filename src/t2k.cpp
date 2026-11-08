@@ -33,12 +33,22 @@ constexpr uint32_t kWebMax = 0xC990;
 constexpr uint32_t kConnect = 0xDB3E;
 constexpr uint32_t kView = 0xE350;      // camera view 0..2 (keypad 1/4/7, 2/5/8, 3/6/9)
 
+constexpr uint32_t kZ = 0xE9B0;         // "stop whatever you are doing and reset" (checkpause)
+constexpr uint32_t kPawsed = 0xE854;    // game paused
+constexpr uint32_t kNpspri = 0x80DE3C;  // paustuff: "tst vadj" after the "paused" text
+constexpr uint32_t kVadj = 0xE9F8;
+constexpr uint32_t kCentext = 0x80408A; // centred text: a0 string, a1 font, d0 y
+constexpr uint32_t kCfont = 0x7B58;     // the small regular font
+
 constexpr uint32_t kStub = 0xDFFD00;
+constexpr uint32_t kPauseStub = 0xDFFD80;
+constexpr uint32_t kPauseText = 0xDFFC00;   // up to 0x7F chars, 0-terminated
 constexpr uint32_t kPort = 0xDFFE00;
 constexpr uint32_t kPortEnable = kPort + 0x00;  // w: host -> game, 1 = use the port's velocity
 constexpr uint32_t kPortVel = kPort + 0x04;     // l: host -> game, 16.16 lanes per tick
 constexpr uint32_t kPortClaw = kPort + 0x10;    // l: game -> host, player 1 claw object
 constexpr uint32_t kPortTicks = kPort + 0x14;   // w: game -> host, claw ticks
+constexpr uint32_t kPortPauseLine = kPort + 0x20;  // w: host -> game, 1 = print kPauseText on the pause screen
 
 uint16_t R16(uint32_t a) { return uint16_t(jagMemSpace[a] << 8 | jagMemSpace[a + 1]); }
 uint32_t R32(uint32_t a) { return uint32_t(R16(a)) << 16 | R16(a + 2); }
@@ -183,6 +193,30 @@ bool Install(std::string* err) {
   };
   for (size_t i = 0; i < sizeof kStubCode / 2; ++i) W16(kStub + 2 * uint32_t(i), kStubCode[i]);
   for (uint32_t a = kPort; a < kPort + 0x100; ++a) jagMemSpace[a] = 0;
+  // Pause screen: npspri's "tst vadj" (6 bytes) -> jsr kPauseStub, which prints our line with the game's
+  // centext + cfont, then does the tst itself (movem and rts leave the flags alone).
+  static const uint8_t kOrigNp[] = {0x4A, 0x79, 0x00, 0x00, 0xE9, 0xF8, 0x6B, 0x00};
+  for (size_t i = 0; i < sizeof kOrigNp; ++i)
+    if (jagMemSpace[kNpspri + i] != kOrigNp[i]) {
+      *err = "not the expected Tempest 2000 ROM (pause code differs)";
+      return false;
+    }
+  static const uint16_t kPauseCode[] = {
+      0x48E7, 0xFFFE,                                       // +0  movem.l d0-d7/a0-a6,-(sp)
+      0x4A79, 0x00DF, uint16_t(kPortPauseLine),             // +4  tst.w PortPauseLine
+      0x6716,                                               // +10 beq.s skip (+34)
+      0x41F9, 0x00DF, uint16_t(kPauseText),                 // +12 lea text,a0
+      0x43F9, 0x0000, uint16_t(kCfont),                     // +18 lea cfont,a1
+      0x303C, 0x00C8,                                       // +24 move.w #200,d0
+      0x4EB9, uint16_t(kCentext >> 16), uint16_t(kCentext), // +28 jsr centext
+      0x4CDF, 0x7FFF,                                       // +34 skip: movem.l (sp)+,d0-d7/a0-a6
+      0x4A79, 0x0000, uint16_t(kVadj),                      // +38 tst.w vadj
+      0x4E75,                                               // +44 rts
+  };
+  for (size_t i = 0; i < sizeof kPauseCode / 2; ++i) W16(kPauseStub + 2 * uint32_t(i), kPauseCode[i]);
+  W16(kNpspri, 0x4EB9);
+  W32(kNpspri + 2, kPauseStub);
+
   // clawcon: jsr kStub; nop (replaces the 8 bytes of the two moves).
   W16(kClawcon + 0, 0x4EB9);
   W32(kClawcon + 2, kStub);
@@ -192,6 +226,22 @@ bool Install(std::string* err) {
 }
 
 bool InPlay() { return g_installed && g_frames_since_tick < 4; }
+
+bool Paused() { return g_installed && R16(kPawsed) != 0; }
+
+void SetPauseLine(const std::string& text) {
+  if (!g_installed) return;
+  size_t n = std::min<size_t>(text.size(), 0x7F);
+  for (size_t i = 0; i < n; ++i) jagMemSpace[kPauseText + i] = uint8_t(text[i]);
+  jagMemSpace[kPauseText + n] = 0;
+  W16(kPortPauseLine, n ? 1 : 0);
+}
+
+void ReturnToTitle() {
+  if (!g_installed) return;
+  W16(kZ, 1);
+  W16(kAuto, 0);
+}
 
 void BeforeFrame(const Pad& pad) {
   if (!g_installed) return;

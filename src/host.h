@@ -34,6 +34,9 @@ double SampleRate();
 // Audio produced since the last call (interleaved stereo int16).
 std::vector<int16_t>& Audio();
 
+// The cartridge EEPROM (high scores, keys, options): the core's save buffer, empty if none.
+uint8_t* SaveRam(size_t* size);
+
 std::vector<uint8_t> SaveState();
 bool LoadState(const std::vector<uint8_t>& s);
 
