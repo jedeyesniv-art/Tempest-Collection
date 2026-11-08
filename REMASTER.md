@@ -83,8 +83,27 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Not yet: the solid web fill (donky 0), solid claw / enemies (horse polyo2d via drawpolyos), starfield (llama 3),
   pixels / rings (xcamel 5-7), lightning (ox fline), text. Text and HUD drawn after objects now sit UNDER our lines.
 
+## Step 3 (2026-11-08): solid web, starfield, solids - DONE
+- donky web3d (solid web): per lane a quad near rim (z - $500000, >>14 +1) to far rim (z + $500000, >>14),
+  vertices = data words * 8 - 64, rotated by in_buf+24, Gouraud bright (near) -> 1/4 (far); brightness =
+  ((sine[(phase + angl) & 255] >> 1) + 64) * glint >> 8, where phase is the PREVIOUS lane's colour word (the GPU
+  overwrites the loaded phase with it; carried over between calls). Owner: the original fill "often glitchy, snaps in
+  and out" - ours is solid every frame.
+- llama starfield1: 32-byte stars (x, y, z, colour word), z = (z - vp) & $1FFFFFF, intensity 255 - (z >> 17),
+  zi = (z >> 14) + 1, centre 192 / 120; warp: warp_count extra points warp_add apart (drawn as streak lines).
+  Drawn as soft dots (8-triangle fans).
+- horse polyo2d (solid claw / enemies / shots): long faces; 16-byte faces (colour word, 3 x (vertex, intensity
+  word: $FF00 = full, byte = word >> 8), pad); x, y vertex words; rotate, <<8, + pos, / (z >> 14), >> 7, + xcent
+  ($F03EFC) / ycent ($F03EF8). Kept in call order (the game sorts far to near) and drawn after the lines.
+- Compose (window and --rmshot): stars, web fill, lines, solids, then the emulated picture with black see-through
+  (text, HUD, anything not ours).
+- Debug: RM_NOSKIP=1 (capture but let the GPU draw: same-run comparisons), RM_OURS=1 (rmshot without the emulated
+  picture). Remaster on vs off runs drift apart (skipping GPU work changes main-loop timing), so compare in one run.
+
 ## Next
-1. horse polyo2d (solid claw and enemies: drawsolidxy $803A90..) and donky web3d (solid web), then llama 3 starfield
+1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
+   camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.
+2. horse polyo2d (solid claw and enemies: drawsolidxy $803A90..) and donky web3d (solid web), then llama 3 starfield
    and the xcamel pixels, each verified the same way (GPU output vs ours) and skipped when captured.
 2. Interpolation between frames (match by caller + a6 + occurrence; lerp in_buf positions / angles and the camera),
    presenting at display rate; run-ahead 2 by default.

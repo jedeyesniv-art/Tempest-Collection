@@ -544,20 +544,30 @@ int main(int argc, char** argv) {
     if (fr.width) {
       if (!tex || tw != fr.width || th != fr.height) {
         if (tex) SDL_DestroyTexture(tex);
-        tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, fr.width, fr.height);
+        tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, fr.width, fr.height);
+        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
         SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
         tw = fr.width; th = fr.height;
         todo = 1;
       }
-      if (todo) SDL_UpdateTexture(tex, nullptr, fr.pixels.data(), int(fr.width * 4));
+      if (todo) {
+        // Black is see-through (alpha 0) so the remaster's layer, drawn first, shows where the game drew nothing.
+        static std::vector<uint32_t> argb;
+        argb.resize(fr.pixels.size());
+        for (size_t i = 0; i < argb.size(); ++i) {
+          uint32_t p = fr.pixels[i] & 0xFFFFFF;
+          argb[i] = p ? (p | 0xFF000000u) : 0;
+        }
+        SDL_UpdateTexture(tex, nullptr, argb.data(), int(fr.width * 4));
+      }
       float sw = float(wh) * 4.f / 3.f, sh = float(wh);
       if (sw > ww) { sw = float(ww); sh = sw * 3.f / 4.f; }
       SDL_FRect dst{(ww - sw) / 2, (wh - sh) / 2, sw, sh};
-      SDL_RenderTexture(ren, tex, nullptr, &dst);
       if (remaster::Enabled()) {
         remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
         remaster::Draw(ren, dst, fr.width, fr.height);
       }
+      SDL_RenderTexture(ren, tex, nullptr, &dst);   // the emulated picture over ours (text, HUD, not-yet-ours)
     }
     if (menu::IsOpen()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, now);

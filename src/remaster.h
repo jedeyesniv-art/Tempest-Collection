@@ -17,6 +17,18 @@ struct Line {
   bool thick;          // the game's thick vectors (drawn twice, 1 px apart)
 };
 
+// A filled triangle (Gouraud), same space.
+struct Tri {
+  float x[3], y[3];
+  uint32_t c[3];
+};
+
+// A star (a dot), same space.
+struct Dot {
+  float x, y;
+  uint32_t c;
+};
+
 bool Install();                       // after t2k::Install
 void AfterFrame();                    // picks the item list of the displayed buffer
 const std::vector<Line>& Lines();     // the displayed frame's lines
