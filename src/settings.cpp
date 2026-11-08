@@ -6,6 +6,7 @@
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <vector>
 
 namespace settings {
 namespace {
@@ -19,10 +20,13 @@ const char* kDefaults = R"(# Tempest 2000 settings. Edit while the game runs and
 # Stick controls: lr = push left / right to move (tuned ramp), aim = point the stick at the lane you want.
 stick_mode = lr
 
+# Camera (LB in game): 0 = standard (follows the claw), 1 = whole web (fixed), 2 = close-up. Kept between games.
+camera_view = 0
+
 # --- lr mode (speeds in lanes per game tick; the original pad tops out at 0.375) ---
 lr_deadzone = 0.20
 # Top speed at full deflection.
-lr_max_speed = 0.45
+lr_max_speed = 0.41
 # Deflection curve: 1 = linear, higher = gentler near the centre.
 lr_curve = 1.5
 # Ramp from first push to full speed, in frames (slow start, quicker middle, eases into top speed).
@@ -99,5 +103,31 @@ std::string Str(const std::string& key, const std::string& def) {
 }
 
 void Set(const std::string& key, const std::string& value) { g_override[key] = value; }
+
+void Save(const std::string& key, const std::string& value) {
+  g_override.erase(key);
+  g_file[key] = value;
+  std::ifstream f(g_path);
+  std::vector<std::string> lines;
+  std::string line;
+  bool found = false;
+  while (std::getline(f, line)) {
+    std::string body = line.substr(0, line.find('#'));
+    auto eq = body.find('=');
+    if (eq != std::string::npos) {
+      std::string k = body.substr(0, eq);
+      k.erase(0, k.find_first_not_of(" \t"));
+      k.erase(k.find_last_not_of(" \t\r") + 1);
+      if (k == key) { line = key + " = " + value; found = true; }
+    }
+    lines.push_back(line);
+  }
+  f.close();
+  if (!found) lines.push_back(key + " = " + value);
+  std::ofstream o(g_path);
+  for (auto& l : lines) o << l << "\n";
+  std::error_code ec;
+  g_stamp = std::filesystem::last_write_time(g_path, ec);
+}
 
 }  // namespace settings

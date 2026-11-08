@@ -48,3 +48,15 @@ Runs ~4-5x real time headless. Core says 60.054 fps, 48044 Hz; picture 326x240.
 - Tests: --stick=F:x,y[:len], --set=stick_mode=aim, --trace=F0:F1 (pos / v / ticks per frame).
   Verified: lr ramps 0.073 -> 0.45 over 14 frames, 2-frame ease; aim up -> top lane, left -> left lane.
   Open webs are not verified yet.
+
+## Buttons, menu, camera (2026-11-08)
+- Game's own button meaning (fire_1/2/3 at yak.s ~23980, changeable in its options): Jag B = fire, A = jump,
+  C = Superzapper. pad_now: bit 29 A, 28 Pause, 25 B, 13 C, 9 Option; keypad: 1/4/7 = view 0, 2/5/8 = view 1,
+  3/6/9 = view 2 (donkeys, yak.s ~13814), 0 = music on/off, 6 = warp and Option = skip level (cheat mode
+  only), * + # = reset, * + # + Option = clear EEPROM.
+- Owner's layout (main.cpp ReadPad): A fire, X / RT jump, B / RB Superzapper, Y Option, Start Pause, Back = our
+  settings menu (pauses emulation), LB = camera view cycle, LT free.
+- Camera: `view` $E350 (0 standard follow, 1 whole web fixed, 2 close-up); the game resets it to 0 on game
+  select. Setting camera_view is written every in-play frame, so the choice persists.
+- Menu: src/menu.cpp (SDL debug font, placeholder look). Changes save at once via settings::Save (keeps the
+  file's comments). Esc opens it on the keyboard. Owner's top speed choice: lr_max_speed 0.41.

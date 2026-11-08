@@ -10,7 +10,7 @@
 //     --stick=F:x,y[:len]                 hold the left stick at x,y (-1..1) from frame F (default 6 frames)
 //     --set=key=value                     override a settings.txt value
 //     --trace=F0:F1                       print the claw state every frame in F0..F1
-//   Keys in the window: F2 switches the stick mode (lr / aim), F5 reloads userdata\settings.txt, F11 fullscreen.
+//   Keys in the window: Esc / pad Back = settings menu, F2 stick mode, F5 reloads userdata\settings.txt, F11 fullscreen.
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "host.h"
+#include "menu.h"
 #include "settings.h"
 #include "t2k.h"
 
@@ -88,37 +89,32 @@ std::string FindRom(const std::string& given) {
   return {};
 }
 
+// Game buttons (the game's defaults: Jaguar B = fire, A = jump, C = Superzapper). In RetroPad terms the core maps
+// B -> Jag B, A -> Jag A, Y -> Jag C, SELECT -> Pause, START -> Option, X/L/R/L2/R2 -> keypad 0/1/2/3/4.
+//   Xbox A = fire, X or RT = jump, B or RB = Superzapper, Y = Option, Start = Pause.
+//   Back = settings menu, LB = camera view (both handled in main), LT unused.
+// Keyboard: Z fire, X jump, C Superzapper, O Option, P / Enter Pause, arrows move, Esc menu.
 host::Input ReadPad(SDL_Gamepad* pad, const bool* keys, t2k::Pad* tp) {
   host::Input in;
   *tp = {};
   auto set = [&](int b, bool on) { if (on) in.buttons |= uint16_t(1u << b); };
   if (pad) {
-    set(host::UP, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_UP));
-    set(host::DOWN, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_DOWN));
-    set(host::LEFT, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_LEFT));
-    set(host::RIGHT, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT));
-    // Positions as on the pad: Xbox A (bottom) = RetroPad B (bottom), and so on.
-    set(host::B, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH));
-    set(host::A, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_EAST));
-    set(host::Y, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_WEST));
-    set(host::X, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_NORTH));
-    set(host::START, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_START));
-    set(host::SELECT, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK));
-    set(host::L, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
-    set(host::R, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER));
-    set(host::L2, SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 12000);
-    set(host::R2, SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 12000);
-    set(host::L3, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_STICK));
-    set(host::R3, SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_STICK));
+    auto btn = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(pad, b); };
+    set(host::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP));
+    set(host::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN));
+    set(host::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT));
+    set(host::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT));
+    set(host::B, btn(SDL_GAMEPAD_BUTTON_SOUTH));
+    set(host::A, btn(SDL_GAMEPAD_BUTTON_WEST) || SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 12000);
+    set(host::Y, btn(SDL_GAMEPAD_BUTTON_EAST) || btn(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER));
+    set(host::START, btn(SDL_GAMEPAD_BUTTON_NORTH));
+    set(host::SELECT, btn(SDL_GAMEPAD_BUTTON_START));
     in.lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
     in.ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
-    in.rx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTX);
-    in.ry = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTY);
-    tp->dpad_lr = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_LEFT) ||
-                  SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+    tp->dpad_lr = btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
     tp->lx = std::max(-1.f, in.lx / 32767.f);
     tp->ly = std::max(-1.f, in.ly / 32767.f);
-    // The stick as a d-pad too, until the Tempest stick controls exist.
+    // The stick also works as a d-pad for the game's menus (in play the claw hook ignores the pad bits).
     set(host::LEFT, in.lx < -16000);
     set(host::RIGHT, in.lx > 16000);
     set(host::UP, in.ly < -16000);
@@ -133,11 +129,36 @@ host::Input ReadPad(SDL_Gamepad* pad, const bool* keys, t2k::Pad* tp) {
     set(host::B, keys[SDL_SCANCODE_Z]);
     set(host::A, keys[SDL_SCANCODE_X]);
     set(host::Y, keys[SDL_SCANCODE_C]);
-    set(host::START, keys[SDL_SCANCODE_RETURN]);
-    set(host::SELECT, keys[SDL_SCANCODE_BACKSPACE]);
+    set(host::START, keys[SDL_SCANCODE_O]);
+    set(host::SELECT, keys[SDL_SCANCODE_P] || keys[SDL_SCANCODE_RETURN]);
   }
   return in;
 }
+
+menu::Nav ReadNav(SDL_Gamepad* pad, const bool* keys) {
+  menu::Nav n;
+  if (pad) {
+    auto btn = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(pad, b); };
+    int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+    n.up = btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -20000;
+    n.down = btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 20000;
+    n.left = btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || lx < -20000;
+    n.right = btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || lx > 20000;
+    n.ok = btn(SDL_GAMEPAD_BUTTON_SOUTH);
+    n.back = btn(SDL_GAMEPAD_BUTTON_EAST) || btn(SDL_GAMEPAD_BUTTON_BACK);
+  }
+  if (keys) {
+    n.up |= keys[SDL_SCANCODE_UP];
+    n.down |= keys[SDL_SCANCODE_DOWN];
+    n.left |= keys[SDL_SCANCODE_LEFT];
+    n.right |= keys[SDL_SCANCODE_RIGHT];
+    n.ok |= keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_Z];
+    n.back |= keys[SDL_SCANCODE_ESCAPE] || keys[SDL_SCANCODE_BACKSPACE];
+  }
+  return n;
+}
+
+const char* kViewNames[] = {"standard", "whole web", "close-up"};
 
 }  // namespace
 
@@ -238,7 +259,8 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  SDL_Window* win = SDL_CreateWindow(("Tempest 2000 - stick: " + settings::Str("stick_mode", "lr")).c_str(), 1280, 960, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+  SDL_Window* win = SDL_CreateWindow("Tempest 2000", 1280, 960, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+  if (settings::Num("fullscreen", 0) != 0) SDL_SetWindowFullscreen(win, true);
   SDL_Renderer* ren = SDL_CreateRenderer(win, nullptr);
   SDL_SetRenderVSync(ren, 1);
   SDL_Texture* tex = nullptr;
@@ -248,38 +270,72 @@ int main(int argc, char** argv) {
   SDL_AudioStream* audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
   if (audio) SDL_ResumeAudioStreamDevice(audio);
 
+  auto set_fullscreen = [&](bool on) {
+    SDL_SetWindowFullscreen(win, on);
+    settings::Save("fullscreen", on ? "1" : "0");
+  };
+
   SDL_Gamepad* pad = nullptr;
   const double frame_ns = 1e9 / host::Fps();
   uint64_t next = SDL_GetTicksNS();
   bool running = true;
+  bool prev_back = false, prev_lb = false;
+  int music_frames = 0;   // frames left holding keypad 0 (the game's music toggle)
   while (running) {
+    uint64_t now = SDL_GetTicksNS();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) running = false;
-      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) running = false;
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE && !menu::IsOpen())
+        menu::Open();
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F5) {
         settings::Reload();
-        std::fprintf(stderr, "settings reloaded\n");
+        menu::Toast("Settings reloaded", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F2) {
-        settings::Set("stick_mode", settings::Str("stick_mode", "lr") == "aim" ? "lr" : "aim");
-        SDL_SetWindowTitle(win, ("Tempest 2000 - stick: " + settings::Str("stick_mode", "lr")).c_str());
+        settings::Save("stick_mode", settings::Str("stick_mode", "lr") == "aim" ? "lr" : "aim");
+        menu::Toast(settings::Str("stick_mode", "lr") == "aim" ? "Stick: aim" : "Stick: left / right", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11)
-        SDL_SetWindowFullscreen(win, !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
+        set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
       else if (e.type == SDL_EVENT_GAMEPAD_REMOVED && pad && SDL_GetGamepadID(pad) == e.gdevice.which) {
         SDL_CloseGamepad(pad);
         pad = nullptr;
       }
     }
+    const bool* keys = SDL_GetKeyboardState(nullptr);
+    bool back = pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK);
+    bool lb = pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+
+    if (menu::IsOpen()) {
+      switch (menu::Update(ReadNav(pad, keys), now)) {
+        case menu::Action::Quit: running = false; break;
+        case menu::Action::ToggleMusic: music_frames = 4; break;
+        case menu::Action::ToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
+        default: break;
+      }
+      next = now;   // paused: no catching up afterwards
+    } else {
+      if (back && !prev_back) menu::Open();
+      if (lb && !prev_lb) {
+        int v = (int(settings::Num("camera_view", 0)) + 1) % 3;
+        settings::Save("camera_view", std::to_string(v));
+        menu::Toast(std::string("Camera: ") + kViewNames[v], now);
+      }
+    }
+    prev_back = back;
+    prev_lb = lb;
 
     // Emulate as many frames as real time asks for (at most 4 to catch up).
-    uint64_t now = SDL_GetTicksNS();
     int todo = 0;
-    while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
-    if (now > next + uint64_t(frame_ns * 8)) next = now;  // stalled: resync
+    if (!menu::IsOpen()) {
+      while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
+      if (now > next + uint64_t(frame_ns * 8)) next = now;  // stalled: resync
+    }
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
-      host::SetInput(0, ReadPad(pad, SDL_GetKeyboardState(nullptr), &tp));
+      host::Input in = ReadPad(pad, keys, &tp);
+      if (music_frames > 0) { in.buttons |= 1u << host::X; --music_frames; }
+      host::SetInput(0, in);
       t2k::BeforeFrame(tp);
       host::RunFrame();
       t2k::AfterFrame();
@@ -292,6 +348,10 @@ int main(int argc, char** argv) {
       a.clear();
     }
 
+    int ww, wh;
+    SDL_GetRenderOutputSize(ren, &ww, &wh);
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_RenderClear(ren);
     const auto& fr = host::LastFrame();
     if (fr.width) {
       if (!tex || tw != fr.width || th != fr.height) {
@@ -299,17 +359,16 @@ int main(int argc, char** argv) {
         tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, fr.width, fr.height);
         SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
         tw = fr.width; th = fr.height;
+        todo = 1;
       }
       if (todo) SDL_UpdateTexture(tex, nullptr, fr.pixels.data(), int(fr.width * 4));
-      int ww, wh;
-      SDL_GetRenderOutputSize(ren, &ww, &wh);
       float sw = float(wh) * 4.f / 3.f, sh = float(wh);
       if (sw > ww) { sw = float(ww); sh = sw * 3.f / 4.f; }
       SDL_FRect dst{(ww - sw) / 2, (wh - sh) / 2, sw, sh};
-      SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-      SDL_RenderClear(ren);
       SDL_RenderTexture(ren, tex, nullptr, &dst);
     }
+    if (menu::IsOpen()) menu::Draw(ren, ww, wh);
+    menu::DrawToast(ren, ww, wh, now);
     SDL_RenderPresent(ren);
   }
 

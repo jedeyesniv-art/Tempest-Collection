@@ -31,6 +31,7 @@ constexpr uint32_t kWebX = 0xC986;
 constexpr uint32_t kWebPtab = 0xC988;
 constexpr uint32_t kWebMax = 0xC990;
 constexpr uint32_t kConnect = 0xDB3E;
+constexpr uint32_t kView = 0xE350;      // camera view 0..2 (keypad 1/4/7, 2/5/8, 3/6/9)
 
 constexpr uint32_t kStub = 0xDFFD00;
 constexpr uint32_t kPort = 0xDFFE00;
@@ -72,7 +73,7 @@ double LrVelocity(const Pad& p) {
     double frames = std::max(1.0, settings::Num("lr_ramp_frames", 14));
     double r0 = std::clamp(settings::Num("lr_ramp_start", 0.15), 0.0, 1.0);
     double ramp = r0 + (1 - r0) * Smoothstep(g_held / frames);
-    double v = sgn * settings::Num("lr_max_speed", 0.45) * std::pow(d, settings::Num("lr_curve", 1.5)) * ramp;
+    double v = sgn * settings::Num("lr_max_speed", 0.41) * std::pow(d, settings::Num("lr_curve", 1.5)) * ramp;
     g_release_left = int(settings::Num("lr_release_frames", 2));
     g_release_v0 = v;
     return v;
@@ -200,6 +201,7 @@ void BeforeFrame(const Pad& pad) {
   if (InPlay() && claw && claw < 0x200000) v = aim ? AimVelocity(pad, claw) : LrVelocity(pad);
   else { g_dir = g_held = g_release_left = 0; g_target = -1; }
   g_v = v;
+  if (InPlay()) W16(kView, uint16_t(std::clamp(int(settings::Num("camera_view", 0)), 0, 2)));
   W16(kPortEnable, pad.dpad_lr ? 0 : 1);
   W32(kPortVel, uint32_t(int32_t(std::lround(v * 65536.0))));
 }
