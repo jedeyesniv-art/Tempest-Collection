@@ -258,6 +258,13 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   left / right on wide windows; displacement interpolated). Same run: 86% of the GPU's isolated star pixels within
   1 px of ours (the rest under text / other colours).
 
+- Mode select native: antelope 1 ripplewarp (RippleCall + its 320 x 240 source image, shared / cached; DrawRipple:
+  a strip per line with corners at the line boundaries, linear filtering; phases interpolated), camel 2 pretty_poly
+  (the cursor; Gouraud triangles, CRY colour + intensity per vertex) and the texter text. Per buffer g_taken = frame of
+  the last full overwrite we drew (scar / ripple), -1 after a clear: texter from any caller and pretty_poly are taken
+  over only there (over an uncaptured background they would vanish under the picture), and FeedbackLately (the core
+  skips the play buffers) uses it too. Ours shows the buffer's full 384 px width.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

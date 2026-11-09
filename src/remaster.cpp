@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <map>
 #include <tuple>
+#include <memory>
 #include <type_traits>
 
 #include "t2k.h"
@@ -158,6 +159,24 @@ int g_since_scar = 1000;                              // frames since a scar was
 // displacement, 4 / 5 x / y seeds. Per star: x = shift register (odd: >> 1 ^ $110, even: >> 1), y likewise with $B8;
 // (+ displacement) & $1FF; plotted where x < 384, y < 280 (a plane that repeats every 512 pixels).
 struct PlaneCall { uint32_t caller = 0, obj = 0; int32_t in[6]; };
+// antelope.gas ripplewarp (mode 1; the mode select background): each of the 240 lines of a 320-wide CRY image
+// stretched across 384 pixels from 1 + lamp * sine(lphase) to 320 - ramp * sine(rphase) (unsigned sine bytes, 8:8
+// amplitudes); the phases step lstep / rstep a line, from line 239 up. in_buf: 0 source, 1 lphase, 2 lamp, 3 rphase,
+// 4 ramp, 5 lstep, 6 rstep (16:16).
+struct RippleCall {
+  uint32_t caller = 0, obj = 0;
+  int32_t in[7];
+  uint32_t src = 0;
+  std::shared_ptr<const std::vector<uint32_t>> px;   // 320 x 240 ARGB (shared: scenes copy cheaply)
+};
+// camel.gas pretty_poly (mode 2; the mode select cursor, head-to-head pyramids): a Gouraud triangle, per vertex x, y,
+// intensity word (byte = >> 8), CRY colour byte (its two nibbles interpolated with the intensity).
+struct PolyCall { uint32_t caller = 0, obj = 0; int16_t x[3], y[3]; uint16_t i[3], c[3]; };
+std::map<uint32_t, std::vector<RippleCall>> g_ripples;   // per gpu_screen
+std::map<uint32_t, std::vector<PolyCall>> g_polys;       // per gpu_screen
+// Per buffer: g_frames of its last full overwrite we drew ourselves (scar, ripple) / -1: anything drawn in it after
+// that (text) can be ours too, and the buffer itself is stale while it is shown.
+std::map<uint32_t, uint64_t> g_taken;
 std::map<uint32_t, std::vector<PlaneCall>> g_planes;  // per gpu_screen
 uint64_t g_scar_ids = 0;                              // scar calls captured (each one feedback step)
 std::vector<Rect> g_rex_rects;                         // the displayed frame's
@@ -405,7 +424,10 @@ constexpr uint32_t kMsgCaller1 = 0x80DC2E, kMsgCaller2 = 0x80DC98;
 bool CaptureText() {
   TextCall t;
   t.caller = Caller();
-  if (t.caller != kMsgCaller1 && t.caller != kMsgCaller2) return false;
+  // drawmsg always; other text where the buffer's background is ours (after a scar / ripple we drew).
+  uint32_t scr0 = traps::Read32(kGpuScreen);
+  bool ours = g_taken.count(scr0) && g_taken[scr0] != uint64_t(-1);
+  if (t.caller != kMsgCaller1 && t.caller != kMsgCaller2 && !ours) return false;
   t.obj = traps::Reg(14);
   for (int i = 0; i < 10; ++i) t.in[i] = In(i);
   if (t.in[9] == 1) return false;                  // drop shadow: not ours
@@ -477,6 +499,46 @@ bool OnGpurun() {
   uint32_t mode = traps::Read32(kGpuMode);
   uint32_t scr = traps::Read32(kGpuScreen);
   t2k::OnGpurun(Caller(), mod, mode);
+  if (mod == kAntelope && mode == 1 && PlayBuffer(scr) && g_enabled && settings_feedback()) {
+    g_lists[scr].clear(); g_webs[scr].clear(); g_stars[scr].clear(); g_solids[scr].clear(); g_pix[scr].clear();
+    g_rex[scr].clear(); g_flines[scr].clear(); g_texts[scr].clear(); g_planes[scr].clear(); g_scars[scr].clear();
+    g_polys[scr].clear();
+    RippleCall c;
+    c.caller = Caller();
+    c.obj = traps::Reg(14);
+    for (int i = 0; i < 7; ++i) c.in[i] = In(i);
+    c.src = uint32_t(c.in[0]) & 0xFFFFFF;
+    static std::shared_ptr<const std::vector<uint32_t>> cache;
+    static uint32_t cache_src = 0, cache_sum = 0;
+    uint32_t sum = 0;   // (a cheap check that the image is the same as last time)
+    for (uint32_t k = 0; k < 320 * 240; k += 997) sum = sum * 31 + traps::Read16(c.src + k * 2);
+    if (!cache || cache_src != c.src || cache_sum != sum) {
+      auto v = std::make_shared<std::vector<uint32_t>>(320 * 240);
+      for (uint32_t k = 0; k < 320 * 240; ++k) (*v)[k] = CRY16ToRGB32[traps::Read16(c.src + k * 2)] | 0xFF000000u;
+      cache = v;
+      cache_src = c.src;
+      cache_sum = sum;
+    }
+    c.px = cache;
+    g_ripples[scr] = {c};
+    g_taken[scr] = g_frames;
+    g_since_clear = 0;
+    return true;
+  }
+  if (mod == kCamel && mode == 2 && g_taken.count(scr) && g_taken[scr] != uint64_t(-1) && PlayBuffer(scr)) {
+    PolyCall c;
+    c.caller = Caller();
+    c.obj = traps::Reg(14);
+    uint32_t p = traps::Read32(kInBuf) & 0xFFFFFF;
+    for (int k = 0; k < 3; ++k, p += 8) {
+      c.x[k] = int16_t(traps::Read16(p));
+      c.y[k] = int16_t(traps::Read16(p + 2));
+      c.i[k] = traps::Read16(p + 4);
+      c.c[k] = traps::Read16(p + 6);
+    }
+    g_polys[scr].push_back(c);
+    return g_enabled;
+  }
   if (mod == kDonky && mode == 1) {
     PlaneCall c;
     c.caller = Caller();
@@ -508,6 +570,9 @@ bool OnGpurun() {
     c.id = ++g_scar_ids;
     c.frame = g_frames;
     g_scars[scr] = {c};
+    g_taken[scr] = g_frames;
+    g_polys[scr].clear();
+    g_ripples[scr].clear();
     g_since_clear = 0;
     g_since_scar = 0;
     return true;
@@ -541,6 +606,9 @@ bool OnGpurun() {
     g_texts[scr].clear();
     g_scars[scr].clear();
     g_planes[scr].clear();
+    g_ripples[scr].clear();
+    g_polys[scr].clear();
+    g_taken[scr] = uint64_t(-1);
   }
   else if (mode == 2) {
     Capture();
@@ -866,6 +934,19 @@ void BuildPlane(const PlaneCall& c, std::vector<Dot>& out) {
   }
 }
 
+std::vector<RippleCall> g_ripple_shown;   // the displayed frame's (drawn first, own texture)
+std::vector<Tri> g_poly_tris;             // the displayed frame's pretty_poly triangles
+
+void BuildPoly(const PolyCall& c, std::vector<Tri>& out) {
+  Tri t;
+  for (int k = 0; k < 3; ++k) {
+    t.x[k] = float(c.x[k]);
+    t.y[k] = float(c.y[k]);
+    t.c[k] = CRY16ToRGB32[((c.c[k] & 0xFF) << 8) | (c.i[k] >> 8)] & 0xFFFFFF;
+  }
+  out.push_back(t);
+}
+
 void BuildLines(const VecCall& c, std::vector<Line>& out) {
   int n = int(c.verts.size());
   std::vector<Pt> pts(n);
@@ -920,6 +1001,8 @@ struct Scene {
   std::vector<TextCall> text;
   std::vector<ScarCall> scar;
   std::vector<PlaneCall> plane;
+  std::vector<RippleCall> ripple;
+  std::vector<PolyCall> poly;
 };
 Scene g_scene_a, g_scene_b;   // older, newer
 bool g_interp = true;
@@ -1009,6 +1092,16 @@ bool LerpPlane(const PlaneCall& a, PlaneCall& c, double t) {
   return true;
 }
 
+bool LerpRipple(const RippleCall& a, RippleCall& c, double t) {
+  if (a.src != c.src) return false;
+  for (int i : {1, 3}) {
+    int32_t d = c.in[i] - a.in[i];
+    if (std::abs(d) > 0x80000) return false;
+    c.in[i] = LerpI(a.in[i], c.in[i], t);
+  }
+  return true;
+}
+
 template <class T, class L, class B>
 void Each(const std::vector<T>& a, const std::vector<T>& b, double t, L lerp, B build) {
   if (t >= 1.0) {
@@ -1053,12 +1146,15 @@ struct CaptureState {
   decltype(g_texts) texts;
   decltype(g_scars) scars;
   decltype(g_planes) planes;
+  decltype(g_ripples) ripples;
+  decltype(g_polys) polys;
+  decltype(g_taken) taken;
   int since_scar;
   Scene prev;
   int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_ripples, g_polys, g_taken, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -1071,6 +1167,9 @@ void Rewind() {
   g_texts = g_mark.texts;
   g_scars = g_mark.scars;
   g_planes = g_mark.planes;
+  g_ripples = g_mark.ripples;
+  g_polys = g_mark.polys;
+  g_taken = g_mark.taken;
   g_since_scar = g_mark.since_scar;
   g_prev_scene = g_mark.prev;
   g_web_colour = g_mark.web_colour;
@@ -1091,7 +1190,7 @@ void AfterFrame(bool publish) {
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
   Scene now;
-  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars), get(g_planes)};
+  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars), get(g_planes), get(g_ripples), get(g_polys)};
   ++g_since_clear;
   if (g_since_scar < 1000) ++g_since_scar;
   if (publish) {
@@ -1139,6 +1238,10 @@ void Interpolate(float tf) {
   const Scene &a = g_scene_a, &b = g_scene_b;
   Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
   Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
+  g_ripple_shown.clear();
+  Each(a.ripple, b.ripple, t, LerpRipple, [](const RippleCall& c) { g_ripple_shown.push_back(c); });
+  g_poly_tris.clear();
+  for (auto& c : b.poly) BuildPoly(c, g_poly_tris);
   Each(a.webs, b.webs, t, LerpWeb, [](const WebCall& c) { BuildWeb(c, g_tris); });
   Each(a.solids, b.solids, t, LerpSolid, [](const SolidCall& c) { BuildSolid(c, g_solid_tris); });
   Each(a.pix, b.pix, t, LerpPix, [](const PixCall& c) { BuildPix(c, g_pix_dots); });
@@ -1274,8 +1377,8 @@ const host::Frame& Hud() { return g_hud; }
 // keeps its old scar entry; paced scars come every few frames, run-ahead counts frames faster).
 bool FeedbackLately() {
   if (!g_enabled) return false;
-  auto it = g_scars.find(traps::Read32(kCscreen));
-  return it != g_scars.end() && !it->second.empty() && g_frames - it->second.front().frame <= 30;
+  auto it = g_taken.find(traps::Read32(kCscreen));
+  return it != g_taken.end() && it->second != uint64_t(-1) && g_frames - it->second <= 30;
 }
 
 // The shown scene's scar as a map of the window: for each window corner, where (in window pixels) the dest pixel there
@@ -1392,9 +1495,50 @@ void DrawRects(SDL_Renderer* ren, const std::vector<Rect>& rects, const SDL_FRec
   SDL_RenderGeometry(ren, nullptr, v.data(), int(v.size()), nullptr, 0);
 }
 
+// The ripple: a strip a line, its corners at the line boundaries (so the wave is smooth down the screen too); the
+// image in a texture (linear filtering: a smooth stretch).
+void DrawRipple(SDL_Renderer* ren, const RippleCall& r, const SDL_FRect& dst, float sx, float sy) {
+  static SDL_Texture* tex = nullptr;
+  static const std::vector<uint32_t>* shown = nullptr;
+  if (!r.px) return;
+  if (!tex) {
+    tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
+    SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+  }
+  if (shown != r.px.get()) {
+    SDL_UpdateTexture(tex, nullptr, r.px->data(), 320 * 4);
+    shown = r.px.get();
+  }
+  auto sine = [](int32_t ph) { return double(g_sines[(ph >> 16) & 0xFF] + 128); };   // the unsigned table byte
+  auto edge = [&](int line, double* u0, double* u1) {
+    int32_t lph = r.in[1] + (239 - line) * r.in[5], rph = r.in[3] + (239 - line) * r.in[6];
+    *u0 = (65536.0 + (r.in[2] & 0xFFFF) * sine(lph)) / 65536.0;
+    *u1 = (0x1400000 - (r.in[4] & 0xFFFF) * sine(rph)) / 65536.0;
+  };
+  std::vector<SDL_Vertex> v;
+  std::vector<int> idx;
+  v.reserve(241 * 2);
+  for (int line = 0; line <= 240; ++line) {
+    double u0, u1;
+    edge(std::min(line, 239), &u0, &u1);
+    float y = dst.y + (line + g_oy) * sy, tv = (std::min(line, 239) + (line == 240 ? 1.f : 0.f)) / 240.f;
+    float x0 = dst.x + (0 + g_ox) * sx, x1 = dst.x + (384 + g_ox) * sx;
+    v.push_back({{x0, y}, {1, 1, 1, 1}, {float(u0 / 320), tv}});
+    v.push_back({{x1, y}, {1, 1, 1, 1}, {float(u1 / 320), tv}});
+  }
+  for (int line = 0; line < 240; ++line) {
+    int a0 = line * 2;
+    idx.insert(idx.end(), {a0, a0 + 1, a0 + 2, a0 + 1, a0 + 3, a0 + 2});
+  }
+  SDL_RenderGeometry(ren, tex, v.data(), int(v.size()), idx.data(), int(idx.size()));
+}
+
 void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   if (!fw || !fh) return;
   float sx = dst.w / fw, sy = dst.h / fh;
+  for (const RippleCall& r : g_ripple_shown) DrawRipple(ren, r, dst, sx, sy);
+  DrawTris(ren, g_poly_tris, dst, sx, sy);
   DrawDots(ren, g_dots, dst, sx, sy);
   if (!g_streaks.empty()) {
     std::swap(g_lines, g_streaks);   // draw the streaks with the line code (thin), then put things back

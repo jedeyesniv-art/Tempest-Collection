@@ -105,7 +105,8 @@ classifier (downloaded code) - ask the owner before trying again.
 6. Menu items for run_ahead (0-4) and hud_corners; remember the window size / position.
 7. Interpolation polish: a scene that didn't change (game slowdown, no buffer swap) still steps; objects drawn with
    several calls per a6 match by occurrence only.
-8. Later: title / menu / options screens (antelope backgrounds, stoat text), glow / CRT option, Defender 2000.
+8. DONE 2026-11-09: title, melts, Game Over, credits, Top Guns, mode select native (REMASTER.md step 13). Left:
+   the options screens (stoat modes 1 / 2 elsewhere), Defender 2000.
 - Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).
 
