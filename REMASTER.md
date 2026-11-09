@@ -103,6 +103,19 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Debug: RM_NOSKIP=1 (capture but let the GPU draw: same-run comparisons), RM_OURS=1 (rmshot without the emulated
   picture). Remaster on vs off runs drift apart (skipping GPU work changes main-loop timing), so compare in one run.
 
+## Step 4 (2026-11-09): camel rex (scaled bitmap sprites) - DONE
+- camel mode 4 rex: a source rect of a 320-wide CRY sprite sheet (pic / pic2 / pic5), each source pixel put as ONE
+  destination pixel at start + i * (scalex, sheary) + j * (shearx, scaley); black see-through (DCOMPEN, pattern 0).
+  dst / scale: sdiv by (z >> 14), << 9, + $C00000 / $780000 ($8C0000 PAL); start = dst - (w * sx + h * shx,
+  h * sy + w * shy) / 2 (always centred, the mode word is unused); left-edge hack drops source columns while x < 0.
+- Taken over only for the draw_vex routines (by caller range): draw_oneup $8072CA, draw_pixex $8074D4 (green shots
+  = pic 10,182 7x7 at scale $4000, power-up pixel explosions), dmpix / draw_mpixex $807806..$80791C (Excellent,
+  demo explosions). The title's rexfb ($807294), the yak screen ($807104) and xcamel's rex (level select) draw over
+  backgrounds we don't capture and stay with the GPU.
+- Drawn as squares of min(scale, 1) game px (at least 1 window px): below scale 1 a sharp small image (the shots
+  show their sprite), above it the original's dot matrix. Verified same-run (RM_NOSKIP) on play.state shots and an
+  attract-demo explosion (logs/demo6400.state, frames +104..+170). tools/side_by_side.py <rmshot> <png> [crop].
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

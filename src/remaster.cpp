@@ -32,6 +32,7 @@ constexpr uint32_t kLlama = 0x81A526;
 constexpr uint32_t kDonky = 0x81F6A2;
 constexpr uint32_t kHorse = 0x81EB52;
 constexpr uint32_t kXcamel = 0x81D0DA;
+constexpr uint32_t kCamel = 0x81CA4A;
 constexpr uint32_t kXcent = 0xF03EFC;     // xcent (G_RAM + $EFC)
 constexpr uint32_t kYcent = 0xF03EF8;     // ycent (G_RAM + $EF8)
 constexpr uint32_t kInBuf = 0xF03F60;
@@ -88,6 +89,19 @@ std::vector<Tri> g_solid_tris;                         // the displayed frame's 
 struct PixCall { int mode; int32_t in[7]; int32_t zmax, ztop, sysflags; };
 std::map<uint32_t, std::vector<PixCall>> g_pix;        // per gpu_screen
 std::vector<Dot> g_pix_dots;                           // the displayed frame's (drawn last of ours)
+// camel.gas rex (mode 4): a source rectangle of a sprite sheet (pic / pic2, 320 wide, CRY words), each pixel put as
+// ONE destination pixel at start + i * (scalex, sheary) + j * (shearx, scaley); black is see-through (DCOMPEN).
+// in_buf: 0 source base, 1 start pixel (y << 16 | x), 2 size (h << 16 | w), 3/4 scale x/y, 5/6 shear x/y, 7 mode
+// (unused: always centred), 8/9/10 dest x, y, z. Captured as the GPU's start / steps plus a copy of the pixels.
+struct RexCall {
+  double x0, y0, ix, iy, jx, jy;   // start, per-pixel and per-row steps (game pixels)
+  double sx, sy;                   // scale (destination pixel spacing)
+  int w = 0, h = 0;
+  std::vector<uint16_t> px;
+};
+std::map<uint32_t, std::vector<RexCall>> g_rex;        // per gpu_screen
+struct Rect { float x, y, w, h; uint32_t c; };
+std::vector<Rect> g_rex_rects;                         // the displayed frame's
 std::vector<Dot> g_dots;                            // the displayed frame's stars
 std::vector<Tri> g_tris;                            // the displayed frame's filled triangles
 std::vector<Line> g_streaks;                        // warp streaks of the stars
@@ -246,6 +260,67 @@ void CapturePix(int mode) {
   g_pix[traps::Read32(kGpuScreen)].push_back(c);
 }
 
+// The GPU's 16.16 helpers (camel.gas macros): fmult = signed (a * b) >> 16, sdiv = sign(n) * (|n| / d).
+int32_t FMult(int32_t a, int32_t b) {
+  int64_t p = (std::llabs(int64_t(a)) * std::llabs(int64_t(b))) >> 16;
+  return int32_t((a < 0) != (b < 0) ? -p : p);
+}
+int32_t SDiv(int32_t n, uint32_t d) {
+  uint32_t q = uint32_t(std::llabs(int64_t(n))) / d;
+  return n < 0 ? -int32_t(q) : int32_t(q);
+}
+
+// The draw_vex object routines that use rex (shots, pixel explosions, Excellent, one-up). Others (the title's
+// rexfb, the level-select text) draw over backgrounds we don't capture and stay with the GPU.
+bool RexCaller(uint32_t c) {
+  return (c >= 0x8072CA && c < 0x8073DA) || (c >= 0x8074D4 && c < 0x807544) || (c >= 0x807806 && c < 0x80791C);
+}
+
+bool CaptureRex() {
+  if (!RexCaller(traps::Read32(traps::Reg(15)) - 6)) return false;
+  uint32_t base = uint32_t(In(0)) & 0xFFFFFF;
+  int sxp = In(1) & 0xFFFF, syp = (In(1) >> 16) & 0xFFFF;
+  int w = In(2) & 0xFFFF, h = (In(2) >> 16) & 0xFFFF;
+  int32_t scalex = In(3), scaley = In(4), shearx = In(5), sheary = In(6);
+  int32_t dstx = In(8), dsty = In(9);
+  uint32_t dstz = uint32_t(In(10)) >> 14;
+  RexCall r;
+  if (dstz == 0 || w <= 0 || h <= 0 || w > 384 || h > 280) return true;   // (nothing sensible: just skip it)
+  int32_t cx = 0xC00000, cy = (S32(0xF03FD0) >> 5) & 1 ? 0x8C0000 : 0x780000;
+  dstx = int32_t(uint32_t(SDiv(dstx, dstz)) << 9) + cx;
+  dsty = int32_t(uint32_t(SDiv(dsty, dstz)) << 9) + cy;
+  scalex = int32_t(uint32_t(SDiv(scalex, dstz)) << 9);
+  scaley = int32_t(uint32_t(SDiv(scaley, dstz)) << 9);
+  int32_t wsx = FMult(scalex, w << 16), hsy = FMult(scaley, h << 16);
+  int32_t axs = FMult(shearx, h << 16), ays = FMult(sheary, w << 16);
+  int32_t x = dstx - ((wsx + axs) >> 1), y = dsty - ((hsy + ays) >> 1);
+  // The GPU's clipping hack: while the left edge is off screen, drop source columns from the left.
+  int guard = 0;
+  while (x < 0 && guard++ < 4096) {
+    if (scalex <= 0) return true;
+    --w;
+    ++sxp;
+    x += scalex;
+    if (w <= 0) return true;
+  }
+  r.x0 = x / 65536.0;
+  r.y0 = y / 65536.0;
+  r.ix = scalex / 65536.0;
+  r.iy = sheary / 65536.0;
+  r.jx = shearx / 65536.0;
+  r.jy = scaley / 65536.0;
+  r.sx = std::fabs(r.ix);
+  r.sy = std::fabs(r.jy);
+  r.w = w;
+  r.h = h;
+  r.px.resize(size_t(w) * h);
+  for (int j = 0; j < h; ++j)
+    for (int i = 0; i < w; ++i)
+      r.px[size_t(j) * w + i] = traps::Read16(base + uint32_t(((syp + j) * 320 + sxp + i) * 2));
+  g_rex[traps::Read32(kGpuScreen)].push_back(std::move(r));
+  return true;
+}
+
 void CaptureStars() {
   StarCall c;
   for (int i = 0; i < 3; ++i) c.vp[i] = In(1 + i);
@@ -287,6 +362,10 @@ bool OnGpurun() {
     CapturePix(int(mode));
     return g_enabled && PlayBuffer(scr);
   }
+  if (mod == kCamel && mode == 4) {
+    if (!CaptureRex()) return false;
+    return g_enabled && PlayBuffer(scr);
+  }
   if (mod != kLlama) return false;
   if (mode == 0) {                       // clearscreen: a new frame in this buffer
     g_lists[scr].clear();
@@ -294,6 +373,7 @@ bool OnGpurun() {
     g_stars[scr].clear();
     g_solids[scr].clear();
     g_pix[scr].clear();
+    g_rex[scr].clear();
   }
   else if (mode == 2) {
     Capture();
@@ -453,6 +533,20 @@ void BuildPix(const PixCall& c, std::vector<Dot>& out) {
   }
 }
 
+// Each source pixel is a square of the scale (at most one game pixel, the original's single pixel): below scale 1 a
+// sharp small image (the original overwrites pixels), above it the spread dot matrix of the original.
+void BuildRex(const RexCall& r, std::vector<Rect>& out) {
+  float w = float(std::min(r.sx, 1.0)), h = float(std::min(r.sy, 1.0));
+  for (int j = 0; j < r.h; ++j)
+    for (int i = 0; i < r.w; ++i) {
+      uint16_t p = r.px[size_t(j) * r.w + i];
+      if (!p) continue;
+      double x = r.x0 + i * r.ix + j * r.jx, y = r.y0 + i * r.iy + j * r.jy;
+      if (x < 0 || y < 0 || x >= 384 || y >= 280) continue;   // the GPU's a1 clip
+      out.push_back({float(x), float(y), w, h, CRY16ToRGB32[p] & 0xFFFFFF});
+    }
+}
+
 void BuildLines(const VecCall& c, std::vector<Line>& out) {
   int n = int(c.verts.size());
   std::vector<Pt> pts(n);
@@ -511,6 +605,7 @@ void AfterFrame() {
   static std::vector<StarCall> prev_stars;
   static std::vector<SolidCall> prev_solids;
   static std::vector<PixCall> prev_pix;
+  static std::vector<RexCall> prev_rex;
   static const bool same = std::getenv("RM_SAME") != nullptr;   // debug: the end-of-frame cscreen instead
   g_lines.clear();
   g_tris.clear();
@@ -518,6 +613,7 @@ void AfterFrame() {
   g_streaks.clear();
   g_solid_tris.clear();
   g_pix_dots.clear();
+  g_rex_rects.clear();
   uint32_t cs = traps::Read32(kCscreen);
   auto it = g_lists.find(cs);
   std::vector<VecCall> now = it != g_lists.end() ? it->second : std::vector<VecCall>{};
@@ -533,12 +629,16 @@ void AfterFrame() {
   auto px = g_pix.find(cs);
   std::vector<PixCall> now_pix = px != g_pix.end() ? px->second : std::vector<PixCall>{};
   for (auto& c : same ? now_pix : prev_pix) BuildPix(c, g_pix_dots);
+  auto rx = g_rex.find(cs);
+  std::vector<RexCall> now_rex = rx != g_rex.end() ? rx->second : std::vector<RexCall>{};
+  for (auto& c : same ? now_rex : prev_rex) BuildRex(c, g_rex_rects);
   for (auto& c : same ? now : prev) BuildLines(c, g_lines);
   prev = std::move(now);
   prev_webs = std::move(now_webs);
   prev_stars = std::move(now_stars);
   prev_solids = std::move(now_solids);
   prev_pix = std::move(now_pix);
+  prev_rex = std::move(now_rex);
   ++g_frames;
 }
 
@@ -603,6 +703,13 @@ host::Frame Overlay(const host::Frame& f, int scale) {
     }
   }
   fill(g_solid_tris);
+  for (auto& r : g_rex_rects) {
+    int x0 = int(std::floor((r.x + g_ox) * scale)), y0 = int(std::floor((r.y + g_oy) * scale));
+    int x1 = std::max(x0 + 1, int(std::floor((r.x + r.w + g_ox) * scale)));
+    int y1 = std::max(y0 + 1, int(std::floor((r.y + r.h + g_oy) * scale)));
+    for (int y = y0; y < y1; ++y)
+      for (int x = x0; x < x1; ++x) plot(x, y, r.c);
+  }
   for (auto& dt : g_pix_dots)
     for (int by = 0; by < std::max(1, int(scale * dt.size)); ++by)
       for (int bx = 0; bx < std::max(1, int(scale * dt.size)); ++bx)
@@ -671,6 +778,22 @@ void DrawTris(SDL_Renderer* ren, const std::vector<Tri>& tris, const SDL_FRect& 
   SDL_RenderGeometry(ren, nullptr, t.data(), int(t.size()), nullptr, 0);
 }
 
+// rex pixels: solid squares, at least one window pixel so far-away ones don't drop out.
+void DrawRects(SDL_Renderer* ren, const std::vector<Rect>& rects, const SDL_FRect& dst, float sx, float sy) {
+  if (rects.empty()) return;
+  std::vector<SDL_Vertex> v;
+  v.reserve(rects.size() * 6);
+  for (auto& r : rects) {
+    float x0 = dst.x + (r.x + g_ox) * sx, y0 = dst.y + (r.y + g_oy) * sy;
+    float x1 = x0 + std::max(1.f, r.w * sx), y1 = y0 + std::max(1.f, r.h * sy);
+    SDL_FColor c{((r.c >> 16) & 255) / 255.f, ((r.c >> 8) & 255) / 255.f, (r.c & 255) / 255.f, 1.f};
+    SDL_Vertex a{{x0, y0}, c, {0, 0}}, b{{x1, y0}, c, {0, 0}}, d{{x0, y1}, c, {0, 0}}, e{{x1, y1}, c, {0, 0}};
+    v.insert(v.end(), {a, b, d, b, e, d});
+  }
+  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+  SDL_RenderGeometry(ren, nullptr, v.data(), int(v.size()), nullptr, 0);
+}
+
 void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   if (!fw || !fh) return;
   float sx = dst.w / fw, sy = dst.h / fh;
@@ -686,6 +809,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   DrawTris(ren, g_tris, dst, sx, sy);
   DrawLines(ren, dst, sx, sy);
   DrawTris(ren, g_solid_tris, dst, sx, sy);
+  DrawRects(ren, g_rex_rects, dst, sx, sy);
   DrawDots(ren, g_pix_dots, dst, sx, sy);
 }
 

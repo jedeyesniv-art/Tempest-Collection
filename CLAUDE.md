@@ -90,8 +90,8 @@ classifier (downloaded code) - ask the owner before trying again.
   Back menu (settings, save states, return to title), quit to title on the pause screen in the game font, EEPROM
   saves, cursor hidden. Remaster (F8, default on): native vect3d lines, solid web, starfield, solid claw / enemies,
   pixels / rings, all verified against the original in one run (RM_NOSKIP=1 RM_OURS=1 --rmshot). Details: REMASTER.md.
-- Next (agreed with the owner): camel mode 4 "rex" scaled bitmap sprites (green shots, some explosions), then
-  interpolation between frames (unlocked frame rate) + run-ahead 2 by default, then 16:9. Later: the dash-lattice
+- 2026-11-09: camel rex (shots, pixel explosions, Excellent) native - REMASTER.md step 4.
+- Next (agreed with the owner): interpolation between frames (unlocked frame rate) + run-ahead 2 by default, then 16:9. Later: the dash-lattice
   layer (not a GPU call), text / HUD upscale, title and menu screens, Defender 2000.
 - Owner's test states: logs/owner_star.state (warp starfield between levels). logs/play.state = in play, level 1.
 
