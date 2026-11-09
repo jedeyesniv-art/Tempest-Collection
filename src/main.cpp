@@ -796,7 +796,10 @@ int main(int argc, char** argv) {
             SDL_RenderClear(ren);
             // The melt: wobble / drip / blob (settings melt_*; owner: the original blobs and distorts).
             crt::Melt m{float(settings::Num("melt_wobble", 0.010)), float(settings::Num("melt_drip", 0.006)),
-                        float(settings::Num("melt_blob", 0.35)), serial};
+                        float(settings::Num("melt_blob", 0.35)), serial,
+                        float(settings::Num("melt_spin", 1.0) * 3.14159265 / 180.0),
+                        float(settings::Num("melt_mosaic", 0.15)),
+                        float(settings::Num("melt_mosaic_size", 12) / 240.0)};   // (game pixels of the 240-line height)
             crt::DrawScar(ren, fb_last, corners, ww, wh, dim, melt ? &m : nullptr);
             remaster::Interpolate(1.f);
             remaster::Draw(ren, dst, fr.width, fr.height);

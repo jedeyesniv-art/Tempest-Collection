@@ -22,7 +22,8 @@ void LoadSettings(); // rereads the settings (cheap: call once a frame)
 // corner shows src at corners[k] (window pixels), its intensity lowered by dim (0..1; the shader, else undimmed).
 // melt (the screen-transition melt; null = none): a noise warp changing every step (wobble, uv), an uneven downward
 // drip (uv) and bright parts spreading (blob, 0..1).
-struct Melt { float wobble, drip, blob; uint64_t step; };
+// spin: radians a step; mosaic: 0..1 of the screen in square cells at a time; cell: the cell size (uv, of the height).
+struct Melt { float wobble, drip, blob; uint64_t step; float spin = 0, mosaic = 0, cell = 0; };
 void DrawScar(SDL_Renderer* renderer, SDL_Texture* src, const float corners[4][2], int ww, int wh, float dim,
               const Melt* melt = nullptr);
 

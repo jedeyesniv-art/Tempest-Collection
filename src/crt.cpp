@@ -390,8 +390,11 @@ void DrawScar(SDL_Renderer* r, SDL_Texture* src, const float corners[4][2], int 
   SDL_SetTextureBlendMode(src, SDL_BLENDMODE_NONE);
   SDL_SetTextureScaleMode(src, SDL_SCALEMODE_LINEAR);
   if (g_scar_state) {
-    float u[8] = {dim, 0, 0, 0, 1.0f / ww, 1.0f / wh, 0, float(ww) / float(wh)};
-    if (melt) u[1] = melt->wobble, u[2] = melt->blob, u[3] = float(melt->step % 997), u[6] = melt->drip;
+    float u[12] = {dim, 0, 0, 0, 1.0f / ww, 1.0f / wh, 0, float(ww) / float(wh), 0, 0, 0, 0};
+    if (melt) {
+      u[1] = melt->wobble, u[2] = melt->blob, u[3] = float(melt->step % 997), u[6] = melt->drip;
+      u[8] = melt->spin, u[9] = melt->mosaic, u[10] = melt->cell;
+    }
     SDL_SetGPURenderStateFragmentUniforms(g_scar_state, 0, u, sizeof(u));
     SDL_SetGPURenderState(r, g_scar_state);
   }

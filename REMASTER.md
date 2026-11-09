@@ -269,6 +269,9 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   resampling at ~0.977 a step duplicates every ~43rd row / column, smearing the letters blockily). For the melt only
   (caller $806114) scar.frag adds a per-step noise warp (melt_wobble, uv), an uneven downward drip (melt_drip) and a
   soft dilation of bright parts (melt_blob). Menu DISPLAY: native screen effects on / off + the three sliders.
+- Then (owner: "jaggedly spinny melty", ~30 degrees and a little mosaic): melt_spin (degrees a step, 1.0: ~30 over a
+  melt) turns about the centre; melt_mosaic (0.15) / melt_mosaic_size (12 game px) snap broad, slowly drifting patches
+  to square cells, blended 60% (a patch field changing every step squared the whole screen within ~15 steps).
 
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),

@@ -91,6 +91,9 @@ std::vector<Item> Items() {
   num("  Melt wobble", "melt_wobble", 0, 0.04, 0.002, "%.3f", 0.010);
   num("  Melt drip", "melt_drip", 0, 0.03, 0.001, "%.3f", 0.006);
   num("  Melt blob", "melt_blob", 0, 1, 0.05, "%.2f", 0.35);
+  num("  Melt spin (degrees a step)", "melt_spin", -4, 4, 0.25, "%.2f", 1.0);
+  num("  Melt mosaic", "melt_mosaic", 0, 1, 0.05, "%.2f", 0.15);
+  num("  Melt mosaic size", "melt_mosaic_size", 2, 40, 1, "%.0f", 12);
   choice("Pixel art (text, HUD, menus)", "picture_filter", {"sharp", "xbr", "smooth"},
          {"Sharp pixels", "Smoothed (xBR)", "Soft (bilinear)"});
   num("Particle size (x original)", "remaster_particle_size", 0.5, 3.0, 0.1, "%.1f", 1.5);
