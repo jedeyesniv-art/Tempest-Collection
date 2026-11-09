@@ -364,7 +364,7 @@ int Mode() { return !g_state ? 0 : g_mode == 2 && !g_mix_state ? 1 : g_mode; }
 // Defaults: the owner's tuning on the ST (crt.cpp defaults version 4; CRT++ version 1, the shared values).
 void LoadSettings() {
   auto get = [](const char* key, double def) { return float(settings::Num(key, def)); };
-  g_mode = std::clamp(int(settings::Num("crt", 0)), 0, 2);
+  g_mode = std::clamp(int(settings::Num("crt", 2)), 0, 2);
   Params& p = g_params;
   p.beam[0] = get("crt_scanlines", 0.45);
   p.beam[1] = get("crt_beam_min", 0.35);

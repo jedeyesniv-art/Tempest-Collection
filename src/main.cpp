@@ -491,7 +491,7 @@ int main(int argc, char** argv) {
         settings::Save("stick_mode", settings::Str("stick_mode", "lr") == "aim" ? "lr" : "aim");
         menu::Toast(settings::Str("stick_mode", "lr") == "aim" ? "Stick: aim" : "Stick: left / right", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F9) {
-        int m = (int(settings::Num("crt", 0)) + 1) % 3;
+        int m = (int(settings::Num("crt", 2)) + 1) % 3;
         settings::Save("crt", std::to_string(m));
         crt::LoadSettings();
         menu::Toast(!crt::Available() ? "CRT unavailable (needs the GPU renderer)"

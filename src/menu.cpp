@@ -139,7 +139,7 @@ std::function<std::string()> g_slot_info;
 
 bool Visible(const Item& i) {
   bool aim = settings::Str("stick_mode", "lr") == "aim";
-  int crt = int(settings::Num("crt", 0));
+  int crt = int(settings::Num("crt", 2));
   return !(i.lr_only && aim) && !(i.aim_only && !aim) && !(i.crt_only && crt < 1) && !(i.crtpp_only && crt != 2);
 }
 

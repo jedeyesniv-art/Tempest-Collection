@@ -66,6 +66,9 @@ constexpr uint32_t kGpuwaitStub = 0xDFFDC0;
 constexpr uint32_t kAntelope = 0x81BBFA;
 constexpr uint32_t kScarCaller = 0x806114;     // failfade: the melt (ffade) and the Top Guns background
 constexpr uint32_t kRippleCaller = 0x804980;   // optiondraw: the mode select background
+constexpr uint32_t kGameOverCaller = 0x803C04; // gofeed: the Game Over feedback
+constexpr uint32_t kClearFeedCaller = 0x803D7E;  // clearfeed: Game Over fading out after a button
+int g_frames_since_fx = 1000;                  // frames since an antelope (full-screen effect) call
 
 uint16_t R16(uint32_t a) { return uint16_t(jagMemSpace[a] << 8 | jagMemSpace[a + 1]); }
 uint32_t R32(uint32_t a) { return uint32_t(R16(a)) << 16 | R16(a + 2); }
@@ -297,7 +300,10 @@ void Rewind() {
 }
 
 bool Demo() { return g_installed && R16(kAuto) != 0; }
-bool LatencyMatters() { return HudShown() || (g_installed && R32(kMainloopRoutine) == kDrawOo); }
+// (A full-screen antelope effect lately = a screen like Game Over, which keeps the play HUD object: not play.)
+bool LatencyMatters() {
+  return (HudShown() && g_frames_since_fx > 8) || (g_installed && R32(kMainloopRoutine) == kDrawOo);
+}
 
 int HudRows() { return g_installed && R16(kHudObject + 14) == 7 ? 32 : 48; }
 
@@ -339,15 +345,20 @@ void BeforeFrame(const Pad& pad) {
 }
 
 void OnGpurun(uint32_t caller, uint32_t module, uint32_t mode) {
-  if (!g_installed || module != kAntelope || settings::Num("native", 0) != 0) return;
+  if (!g_installed || module != kAntelope) return;
+  g_frames_since_fx = 0;
+  if (settings::Num("native", 0) != 0) return;
   int frames = 0;
   if (caller == kScarCaller && mode == 2) frames = int(settings::Num("pace_melt", 4));
   else if (caller == kRippleCaller && mode == 1) frames = int(settings::Num("pace_ripple", 2));
+  else if ((caller == kGameOverCaller || caller == kClearFeedCaller) && mode == 2)
+    frames = int(settings::Num("pace_gameover", 4));
   if (frames > 1) W16(kPortHold, uint16_t(std::min(frames - 1, 30)));
 }
 
 void AfterFrame() {
   if (!g_installed) return;
+  if (g_frames_since_fx < 1000) ++g_frames_since_fx;
   if (uint16_t h = R16(kPortHold)) W16(kPortHold, uint16_t(h - 1));
   uint16_t t = R16(kPortTicks);
   g_ticks_this_frame = uint16_t(t - g_last_ticks);
