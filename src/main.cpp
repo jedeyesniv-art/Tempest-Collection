@@ -33,6 +33,10 @@
 #include "remaster.h"
 #include "xbr.h"
 #include "crt.h"
+
+namespace {
+#include "../res/icon_rgba.h"
+}
 extern "C" uint8_t jagMemSpace[];
 extern "C" uint32_t vjOPSkipLo, vjOPSkipHi, vjOPSkip2Lo, vjOPSkip2Hi;   // core hook: an OP overlay range not drawn
 #include "menu.h"
@@ -250,8 +254,10 @@ std::string SlotInfo(const fs::path& dir) {
 // delay interpolation adds). The real frame's audio is kept; the hidden frames' is dropped.
 void RunAhead(int n, const host::Input& in, const t2k::Pad& tp) {
   static std::vector<uint8_t> st;
-  st = host::SaveState();
-  if (st.empty()) return;   // (can't rewind: show the real frame's picture, keep the last scene)
+  if (!host::SaveStateInto(st)) {
+    host::SetVideoEnabled(true);
+    return;
+  }   // (can't rewind: show the real frame's picture, keep the last scene)
   t2k::Mark();
   remaster::Mark();
   std::vector<int16_t> keep;
@@ -259,12 +265,14 @@ void RunAhead(int n, const host::Input& in, const t2k::Pad& tp) {
   for (int k = 1; k <= n; ++k) {
     host::SetInput(0, in);
     t2k::BeforeFrame(tp);
+    host::SetVideoEnabled(k == n);   // only the last run-ahead frame's picture is shown
     host::RunFrame();
     t2k::AfterFrame();
     remaster::AfterFrame(k == n);
     host::Audio().clear();
   }
   host::Audio().swap(keep);
+  host::SetVideoEnabled(true);
   host::LoadState(st);
   t2k::Rewind();
   remaster::Rewind();
@@ -273,6 +281,7 @@ void RunAhead(int n, const host::Input& in, const t2k::Pad& tp) {
 
 int main(int argc, char** argv) {
   std::string rom, wav, userdata = "userdata";
+  bool userdata_given = false;
   bool headless = false;
   int frames = 600;
   std::vector<Shot> shots;
@@ -286,6 +295,7 @@ int main(int argc, char** argv) {
   std::vector<Poke> pokes;   // --poke=F:hexaddr:hexword: write a RAM word before frame F (tests)
   int peek0 = -1, peek1 = -1;
   uint32_t peek_addr = 0;   // --peek=F0:F1:hexaddr: a RAM long each frame (stderr)
+  bool novsync = false;   // --novsync: present unthrottled (performance tests)
   int menu_test = 0;   // --menu (1) / --menu=all (2): open the menu at start (tests; winshot counts presents)
   std::vector<Shot> rmshots;
   int runahead = 0;
@@ -309,7 +319,7 @@ int main(int argc, char** argv) {
       aspect = std::atof(v.substr(0, c).c_str()) / std::atof(v.substr(c + 1).c_str());
     }
     else if (a.rfind("--wav=", 0) == 0) wav = val("--wav=");
-    else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
+    else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata="), userdata_given = true;
     else if (a.rfind("--shot=", 0) == 0) {
       auto v = val("--shot="); auto c = v.find(':');
       shots.push_back({std::atoi(v.substr(0, c).c_str()), v.substr(c + 1)});
@@ -348,6 +358,8 @@ int main(int argc, char** argv) {
     } else if (a.rfind("--peek=", 0) == 0) {
       auto v = val("--peek=");
       std::sscanf(v.c_str(), "%d:%d:%x", &peek0, &peek1, &peek_addr);
+    } else if (a == "--novsync") {
+      novsync = true;
     } else if (a == "--menu" || a == "--menu=all") {
       menu_test = a == "--menu" ? 1 : 2;
     } else if (a.rfind("--winshot=", 0) == 0) {
@@ -373,6 +385,8 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
     return 1;
   }
+  // Saves / settings next to the program unless given (Steam and shortcuts start it from other folders).
+  if (!userdata_given) userdata = (fs::path(SDL_GetBasePath()) / "userdata").string();
   rom = FindRom(rom);
   if (rom.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 2000",
@@ -485,12 +499,18 @@ int main(int argc, char** argv) {
   }
 
   SDL_Window* win = SDL_CreateWindow("Tempest 2000", win_w, win_h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+  if (win) {   // the claw-ship icon (the exe carries it too: res/t2k.rc)
+    if (SDL_Surface* icon = SDL_CreateSurfaceFrom(64, 64, SDL_PIXELFORMAT_ABGR8888, (void*)k_icon_rgba, 64 * 4)) {
+      SDL_SetWindowIcon(win, icon);
+      SDL_DestroySurface(icon);
+    }
+  }
   if (settings::Num("fullscreen", 0) != 0) SDL_SetWindowFullscreen(win, true);
   // SDL's GPU renderer (D3D12) for the CRT shaders; the default renderer if it isn't available (no CRT then).
   SDL_Renderer* ren = crt::CreateRenderer(win);
   if (ren && !crt::Init(ren)) std::fprintf(stderr, "crt: unavailable on renderer %s\n", SDL_GetRendererName(ren));
   SDL_HideCursor();
-  SDL_SetRenderVSync(ren, 1);
+  SDL_SetRenderVSync(ren, novsync ? 0 : 1);
   SDL_Texture* tex = nullptr;
   unsigned tw = 0, th = 0;
   // Sharp bilinear: the picture scaled up k times with nearest into `big`, then fitted with linear filtering, so
@@ -519,6 +539,10 @@ int main(int argc, char** argv) {
   int quiet_frames = 0;    // frames the pause line stays hidden after quitting to the title
   uint64_t frame_count = 0;
   menu::SetSlotInfo([&] { return SlotInfo(udir); });
+  // T2K_PERF=1: every ~5 s, the average time a shown frame spends emulating (incl. run-ahead), composing (our layer,
+  // picture, HUD, CRT) and presenting, and frames shown a second.
+  const bool perf = std::getenv("T2K_PERF") != nullptr;
+  uint64_t perf_emu = 0, perf_comp = 0, perf_pres = 0, perf_n = 0, perf_from = SDL_GetTicksNS(), perf_t1 = 0, perf_t2 = 0;
   while (running) {
     uint64_t now = SDL_GetTicksNS();
     SDL_Event e;
@@ -656,7 +680,9 @@ int main(int argc, char** argv) {
       if (quiet_frames > 0) --quiet_frames;
       host::SetInput(0, in);
       t2k::BeforeFrame(tp);
+      host::SetVideoEnabled(i == todo - 1 && run_ahead == 0);   // (catch-up frames / the frame before run-ahead: unseen)
       host::RunFrame();
+      host::SetVideoEnabled(true);
       t2k::AfterFrame();
       // Run-ahead after the last real frame of this batch only (its picture is the one shown).
       if (run_ahead > 0 && i == todo - 1) {
@@ -675,6 +701,7 @@ int main(int argc, char** argv) {
       a.clear();
     }
 
+    perf_t1 = SDL_GetTicksNS();
     int ww, wh;
     SDL_GetRenderOutputSize(ren, &ww, &wh);
     // The CRT (setting crt, F9): everything drawn into a window-sized scene, which the CRT then draws to the window.
@@ -930,7 +957,22 @@ int main(int argc, char** argv) {
       }
       running = false;
     }
+    perf_t2 = SDL_GetTicksNS();
     SDL_RenderPresent(ren);
+    if (perf) {
+      const uint64_t t3 = SDL_GetTicksNS();
+      perf_emu += perf_t1 - now;
+      perf_comp += perf_t2 - perf_t1;
+      perf_pres += t3 - perf_t2;
+      ++perf_n;
+      if (t3 - perf_from > 5000000000ull) {
+        const double n = double(perf_n);
+        std::fprintf(stderr, "perf %dx%d: %.1f fps shown | emulate %.2f ms, compose %.2f ms, present %.2f ms a frame\n",
+                     ww, wh, n / ((t3 - perf_from) / 1e9), perf_emu / n / 1e6, perf_comp / n / 1e6, perf_pres / n / 1e6);
+        perf_emu = perf_comp = perf_pres = perf_n = 0;
+        perf_from = t3;
+      }
+    }
   }
 
   eeprom.SaveIfChanged();

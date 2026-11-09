@@ -39,6 +39,9 @@ std::vector<int16_t>& Audio();
 uint8_t* SaveRam(size_t* size);
 
 std::vector<uint8_t> SaveState();
+bool SaveStateInto(std::vector<uint8_t>& s);   // reuses s (run-ahead: no allocation a frame)
+// The next frames' pictures are wanted (off: the core skips building the picture; LastFrame keeps the last one).
+void SetVideoEnabled(bool on);
 bool LoadState(const std::vector<uint8_t>& s);
 
 }  // namespace host

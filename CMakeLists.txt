@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(LlamasoftJaguar VERSION 0.1.0 LANGUAGES C CXX)
+project(LlamasoftJaguar VERSION 0.1.0 LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,7 +26,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang")
   target_compile_options(vj_libchdr PRIVATE -w)
 endif()
 
-add_executable(t2k WIN32 src/main.cpp src/host.cpp src/settings.cpp src/t2k.cpp src/menu.cpp src/controls.cpp src/traps.cpp src/gpulog.cpp src/remaster.cpp src/xbr.cpp src/crt.cpp)
+add_executable(t2k WIN32 src/main.cpp src/host.cpp src/settings.cpp src/t2k.cpp src/menu.cpp src/controls.cpp src/traps.cpp src/gpulog.cpp src/remaster.cpp src/xbr.cpp src/crt.cpp res/t2k.rc)
 target_link_libraries(t2k PRIVATE vj_core SDL3::SDL3-static)
 target_compile_definitions(t2k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)

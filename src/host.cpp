@@ -11,6 +11,8 @@
 namespace host {
 namespace {
 
+bool g_video = true;   // SetVideoEnabled: the picture of this frame is wanted
+
 std::map<std::string, std::string> g_options;
 std::string g_save_dir;
 std::string g_system_dir;
@@ -50,6 +52,9 @@ bool EnvCb(unsigned cmd, void* data) {
       v->value = it->second.c_str();
       return true;
     }
+    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:   // (the core then skips its final pixel stores; emulation as ever)
+      *static_cast<int*>(data) = g_video ? (RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO) : RETRO_AV_ENABLE_AUDIO;
+      return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
       *static_cast<bool*>(data) = g_options_dirty;
       g_options_dirty = false;
@@ -69,9 +74,6 @@ bool EnvCb(unsigned cmd, void* data) {
       return true;
     case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
       return true;
-    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
-      *static_cast<int*>(data) = 3;
-      return true;
     case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
       auto* m = static_cast<const retro_message_ext*>(data);
       if (m && m->msg) std::fprintf(stderr, "[core msg] %s\n", m->msg);
@@ -83,7 +85,7 @@ bool EnvCb(unsigned cmd, void* data) {
 }
 
 void VideoCb(const void* data, unsigned w, unsigned h, size_t pitch) {
-  if (!data) return;  // dupe frame: keep the last one
+  if (!data || !g_video) return;  // dupe frame / a frame nobody sees: keep the last one
   g_frame.width = w;
   g_frame.height = h;
   g_frame.pixels.resize(size_t(w) * h);
@@ -177,6 +179,14 @@ std::vector<int16_t>& Audio() { return g_audio; }
 uint8_t* SaveRam(size_t* size) {
   *size = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
   return static_cast<uint8_t*>(retro_get_memory_data(RETRO_MEMORY_SAVE_RAM));
+}
+
+void SetVideoEnabled(bool on) { g_video = on; }
+
+bool SaveStateInto(std::vector<uint8_t>& s) {
+  size_t n = retro_serialize_size();
+  if (s.size() != n) s.resize(n);
+  return retro_serialize(s.data(), s.size());
 }
 
 std::vector<uint8_t> SaveState() {
