@@ -114,6 +114,45 @@ classifier (downloaded code) - ask the owner before trying again.
 - Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).
 
+## Porting recipe (learned on Tempest 2000, 2026-11-09; for Defender 2000 and later)
+Finding things
+- Survey first: --gpulog over a long run (attract + play + a scripted route), grouped by caller / module / mode / frame
+  range; map callers to routines with reference/t2k.sym. A timeline contact sheet (--shot every N frames, a grid) shows
+  which screen each range is. --peek / --poke (RAM long / word) and RM_TRACE (published scene per frame) for state.
+- What draws a thing is often not what it looks like: the "dash lattice" was zoom text, the HUD is an OP overlay
+  (screen3) not a GPU draw, the tunnel is two point routines, the bonus ground grid a starfield. Check the picture
+  with the remaster ON (only uncaptured pixels remain) to see what is left.
+- Read the GPU routine fully before porting; copy its integer set-up exactly (fmult / sdiv / >> 7 / table bytes) and
+  its quirks (psphere steps its phase twice, texter's shrink hack keeps the narrower width, vect3d ends a list on a
+  zero vertex BYTE). Cheats / test routes come from the 68K source (pad masks, flags like chenable / warpy).
+Verifying
+- Same run, GPU vs ours: RM_NOSKIP + RM_OURS + --rmshot, tools/side_by_side.py, and a red / green pixel overlay for
+  exact positions. Window-only effects (feedback, ripple, mode7) need --state + --winshot comparisons against
+  --set=native=1 (Original mode). Feedback chains need a state from BEFORE they start.
+- Always test the path back (play -> quit to title), not just boot -> play; and run-ahead consistency
+  (--runahead=2 picture == plain + 2 frames, byte-identical).
+Architecture that worked
+- Capture at gpurun, skip the GPU for captured modes into the play buffers, draw natively in window space; the core's
+  picture over ours with black see-through. Interpolate captured inputs; hidden run-ahead frames rewind ALL host state.
+- Screens the game builds by feedback (scar), full-screen warps (ripple, mode7) or the blitter: take over the
+  full-overwrite op, keep our own window-sized feedback texture, and have the core's OP skip the stale buffers
+  (vjOPSkip ranges); gate other takeovers (text, sprites) on "this buffer's background is ours".
+- Overlays (HUD) as our own layer: skip the OP object in the core rather than masking pixels (masking leaves holes);
+  move content clusters to the corners, never fixed zones.
+- Emulated GPU / blitter work is nearly free: render-paced screens run too fast; pace them by holding the 68K in
+  gpuwait (host port), measured against the hardware's look (BigPEmu as the owner's reference).
+- Extending to wide screens: the game's world usually exists past 4:3 (widen culls); clipped textures can tile
+  mirrored (wrap addressing); far / minified lines need mip levels and a fade.
+- Small custom shaders (HLSL -> DXIL, tools/build_shaders.py) for CRY-style dimming (subtract from the brightest
+  channel, keep hue) - multiplying or subtracting RGB looks wrong.
+Working with the owner
+- They test in the window and report with screenshots / save states (copy slotN.state to logs\ first); every tunable
+  look gets a menu slider with a sensible default; "Original mode" must turn everything off.
+Tooling pitfalls (cost time today)
+- Inline python / heredocs mangle backslashes (\n): write edit scripts with Write and run python -I <file>.
+- From bash give the exe forward-slash paths; check file times when a fix "shows no change" (stale screenshots).
+- Headless runs keep only the LAST --savestate; window runs over ~100 s need the timeout raised.
+
 ## Lessons (2026-11-09)
 - From bash, give the exe forward-slash paths (logs/x.bmp): a quoted backslash scratchpad path silently failed to
   write AND to delete, so I re-read stale screenshots for three rounds. Check file times when a fix shows no change.
