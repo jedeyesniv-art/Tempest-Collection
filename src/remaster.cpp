@@ -37,6 +37,7 @@ constexpr uint32_t kHorse = 0x81EB52;
 constexpr uint32_t kXcamel = 0x81D0DA;
 constexpr uint32_t kCamel = 0x81CA4A;
 constexpr uint32_t kOx = 0x81E10E;
+constexpr uint32_t kStoat = 0x81DE12;
 constexpr uint32_t kXcent = 0xF03EFC;     // xcent (G_RAM + $EFC)
 constexpr uint32_t kYcent = 0xF03EF8;     // ycent (G_RAM + $EF8)
 constexpr uint32_t kInBuf = 0xF03F60;
@@ -121,7 +122,19 @@ struct FlineCall {
 };
 std::map<uint32_t, std::vector<FlineCall>> g_flines;  // per gpu_screen
 std::vector<Line> g_bolt_lines;                       // the displayed frame's (drawn after the solids)
-struct Rect { float x, y, w, h; uint32_t c; };
+struct Rect { float x, y, w, h; uint32_t c; bool grow = true; };   // grow: a particle (remaster_particle_size)
+// stoat.gas texter, from drawmsg ($80DC2E / $80DC98: the big centre messages; at their huge zoom-in scales the
+// 'dash lattice'): camel rex once per character from a font sheet. in_buf: 0 text, 1 font (long sheet base, long
+// size h << 16 | w, then a long start pixel y << 16 | x per character from ASCII 32), 2/3 drop shadow, 4/5 scale
+// x / y, 6/7 shear x / y, 8 dest y << 16 | x, 9 mode (1 = drop shadow first: left to the GPU).
+struct TextCall {
+  uint32_t caller = 0, obj = 0;
+  int32_t in[10];
+  int w = 0, h = 0;
+  std::string text;
+  std::vector<std::vector<uint16_t>> glyphs;   // per character, w * h source pixels
+};
+std::map<uint32_t, std::vector<TextCall>> g_texts;    // per gpu_screen
 std::vector<Rect> g_rex_rects;                         // the displayed frame's
 std::vector<Dot> g_dots;                            // the displayed frame's stars
 std::vector<Tri> g_tris;                            // the displayed frame's filled triangles
@@ -352,6 +365,38 @@ void CaptureFline() {
   g_flines[traps::Read32(kGpuScreen)].push_back(c);
 }
 
+constexpr uint32_t kMsgCaller1 = 0x80DC2E, kMsgCaller2 = 0x80DC98;
+
+bool CaptureText() {
+  TextCall t;
+  t.caller = Caller();
+  if (t.caller != kMsgCaller1 && t.caller != kMsgCaller2) return false;
+  t.obj = traps::Reg(14);
+  for (int i = 0; i < 10; ++i) t.in[i] = In(i);
+  if (t.in[9] == 1) return false;                  // drop shadow: not ours
+  uint32_t font = uint32_t(t.in[1]) & 0xFFFFFF, base = traps::Read32(font) & 0xFFFFFF;
+  uint32_t size = traps::Read32(font + 4);
+  t.w = int(size & 0xFFFF);
+  t.h = int(size >> 16);
+  if (t.w <= 0 || t.h <= 0 || t.w > 64 || t.h > 64) return false;
+  uint32_t p = uint32_t(t.in[0]) & 0xFFFFFF;
+  for (int k = 0; k < 64; ++k) {
+    uint8_t ch = traps::Read8(p + uint32_t(k));
+    if (!ch) break;
+    t.text.push_back(char(ch));
+    std::vector<uint16_t> g(size_t(t.w) * t.h, 0);
+    if (ch >= 32) {
+      uint32_t sp = traps::Read32(font + 8 + uint32_t(ch - 32) * 4);
+      int sx = int(sp & 0xFFFF), sy = int(sp >> 16);
+      for (int j = 0; j < t.h; ++j)
+        for (int i = 0; i < t.w; ++i) g[size_t(j) * t.w + i] = traps::Read16(base + uint32_t(((sy + j) * 320 + sx + i) * 2));
+    }
+    t.glyphs.push_back(std::move(g));
+  }
+  g_texts[traps::Read32(kGpuScreen)].push_back(std::move(t));
+  return true;
+}
+
 void CaptureStars() {
   StarCall c;
   c.caller = Caller();
@@ -407,6 +452,10 @@ bool OnGpurun() {
     CapturePix(int(mode));
     return g_enabled && PlayBuffer(scr);
   }
+  if (mod == kStoat) {
+    if (!CaptureText()) return false;
+    return g_enabled && PlayBuffer(scr);
+  }
   if (mod == kOx && mode == 0) {
     CaptureFline();
     return g_enabled && PlayBuffer(scr);
@@ -425,6 +474,7 @@ bool OnGpurun() {
     g_pix[scr].clear();
     g_rex[scr].clear();
     g_flines[scr].clear();
+    g_texts[scr].clear();
   }
   else if (mode == 2) {
     Capture();
@@ -665,6 +715,39 @@ void BuildFline(const FlineCall& c, std::vector<Line>& out) {
   }
 }
 
+// texter per character: xs = w * scalex, ys = h * scaley, axs = h * shearx, ays = w * sheary (fmult); start =
+// (dest x, y) << 16 - ((xs + axs) >> 1, (ys + ays) >> 1); pixel (i, j) at start + i * (scalex, sheary) + j * (shearx,
+// scaley); black see-through; clip 384 x 280. Left edge off screen: drop columns until it isn't; the narrower width
+// sticks for the rest of the string (the original's register), and none left ends the string. Advance: dest x +=
+// int(w * scalex) + 2 (from the font width).
+void BuildText(const TextCall& t, std::vector<Rect>& out) {
+  int32_t scalex = t.in[4], scaley = t.in[5], shearx = t.in[6], sheary = t.in[7];
+  int32_t xadd = (FMult(t.w << 16, scalex) >> 16) + 2;
+  int32_t dx = Low16(t.in[8]), dy = Low16(t.in[8] >> 16);
+  int w = t.w, h = t.h;
+  float pw = float(std::min(std::fabs(scalex / 65536.0), 1.0)), ph = float(std::min(std::fabs(scaley / 65536.0), 1.0));
+  for (size_t k = 0; k < t.glyphs.size(); ++k, dx += xadd) {
+    int32_t xs = FMult(scalex, w << 16), ys = FMult(scaley, h << 16);
+    int32_t axs = FMult(shearx, h << 16), ays = FMult(sheary, w << 16);
+    int32_t r0 = int32_t(uint32_t(dx) << 16) - ((xs + axs) >> 1), r1 = int32_t(uint32_t(dy) << 16) - ((ys + ays) >> 1);
+    int col0 = 0;
+    if (r0 < 0) {
+      do { --w; ++col0; r0 += scalex; } while (r0 < 0 && w > -64);
+      if (w <= 0) return;
+    }
+    const auto& g = t.glyphs[k];
+    for (int j = 0; j < h; ++j)
+      for (int i = 0; i < w && col0 + i < t.w; ++i) {
+        uint16_t p = g[size_t(j) * t.w + col0 + i];
+        if (!p) continue;
+        double x = (r0 + double(i) * scalex + double(j) * shearx) / 65536.0;
+        double y = (r1 + double(i) * sheary + double(j) * scaley) / 65536.0;
+        if (!InView(x, y, 384, 280)) continue;
+        out.push_back({float(x), float(y), pw, ph, CRY16ToRGB32[p] & 0xFFFFFF, false});
+      }
+  }
+}
+
 void BuildLines(const VecCall& c, std::vector<Line>& out) {
   int n = int(c.verts.size());
   std::vector<Pt> pts(n);
@@ -716,6 +799,7 @@ struct Scene {
   std::vector<PixCall> pix;
   std::vector<RexCall> rex;
   std::vector<FlineCall> fl;
+  std::vector<TextCall> text;
 };
 Scene g_scene_a, g_scene_b;   // older, newer
 bool g_interp = true;
@@ -786,6 +870,12 @@ bool LerpFline(const FlineCall& a, FlineCall& c, double t) {
   return true;
 }
 
+bool LerpText(const TextCall& a, TextCall& c, double t) {
+  if (a.text != c.text || a.in[8] != c.in[8]) return false;
+  for (int i = 4; i < 8; ++i) c.in[i] = LerpI(a.in[i], c.in[i], t);
+  return true;
+}
+
 template <class T, class L, class B>
 void Each(const std::vector<T>& a, const std::vector<T>& b, double t, L lerp, B build) {
   if (t >= 1.0) {
@@ -826,11 +916,12 @@ struct CaptureState {
   decltype(g_pix) pix;
   decltype(g_rex) rex;
   decltype(g_flines) flines;
+  decltype(g_texts) texts;
   Scene prev;
   int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_prev_scene, g_web_colour, g_since_clear}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -840,6 +931,7 @@ void Rewind() {
   g_pix = g_mark.pix;
   g_rex = g_mark.rex;
   g_flines = g_mark.flines;
+  g_texts = g_mark.texts;
   g_prev_scene = g_mark.prev;
   g_web_colour = g_mark.web_colour;
   g_since_clear = g_mark.since_clear;
@@ -859,7 +951,7 @@ void AfterFrame(bool publish) {
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
   Scene now;
-  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines)};
+  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts)};
   ++g_since_clear;
   if (publish) {
     g_scene_a = std::move(g_scene_b);
@@ -897,6 +989,7 @@ void Interpolate(float tf) {
   Each(a.rex, b.rex, t, LerpRex, [](const RexCall& c) { BuildRex(c, g_rex_rects); });
   Each(a.vec, b.vec, t, LerpVec, [](const VecCall& c) { BuildLines(c, g_lines); });
   Each(a.fl, b.fl, t, LerpFline, [](const FlineCall& c) { BuildFline(c, g_bolt_lines); });
+  Each(a.text, b.text, t, LerpText, [](const TextCall& c) { BuildText(c, g_rex_rects); });
 }
 
 void SetInterpolate(bool on) { g_interp = on; }
@@ -1086,7 +1179,7 @@ void DrawRects(SDL_Renderer* ren, const std::vector<Rect>& rects, const SDL_FRec
   for (auto& r : rects) {
     float x0 = dst.x + (r.x + g_ox) * sx, y0 = dst.y + (r.y + g_oy) * sy;
     float x1 = x0 + std::max(1.f, r.w * sx), y1 = y0 + std::max(1.f, r.h * sy);
-    if (r.w >= 1 && r.h >= 1 && g_particle != 1) {   // a dot of a scaled-up dot matrix: grow it about its centre
+    if (r.grow && r.w >= 1 && r.h >= 1 && g_particle != 1) {   // a dot of a scaled-up dot matrix: grow it about its centre
       float g = (g_particle - 1) * 0.5f;
       x0 -= sx * g, x1 += sx * g, y0 -= sy * g, y1 += sy * g;
     }

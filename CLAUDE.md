@@ -95,7 +95,8 @@ classifier (downloaded code) - ask the owner before trying again.
 - Owner 2026-11-09: smooth motion + run-ahead "look and feel incredible"; asked for any aspect ratio (done).
 
 ## To do next (owner to pick the order tonight)
-1. Dash-lattice layer (death / between levels; not a GPU call: find what draws it) - so it fills wide screens too.
+1. DONE 2026-11-09: dash lattice = drawmsg zoom text (REMASTER.md step 9). New: yellow lane-highlight lines missing
+   from ours during the warp (owner_star.state frame 3, RM_NOSKIP side by side).
 2. DONE 2026-11-09: Superzapper lightning (ox fline, REMASTER.md step 7). Left: ox / horse psphere, ox starseg; survey
    with --gpulog over a game with zaps, deaths and power-ups.
 3. HUD / text native and sharp (stoat text $80DC2E: score, messages; lives icons): replaces the hud_corners split.

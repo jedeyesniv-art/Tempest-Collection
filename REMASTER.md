@@ -178,6 +178,20 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Run-ahead only where latency matters (t2k::LatencyMatters: play HUD up or level select's draw_oo): on the menu
   screens N extra frames a shown frame dropped emulation below real time (~40 fps in the window).
 
+## Step 9 (2026-11-09): the 'dash lattice' = drawmsg text (stoat texter) - DONE
+- Not a starfield or a display layer: drawmsg ($80DC2E, second line $80DC98) prints the big centre messages with
+  stoat texter (camel rex per character from afont: pic2 sheet, 15 x 18 glyphs). Zooming in, scalex = 1 and scaley
+  ~20-26 with shear: each glyph row becomes a run of adjacent pixels (a dash), rows ~20 px apart -> the lattice.
+  Its width is the string's, so it stays inside the 4:3 width; wide screens show it whole vertically.
+- Ported (BuildText): xs = w * scalex, ys = h * scaley, axs = h * shearx, ays = w * sheary; start = dest << 16 -
+  ((xs + axs) >> 1, (ys + ays) >> 1); pixel (i, j) at start + i * (scalex, sheary) + j * (shearx, scaley); advance
+  int(w * scalex) + 2; left-edge column drop sticks for the rest of the string (the original's register reuse).
+  Drop-shadow mode (in_buf+36 = 1) and other texter callers stay with the GPU. Pixels: squares of min(scale, 1),
+  not grown by the particle setting. Interpolated: scale / shear. Verified same run (RM_NOSKIP): lattice frames and
+  "SUPERZAPPER RECHARGE" match; run-ahead 2 == plain + 2.
+- Seen while checking (owner_star.state, warp): the yellow lane-highlight lines the GPU draws there are missing
+  from ours. To look into.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.
