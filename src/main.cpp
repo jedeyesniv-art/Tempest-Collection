@@ -33,7 +33,7 @@
 #include "remaster.h"
 #include "xbr.h"
 #include "crt.h"
-extern "C" uint32_t vjOPSkipLo, vjOPSkipHi;   // core hook: an OP overlay range not drawn
+extern "C" uint32_t vjOPSkipLo, vjOPSkipHi, vjOPSkip2Lo, vjOPSkip2Hi;   // core hook: an OP overlay range not drawn
 #include "menu.h"
 #include "settings.h"
 #include "t2k.h"
@@ -599,6 +599,11 @@ int main(int argc, char** argv) {
                          !t2k::Demo() && wide;
       vjOPSkipLo = layer ? 0x50000u : 0;
       vjOPSkipHi = layer ? 0x50000u + 384u * 2u * 48u : 0;
+      // Native scar feedback: the play buffers hold stale pictures (their scar was skipped): only the overlays show.
+      remaster::SetFeedback(settings::Num("remaster_feedback", 1) != 0);
+      const bool fb = !native && remaster::FeedbackLately();
+      vjOPSkip2Lo = fb ? 0x100000u : 0;
+      vjOPSkip2Hi = fb ? 0x134800u + 384u * 240u * 2u : 0;
     }
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
@@ -633,18 +638,28 @@ int main(int argc, char** argv) {
     const bool use_crt = !native && crt::Mode() > 0;
     static SDL_Texture* scene = nullptr;
     static int scene_w = 0, scene_h = 0;
-    if (use_crt && (!scene || scene_w != ww || scene_h != wh)) {
+    // Feedback textures (the native scar): the last frame shown and the next step, window-sized.
+    static SDL_Texture* fb_last = nullptr;
+    static SDL_Texture* fb_next = nullptr;
+    static uint64_t fb_serial = 0;
+    if (!scene || scene_w != ww || scene_h != wh) {
+      for (SDL_Texture** t : {&fb_last, &fb_next}) {
+        if (*t) SDL_DestroyTexture(*t);
+        *t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ww, wh);
+        SDL_SetTextureBlendMode(*t, SDL_BLENDMODE_NONE);
+      }
       if (scene) SDL_DestroyTexture(scene);
       scene = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ww, wh);
       SDL_SetTextureBlendMode(scene, SDL_BLENDMODE_NONE);
       SDL_SetTextureScaleMode(scene, SDL_SCALEMODE_LINEAR);
       scene_w = ww; scene_h = wh;
     }
-    SDL_Texture* const frame_target = use_crt ? scene : nullptr;
+    SDL_Texture* const frame_target = scene;
     SDL_SetRenderTarget(ren, frame_target);
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
     float crt_src_w = 0, crt_src_h = 0;   // the window in game pixels (scanlines / mask follow the game's lines)
+    bool scar_scene = false;
     const auto& fr = host::LastFrame();
     if (fr.width) {
       if (!tex || tw != fr.width || th != fr.height) {
@@ -769,7 +784,27 @@ int main(int argc, char** argv) {
         double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(SDL_GetTicksNS())) / frame_ns;
         remaster::SetWindow(dst, ww, wh, fr.width, fr.height);
         remaster::Interpolate(float(t));
-        remaster::Draw(ren, dst, fr.width, fr.height);
+        float corners[4][2], dim = 0;
+        uint64_t serial = 0;
+        if (remaster::ScarMap(dst, fr.width, fr.height, ww, wh, corners, &dim, &serial)) {
+          // A scar scene: the feedback steps once per published scene (the last frame through the map, dimmed, then
+          // the scene's own draws on top), and the latest step is shown under the overlays.
+          if (serial != fb_serial) {
+            SDL_SetRenderTarget(ren, fb_next);
+            SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+            SDL_RenderClear(ren);
+            crt::DrawScar(ren, fb_last, corners, ww, wh, dim);
+            remaster::Interpolate(1.f);
+            remaster::Draw(ren, dst, fr.width, fr.height);
+            std::swap(fb_last, fb_next);
+            fb_serial = serial;
+            SDL_SetRenderTarget(ren, frame_target);
+          }
+          SDL_RenderTexture(ren, fb_last, nullptr, nullptr);
+          scar_scene = true;
+        } else {
+          remaster::Draw(ren, dst, fr.width, fr.height);
+        }
       }
       // The emulated picture over ours (text, not-yet-ours), then the HUD layer.
       blit(pic_sharp, tex, nullptr, &dst);
@@ -787,15 +822,19 @@ int main(int argc, char** argv) {
         if (right > left) part(left, right, 0, 0);
         part(right, 384, dst.x, -dst.y);
       }
+      if (!scar_scene) {   // the feedback starts from what was shown last
+        SDL_SetRenderTarget(ren, fb_last);
+        SDL_RenderTexture(ren, scene, nullptr, nullptr);
+        SDL_SetRenderTarget(ren, frame_target);
+      }
       crt_src_w = ww * float(fr.width) / dst.w;
       crt_src_h = wh * float(fr.height) / dst.h;
     }
-    if (use_crt) {
-      SDL_SetRenderTarget(ren, nullptr);
-      SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-      SDL_RenderClear(ren);
-      crt::DrawPicture(ren, scene, SDL_FRect{0, 0, float(ww), float(wh)}, crt_src_w, crt_src_h);
-    }
+    SDL_SetRenderTarget(ren, nullptr);
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_RenderClear(ren);
+    if (use_crt) crt::DrawPicture(ren, scene, SDL_FRect{0, 0, float(ww), float(wh)}, crt_src_w, crt_src_h);
+    else SDL_RenderTexture(ren, scene, nullptr, nullptr);
     if (menu::Shown()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, now);
     static int presents = 0;

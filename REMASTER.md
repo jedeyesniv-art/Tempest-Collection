@@ -237,6 +237,22 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   * 2 + vpo; vertex x * hscale, * 256, R . v / 128, >> (scaler - 8), + P'; projected about xcent / ycent. Same-run
   overlay with the GPU: within 1-2 px. Duel play and the Duel level select webs are ours; run-ahead consistent.
 
+## Step 13 (2026-11-09): native scar feedback (melts, title, Game Over)
+- Survey (boot -> attract, logs/sv.txt): title = antelope 2 scar ($803FDE) + camel rex logo (rexfb $807294); melts =
+  scar $806114; Game Over = scar $803C04 / $803D7E + rex $803CAA; Top Guns = vect3d web (ours) + donky 1 starplane
+  ($806DEA, 11 a frame); credits = starfield + rex $807104; mode select = antelope 1 ripplewarp ($804980).
+- scar reads cscreen, writes the other buffer: dest pixel (u, v) <- start + u inc + v row (affine, from scale, angle,
+  centre with the GPU's integer set-up), intensity - delta_i>>16 (-8 here). Captured (antelope 2 into a play buffer)
+  and skipped; it overwrites the buffer, so that buffer's lists are reset. Each capture has an id = one step.
+- Window: every frame is composed into the scene target; a non-scar frame is copied to fb_last (the feedback starts
+  from what was shown). A scene whose scar id is new: fb_next = DrawScar(fb_last through the map at the window
+  corners, scar.frag.hlsl lowering the brightest channel by dim, hue kept), then that scene's own draws (rexfb /
+  Game Over rex, now taken over) on top; swap. The latest step is shown under the overlays.
+- Core: second OP skip range = both play buffers ($100000..$161800) while the buffer about to be shown came from a
+  skipped scar (FeedbackLately: per buffer, by capture frame) - they only hold stale pictures then.
+- Effects fill wide windows (the feedback samples our whole window). Tests need a state from BEFORE a melt (the chain
+  starts from the last normal frame): logs/melt.state. Setting remaster_feedback (default 1).
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

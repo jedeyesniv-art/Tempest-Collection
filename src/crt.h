@@ -18,6 +18,9 @@ void Shutdown();
 bool Available();
 int Mode();          // 0 off (or unavailable), 1 CRT+, 2 CRT++ (trails, colour bleed, more glow)
 void LoadSettings(); // rereads the settings (cheap: call once a frame)
+// The native scar feedback: `src` (the last frame, window-sized) drawn over the current target so that each window
+// corner shows src at corners[k] (window pixels), its intensity lowered by dim (0..1; the shader, else undimmed).
+void DrawScar(SDL_Renderer* renderer, SDL_Texture* src, const float corners[4][2], int ww, int wh, float dim);
 
 // Draws `texture` into view with the CRT look (Mode() > 0), else as it is. src_w / src_h: the picture's own
 // resolution when the texture is bigger (the scanlines and mask follow the game's lines); 0 = the texture's size.

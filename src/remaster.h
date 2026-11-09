@@ -33,6 +33,14 @@ struct Dot {
 bool Install();                       // after t2k::Install
 // The HUD overlay strip (screen3, 384 x 48) as of the shown frame: 0xFFRRGGBB, 0 where see-through.
 const host::Frame& Hud();
+// Native scar feedback (the melts, the title, Game Over; setting remaster_feedback, default on).
+void SetFeedback(bool on);
+// The buffer about to be shown came from a skipped scar: the game's play buffers are stale (the core skips them).
+bool FeedbackLately();
+// The shown scene's scar step: for the window corners (0,0) (w,0) (0,h) (w,h), where they sample the last frame (window
+// pixels); dim = the intensity drop (0..1); serial = the scar call (a new step when it changes).
+bool ScarMap(const SDL_FRect& dst, unsigned fw, unsigned fh, int ww, int wh, float corners[4][2], float* dim,
+             uint64_t* serial);
 // After each emulated frame: picks the item list of the displayed buffer. publish = make it the newest scene shown
 // (false for a frame whose picture isn't shown: a real frame followed by run-ahead frames).
 void AfterFrame(bool publish = true);

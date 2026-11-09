@@ -18,6 +18,7 @@ namespace {
 #include "shaders/glow.dxil.h"
 #include "shaders/psy_trail.dxil.h"
 #include "shaders/psy_mix.dxil.h"
+#include "shaders/scar.dxil.h"
 
 // The shader's cbuffer (six float4s, see crt.frag.hlsl).
 struct Params {
@@ -32,6 +33,8 @@ struct Params {
 SDL_GPUShader* g_shader = nullptr;
 SDL_GPURenderState* g_state = nullptr;
 SDL_GPUDevice* g_device = nullptr;
+SDL_GPUShader* g_scar_shader = nullptr;
+SDL_GPURenderState* g_scar_state = nullptr;
 int g_mode = 0;  // 0 off, 1 CRT+, 2 CRT++ (setting crt)
 
 Params g_params{};
@@ -346,12 +349,30 @@ bool Init(SDL_Renderer* renderer) {
                                                            SDL_PROP_TEXTURE_FORMAT_NUMBER, 0) == SDL_PIXELFORMAT_RGBA64_FLOAT
                                  ? "in float"
                                  : "in 8 bits");
+  {
+    SDL_GPUShaderCreateInfo si{};
+    si.code = k_scar_dxil;
+    si.code_size = sizeof(k_scar_dxil);
+    si.entrypoint = "main";
+    si.format = SDL_GPU_SHADERFORMAT_DXIL;
+    si.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+    si.num_samplers = 1;
+    si.num_uniform_buffers = 1;
+    if ((g_scar_shader = SDL_CreateGPUShader(g_device, &si))) {
+      SDL_GPURenderStateCreateInfo st{};
+      st.fragment_shader = g_scar_shader;
+      g_scar_state = SDL_CreateGPURenderState(renderer, &st);
+    }
+    if (!g_scar_state) LOG("scar shader: %s", SDL_GetError());
+  }
   LoadSettings();
   LOG("crt shader ready, %s", g_mode == 2 ? "CRT++" : g_mode ? "on" : "off");
   return true;
 }
 
 void Shutdown() {
+  if (g_scar_state) SDL_DestroyGPURenderState(g_scar_state), g_scar_state = nullptr;
+  if (g_scar_shader) SDL_ReleaseGPUShader(g_device, g_scar_shader), g_scar_shader = nullptr;
   if (g_state) SDL_DestroyGPURenderState(g_state), g_state = nullptr;
   FreePsy();
   FreeGlow();
@@ -359,6 +380,22 @@ void Shutdown() {
 }
 
 bool Available() { return g_state != nullptr; }
+
+void DrawScar(SDL_Renderer* r, SDL_Texture* src, const float corners[4][2], int ww, int wh, float dim) {
+  SDL_Vertex v[4];
+  const float px[4] = {0, float(ww), 0, float(ww)}, py[4] = {0, 0, float(wh), float(wh)};
+  for (int k = 0; k < 4; ++k) v[k] = SDL_Vertex{{px[k], py[k]}, {1, 1, 1, 1}, {corners[k][0] / ww, corners[k][1] / wh}};
+  const int idx[6] = {0, 1, 2, 1, 3, 2};
+  SDL_SetTextureBlendMode(src, SDL_BLENDMODE_NONE);
+  SDL_SetTextureScaleMode(src, SDL_SCALEMODE_LINEAR);
+  if (g_scar_state) {
+    float u[4] = {dim, 0, 0, 0};
+    SDL_SetGPURenderStateFragmentUniforms(g_scar_state, 0, u, sizeof(u));
+    SDL_SetGPURenderState(r, g_scar_state);
+  }
+  SDL_RenderGeometry(r, src, v, 4, idx, 6);
+  if (g_scar_state) SDL_SetGPURenderState(r, nullptr);
+}
 int Mode() { return !g_state ? 0 : g_mode == 2 && !g_mix_state ? 1 : g_mode; }
 
 // Defaults: the owner's tuning on the ST (crt.cpp defaults version 4; CRT++ version 1, the shared values).

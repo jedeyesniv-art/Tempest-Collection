@@ -39,6 +39,7 @@ constexpr uint32_t kCamel = 0x81CA4A;
 constexpr uint32_t kOx = 0x81E10E;
 constexpr uint32_t kStoat = 0x81DE12;
 constexpr uint32_t kGoat = 0x81AFAE;
+constexpr uint32_t kAntelope = 0x81BBFA;
 constexpr uint32_t kXcent = 0xF03EFC;     // xcent (G_RAM + $EFC)
 constexpr uint32_t kYcent = 0xF03EF8;     // ycent (G_RAM + $EF8)
 constexpr uint32_t kInBuf = 0xF03F60;
@@ -142,6 +143,18 @@ struct TextCall {
   std::vector<std::vector<uint16_t>> glyphs;   // per character, w * h source pixels
 };
 std::map<uint32_t, std::vector<TextCall>> g_texts;    // per gpu_screen
+// antelope.gas scar (mode 2): the shown screen scaled / rotated / dimmed into the one being drawn (a feedback: the
+// melts, the title, Game Over). in_buf: 0 source (cscreen), 1 / 2 width / height, 3 / 4 scale x / y (8:8),
+// 5 angle, 6 / 7 centre x / y (16:16), 8 dest offset (Y:X), 9 delta_i (intensity step, 8.16 in 24 bits).
+struct ScarCall {
+  uint32_t caller = 0, obj = 0;
+  int32_t in[10];
+  uint64_t id = 0;      // one feedback step each
+  uint64_t frame = 0;   // g_frames when captured
+};
+std::map<uint32_t, std::vector<ScarCall>> g_scars;    // per gpu_screen (0 or 1: a scar overwrites the buffer)
+int g_since_scar = 1000;                              // frames since a scar was captured
+uint64_t g_scar_ids = 0;                              // scar calls captured (each one feedback step)
 std::vector<Rect> g_rex_rects;                         // the displayed frame's
 std::vector<Dot> g_dots;                            // the displayed frame's stars
 std::vector<Tri> g_tris;                            // the displayed frame's filled triangles
@@ -343,6 +356,7 @@ int32_t SDiv(int32_t n, uint32_t d) {
 // The draw_vex object routines that use rex (shots, pixel explosions, Excellent, one-up). Others (the title's
 // rexfb, the level-select text) draw over backgrounds we don't capture and stay with the GPU.
 bool RexCaller(uint32_t c) {
+  if (c == 0x807294 || c == 0x803CAA) return true;   // title rexfb, Game Over (over a native scar)
   return (c >= 0x8072CA && c < 0x8073DA) || (c >= 0x8074D4 && c < 0x807544) || (c >= 0x807806 && c < 0x80791C);
 }
 
@@ -439,6 +453,8 @@ bool InView(double x, double y, double w, double h) {
 }
 
 bool g_enabled = true;
+bool g_feedback = true;   // SetFeedback (setting remaster_feedback)
+bool settings_feedback() { return g_feedback; }
 float g_width = 1.5f;   // line width in game pixels (setting remaster_line_width)
 // Effects (SetEffects): bolt core width in game px (0 = the original thin line), glow on / off, particle size scale.
 float g_bolt_width = 2.0f, g_particle = 1.5f;
@@ -468,6 +484,21 @@ bool OnGpurun() {
     CapturePix(int(mode));
     return g_enabled && PlayBuffer(scr);
   }
+  if (mod == kAntelope && mode == 2 && PlayBuffer(scr) && g_enabled && settings_feedback()) {
+    // The whole buffer is overwritten: what was captured for it is gone.
+    g_lists[scr].clear(); g_webs[scr].clear(); g_stars[scr].clear(); g_solids[scr].clear(); g_pix[scr].clear();
+    g_rex[scr].clear(); g_flines[scr].clear(); g_texts[scr].clear();
+    ScarCall c;
+    c.caller = Caller();
+    c.obj = traps::Reg(14);
+    for (int i = 0; i < 10; ++i) c.in[i] = In(i);
+    c.id = ++g_scar_ids;
+    c.frame = g_frames;
+    g_scars[scr] = {c};
+    g_since_clear = 0;
+    g_since_scar = 0;
+    return true;
+  }
   if (mod == kGoat && mode == 2) {
     Capture(true);
     return g_enabled && PlayBuffer(scr);
@@ -495,6 +526,7 @@ bool OnGpurun() {
     g_rex[scr].clear();
     g_flines[scr].clear();
     g_texts[scr].clear();
+    g_scars[scr].clear();
   }
   else if (mode == 2) {
     Capture();
@@ -852,6 +884,7 @@ struct Scene {
   std::vector<RexCall> rex;
   std::vector<FlineCall> fl;
   std::vector<TextCall> text;
+  std::vector<ScarCall> scar;
 };
 Scene g_scene_a, g_scene_b;   // older, newer
 bool g_interp = true;
@@ -974,11 +1007,13 @@ struct CaptureState {
   decltype(g_rex) rex;
   decltype(g_flines) flines;
   decltype(g_texts) texts;
+  decltype(g_scars) scars;
+  int since_scar;
   Scene prev;
   int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_prev_scene, g_web_colour, g_since_clear}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -989,6 +1024,8 @@ void Rewind() {
   g_rex = g_mark.rex;
   g_flines = g_mark.flines;
   g_texts = g_mark.texts;
+  g_scars = g_mark.scars;
+  g_since_scar = g_mark.since_scar;
   g_prev_scene = g_mark.prev;
   g_web_colour = g_mark.web_colour;
   g_since_clear = g_mark.since_clear;
@@ -1008,8 +1045,9 @@ void AfterFrame(bool publish) {
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
   Scene now;
-  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts)};
+  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars)};
   ++g_since_clear;
+  if (g_since_scar < 1000) ++g_since_scar;
   if (publish) {
     // screen3: 384 x 48 CRY words at $50000, shown by the Object Processor over the play area.
     g_hud.width = 384;
@@ -1023,9 +1061,9 @@ void AfterFrame(bool publish) {
     g_scene_b = same ? now : prev;
     static const bool trace = std::getenv("RM_TRACE") != nullptr;   // debug: the published scene's calls
     if (trace) {
-      std::fprintf(stderr, "rmtrace f%llu cs %06X ml %06X vec %zu webs %zu hud %04X %04X\n", (unsigned long long)g_frames, cs, traps::Read32(0xE374),
+      std::fprintf(stderr, "rmtrace f%llu cs %06X ml %06X vec %zu webs %zu hud %04X %04X scar %zu since %d\n", (unsigned long long)g_frames, cs, traps::Read32(0xE374),
                   g_scene_b.vec.size(), g_scene_b.webs.size(), traps::Read16(0xDB7A + 64 + 12),
-                   traps::Read16(0xDB7A + 64 + 14));
+                   traps::Read16(0xDB7A + 64 + 14), g_scene_b.scar.size(), g_since_scar);
       for (auto& c : g_scene_b.vec)
         std::fprintf(stderr, "  vec %06X %06X pos %d %d %d ang %.0f %.0f %.0f n %zu\n", c.caller, c.obj, c.pos[0] >> 16,
                     c.pos[1] >> 16, c.pos[2] >> 16, c.ang[0], c.ang[1], c.ang[2], c.verts.size());
@@ -1068,6 +1106,7 @@ void SetInterpolate(bool on) { g_interp = on; }
 const std::vector<Line>& Lines() { return g_lines; }
 void SetOrigin(float x, float y) { g_ox = x; g_oy = y; }
 void SetEnabled(bool on) { g_enabled = on; }
+void SetFeedback(bool on) { g_feedback = on; }
 void SetLineWidth(float w) { g_width = w; }
 void SetEffects(float bw, bool glow, float particle) {
   g_bolt_width = std::clamp(bw, 0.f, 8.f);
@@ -1183,6 +1222,47 @@ void DumpLines(const std::string& path) {
 }
 
 const host::Frame& Hud() { return g_hud; }
+
+// The buffer about to be shown (cscreen) came from a scar we skipped (recently: a buffer redrawn some other way
+// keeps its old scar entry; paced scars come every few frames, run-ahead counts frames faster).
+bool FeedbackLately() {
+  if (!g_enabled) return false;
+  auto it = g_scars.find(traps::Read32(kCscreen));
+  return it != g_scars.end() && !it->second.empty() && g_frames - it->second.front().frame <= 30;
+}
+
+// The shown scene's scar as a map of the window: for each window corner, where (in window pixels) the dest pixel there
+// samples the last frame. The GPU's set-up: sin / cos from the table as 8:8; t1 = w * xscale << 8, t2 = h * yscale
+// << 8; x1 = t1 cos, y1 = t1 sin, x2 = -t2 sin, y2 = t2 cos (fmult); inc = (x1, y1) / w a dest pixel, (x2, y2) / h a
+// dest row; start = centre - (x1 + x2, y1 + y2) / 2. Dest pixel (u, v) (less the dest offset) reads start + u inc +
+// v row. Returns false when the shown scene has no scar.
+bool ScarMap(const SDL_FRect& dst, unsigned fw, unsigned fh, int ww, int wh, float corners[4][2], float* dim,
+             uint64_t* serial) {
+  if (!g_enabled || g_scene_b.scar.empty() || !fw || !fh) return false;
+  const ScarCall& c = g_scene_b.scar.front();
+  int32_t w = c.in[1] & 0xFFFF, h = c.in[2] & 0xFFFF;
+  if (w <= 0 || h <= 0) return false;
+  int ang = c.in[5] & 0xFF;
+  int32_t sn = g_sines[ang] << 8, cs = g_sines[(ang + 0x40) & 0xFF] << 8;
+  int32_t t1 = int32_t(uint32_t(w * (c.in[3] & 0xFFFF)) << 8), t2 = int32_t(uint32_t(h * (c.in[4] & 0xFFFF)) << 8);
+  int32_t x1 = FMult(t1, cs), y1 = FMult(t1, sn), x2 = -FMult(t2, sn), y2 = FMult(t2, cs);
+  double incx = SDiv(x1, uint32_t(w)), incy = SDiv(y1, uint32_t(w)), rowx = SDiv(x2, uint32_t(h)), rowy = SDiv(y2, uint32_t(h));
+  double sx0 = c.in[6] - (x1 >> 1) - (x2 >> 1), sy0 = c.in[7] - (y1 >> 1) - (y2 >> 1);
+  int offx = Low16(c.in[8]), offy = Low16(c.in[8] >> 16);
+  const float px = dst.w / float(fw), py = dst.h / float(fh);
+  const float wx[4] = {0, float(ww), 0, float(ww)}, wy[4] = {0, 0, float(wh), float(wh)};
+  for (int k = 0; k < 4; ++k) {
+    double u = (wx[k] - dst.x) / px - g_ox - offx, v = (wy[k] - dst.y) / py - g_oy - offy;   // dest, GPU pixels
+    double gx = (sx0 + u * incx + v * rowx) / 65536.0, gy = (sy0 + u * incy + v * rowy) / 65536.0;
+    corners[k][0] = float(dst.x + (gx + g_ox) * px);
+    corners[k][1] = float(dst.y + (gy + g_oy) * py);
+  }
+  int32_t di = int32_t(uint32_t(c.in[9]) << 8) >> 8;   // 24-bit signed
+  *dim = di < 0 ? float(-di / 65536.0 / 255.0) : 0.f;
+  *serial = c.id;
+  return true;
+}
+
 
 std::string Stats() {
   char b[256];
