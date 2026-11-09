@@ -312,6 +312,14 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   bit 2), every start level (t2k_max / trad_max = 98), and an action: warp after this level (warpy $E8C4 = -1).
   Owner's state before a warp: logs/prewarp.state.
 
+## Step 15 (2026-11-09): text and the remaining screens
+- g_ours_bg per buffer (a GPU clear, a scar or a ripple we took over): texter from any caller (no drop shadow) is
+  ours there (PRESS FIRE, level select, Top Guns table, pause, bonus text). Separate from g_taken (which hides stale
+  buffers): play buffers stay shown.
+- Pause and game options screens were already all ours (play scene / ripple + text). High-score entry: xcamel 4 =
+  a 2D rex (the texter's maths for one sprite, in_buf 8 / 9 = screen x / y): captured as a one-glyph TextCall where
+  the background is ours (the scrolling stretched letters). State: logs/hiscore.state.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

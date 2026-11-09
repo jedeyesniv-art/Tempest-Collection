@@ -203,6 +203,9 @@ std::map<uint32_t, std::vector<PolyCall>> g_polys;       // per gpu_screen
 // Per buffer: g_frames of its last full overwrite we drew ourselves (scar, ripple) / -1: anything drawn in it after
 // that (text) can be ours too, and the buffer itself is stale while it is shown.
 std::map<uint32_t, uint64_t> g_taken;
+// Per buffer: its background is ours (since a GPU clear, a scar or a ripple we took over): text drawn into it can be
+// ours too (it would vanish under a background we don't draw). Unlike g_taken, the buffer itself is shown.
+std::map<uint32_t, bool> g_ours_bg;
 std::map<uint32_t, std::vector<PlaneCall>> g_planes;  // per gpu_screen
 uint64_t g_scar_ids = 0;                              // scar calls captured (each one feedback step)
 std::vector<Rect> g_rex_rects;                         // the displayed frame's
@@ -450,9 +453,9 @@ constexpr uint32_t kMsgCaller1 = 0x80DC2E, kMsgCaller2 = 0x80DC98;
 bool CaptureText() {
   TextCall t;
   t.caller = Caller();
-  // drawmsg always; other text where the buffer's background is ours (after a scar / ripple we drew).
+  // drawmsg always; other text where the buffer's background is ours (after a clear / scar / ripple).
   uint32_t scr0 = traps::Read32(kGpuScreen);
-  bool ours = g_taken.count(scr0) && g_taken[scr0] != uint64_t(-1);
+  bool ours = g_ours_bg[scr0];
   if (t.caller != kMsgCaller1 && t.caller != kMsgCaller2 && !ours) return false;
   t.obj = traps::Reg(14);
   for (int i = 0; i < 10; ++i) t.in[i] = In(i);
@@ -548,6 +551,7 @@ bool OnGpurun() {
     c.px = cache;
     g_ripples[scr] = {c};
     g_taken[scr] = g_frames;
+    g_ours_bg[scr] = true;
     g_since_clear = 0;
     return true;
   }
@@ -597,6 +601,7 @@ bool OnGpurun() {
     c.frame = g_frames;
     g_scars[scr] = {c};
     g_taken[scr] = g_frames;
+    g_ours_bg[scr] = true;
     g_polys[scr].clear();
     g_ripples[scr].clear();
     g_since_clear = 0;
@@ -610,6 +615,28 @@ bool OnGpurun() {
   if (mod == kStoat) {
     if (!CaptureText()) return false;
     return g_enabled && PlayBuffer(scr);
+  }
+  // xcamel rex (mode 4; the high-score letters): camel's rex in 2D - in_buf 0 sheet, 1 start pixel, 2 size, 3-6
+  // scale / shear, 8 / 9 destination x / y - the texter's maths for one glyph: drawn as a one-glyph TextCall.
+  if (mod == kXcamel && mode == 4 && PlayBuffer(scr) && g_ours_bg[scr]) {
+    TextCall t;
+    t.caller = Caller();
+    t.obj = traps::Reg(14);
+    uint32_t base = uint32_t(In(0)) & 0xFFFFFF, sp = uint32_t(In(1)), size = uint32_t(In(2));
+    t.w = int(size & 0xFFFF);
+    t.h = int(size >> 16);
+    if (t.w <= 0 || t.h <= 0 || t.w > 320 || t.h > 280) return false;
+    for (int i = 0; i < 10; ++i) t.in[i] = 0;
+    for (int i = 0; i < 4; ++i) t.in[4 + i] = In(3 + i);
+    t.in[8] = int32_t((uint32_t(In(9)) << 16) | (uint32_t(In(8)) & 0xFFFF));
+    int sx = int(sp & 0xFFFF), sy = int(sp >> 16);
+    std::vector<uint16_t> g(size_t(t.w) * t.h);
+    for (int j = 0; j < t.h; ++j)
+      for (int i = 0; i < t.w; ++i) g[size_t(j) * t.w + i] = traps::Read16(base + uint32_t(((sy + j) * 320 + sx + i) * 2));
+    t.text = "x";
+    t.glyphs.push_back(std::move(g));
+    g_texts[scr].push_back(std::move(t));
+    return g_enabled;
   }
   if (mod == kOx && mode == 4 && Caller() != 0x806276) {
     // ($806276, the psycho bonus round: on the original its sphere never shows - no such pixels in its frames - for a
@@ -701,6 +728,7 @@ bool OnGpurun() {
     g_segs[scr].clear();
     g_spheres[scr].clear();
     g_taken[scr] = uint64_t(-1);
+    g_ours_bg[scr] = true;
   }
   else if (mode == 2) {
     Capture();
@@ -1358,12 +1386,13 @@ struct CaptureState {
   decltype(g_spheres) spheres;
   decltype(g_polys) polys;
   decltype(g_taken) taken;
+  decltype(g_ours_bg) ours_bg;
   int since_scar;
   Scene prev;
   int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_ripples, g_m7s, g_voos, g_segs, g_spheres, g_polys, g_taken, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_ripples, g_m7s, g_voos, g_segs, g_spheres, g_polys, g_taken, g_ours_bg, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -1383,6 +1412,7 @@ void Rewind() {
   g_spheres = g_mark.spheres;
   g_polys = g_mark.polys;
   g_taken = g_mark.taken;
+  g_ours_bg = g_mark.ours_bg;
   g_since_scar = g_mark.since_scar;
   g_prev_scene = g_mark.prev;
   g_web_colour = g_mark.web_colour;
