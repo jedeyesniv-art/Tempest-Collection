@@ -94,19 +94,18 @@ classifier (downloaded code) - ask the owner before trying again.
   aspect ratio (Hor+ / Vert+, HUD to the window corners). Details: REMASTER.md steps 2-6.
 - Owner 2026-11-09: smooth motion + run-ahead "look and feel incredible"; asked for any aspect ratio (done).
 
-## To do next (owner to pick the order tonight)
-1. DONE 2026-11-09: dash lattice = drawmsg zoom text (REMASTER.md step 9); yellow warp lane lines fixed (vect3d list end).
-2. DONE 2026-11-09: Superzapper lightning (ox fline, REMASTER.md step 7). Left: ox / horse psphere, ox starseg; survey
-   with --gpulog over a game with zaps, deaths and power-ups.
-3. DONE 2026-11-09: HUD layer from screen3 + sharp-bilinear picture (REMASTER.md step 10). Option: a pixel-art
-   upscaler (xBR-style) for the HUD / text if the owner wants smoother than crisp pixels.
-4. DONE 2026-11-09: 2-player team / Duel checked (REMASTER.md step 12). Goat vect3d (Duel webs) native too.
-5. Unseen in tests: the "Excellent" and one-up rex graphics (code covers them) - ask the owner for a save state.
-6. Menu items for run_ahead (0-4) and hud_corners; remember the window size / position.
-7. Interpolation polish: a scene that didn't change (game slowdown, no buffer swap) still steps; objects drawn with
-   several calls per a6 match by occurrence only.
-8. DONE 2026-11-09: title, melts, Game Over, credits, Top Guns, mode select native (REMASTER.md step 13). Left:
-   the options screens (stoat modes 1 / 2 elsewhere), Defender 2000.
+## To do (refreshed 2026-11-09 evening; done items are in REMASTER.md steps 7-14)
+1. Text over our own backgrounds: texter (centext $8040EA etc.) is only taken over after a scar / ripple; treating
+   a llama clear as "our background" would make PRESS FIRE, level-select messages, pause text native.
+2. Remaining static screens: game options (Option on game select), high-score name entry, pause screen.
+3. Interpolation polish: feedback steps (melt / title / Game Over / psycho) not blended between steps; a scene that
+   didn't change (slowdown) still steps; objects drawn with several calls per a6 match by occurrence only.
+4. Unseen in tests: "Excellent" / one-up graphics, the AI droid's zap, Beastly mode (cheat_beastly unlocks it now).
+5. QoL: remember the window size / position; menu items for run_ahead (0-4) and hud_corners.
+6. Performance: 4K with CRT++; a low-end GPU (Steam Deck class) if that's a target.
+7. Open questions: the psycho bonus sphere invisible on the original (left to the GPU); the owner's "offset ghost
+   image of the UI" (not reproduced; ceiling bonus mfudj merge 8 lines low is a candidate).
+8. Then Defender 2000.
 - Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).
 
