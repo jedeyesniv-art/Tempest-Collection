@@ -99,6 +99,12 @@ std::vector<Item> Items() {
   num("Particle size (x original)", "remaster_particle_size", 0.5, 3.0, 0.1, "%.1f", 1.5);
   num("Lightning width (0 = original)", "remaster_bolt_width", 0.0, 5.0, 0.25, "%.2f", 2.0);
   choice("Lightning glow", "remaster_bolt_glow", {"1", "0"}, {"On", "Off"});
+  header("CHEATS");
+  choice("Keypad cheats (Option skips a level, 6 warps)", "cheat_keys", {"0", "1"}, {"Off", "On"});
+  choice("Infinite Superzapper", "cheat_inf_zap", {"0", "1"}, {"Off", "On"});
+  choice("Unlock Beastly mode", "cheat_beastly", {"0", "1"}, {"Off", "On"});
+  choice("Unlock every start level", "cheat_levels", {"0", "1"}, {"Off", "On"});
+  button("Warp to a bonus round after this level", Action::CheatWarp);
   header("CRT (F9 cycles the look)");
   choice("CRT look", "crt", {"0", "1", "2"}, {"Off", "CRT+", "CRT++ (trails, bleed, glow)"});
   auto c = [&](const char* l, const char* k, double lo, double hi, double st, const char* f, double d) {

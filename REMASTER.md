@@ -285,6 +285,14 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   scale rippled by the sine table, SRCSHADE intensity by z). TODO: port mode7 natively (extend past 4:3), then look
   at the owner's "offset ghost image of the UI" there; then _tunn and m7test2 (psycho: scar + psphere).
 
+- HUD corners by content (owner: six lives / the warp pyramids were cut): screen3's lit columns split into clusters
+  (16+ empty columns between them), each drawn whole to the nearer top corner (replaces the fixed 184 / 284 zones and
+  the head-to-head special case). Play-buffer skip range now covers 384 x 280 (screensize $34800).
+- Cheats (menu CHEATS, settings cheat_*, held before each frame in t2k::BeforeFrame): keypad cheats (chenable
+  $EAA4: Option skips a level, keypad 6 warps), infinite Superzapper (inf_zap $E9C6), Beastly mode (sysflags $80B0
+  bit 2), every start level (t2k_max / trad_max = 98), and an action: warp after this level (warpy $E8C4 = -1).
+  Owner's state before a warp: logs/prewarp.state.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

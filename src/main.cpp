@@ -555,6 +555,10 @@ int main(int argc, char** argv) {
       switch (menu::Update(nav, now)) {
         case menu::Action::Quit: running = false; break;
         case menu::Action::ToggleMusic: music_frames = 4; break;
+        case menu::Action::CheatWarp:
+          t2k::CheatWarp();
+          menu::Toast("Warp after this level", now);
+          break;
         case menu::Action::ToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
         case menu::Action::ReturnToTitle:
           t2k::ReturnToTitle();
@@ -632,7 +636,7 @@ int main(int argc, char** argv) {
       remaster::SetFeedback(settings::Num("remaster_feedback", 1) != 0);
       const bool fb = !native && remaster::FeedbackLately();
       vjOPSkip2Lo = fb ? 0x100000u : 0;
-      vjOPSkip2Hi = fb ? 0x134800u + 384u * 240u * 2u : 0;
+      vjOPSkip2Hi = fb ? 0x134800u + 0x34800u : 0;   // (screensize: 384 x 280 words)
     }
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
@@ -846,17 +850,28 @@ int main(int argc, char** argv) {
       blit(pic_sharp, tex, nullptr, &dst);
       if (hud_layer && hudtex) {
         const float sx = dst.w / float(fr.width), sy = dst.h / float(fr.height);
-        // screen3 x: one player: score / lives | centre | icon; head to head (32 rows): player 1 | player 2.
-        const bool h2h = t2k::HudRows() == 32;
-        const float left = h2h ? 186 : 184, right = h2h ? 186 : 284;
+        // The strip's content in clusters (columns with pixels, gaps of 16+ empty columns between them), each to
+        // the nearer top corner whole: score / lives (however many lives) left, the warp pyramids right; head to
+        // head, player 1 left and player 2 right. (Fixed zones cut a long lives row and the pyramids in two.)
+        std::vector<bool> lit(384, false);
+        for (int hy = 0; hy < hud_h; ++hy)
+          for (int hx = 0; hx < 384 && hx < int(hud.width); ++hx)
+            if (hud.pixels[size_t(hy) * hud.width + hx]) lit[hx] = true;
         auto part = [&](float x0, float x1, float dx, float dy) {
           SDL_FRect s{x0, 0, x1 - x0, float(hud_h)};
           SDL_FRect d{dst.x + (x0 + kHudX) * sx + dx, dst.y + kHudY * sy + dy, (x1 - x0) * sx, hud_h * sy};
           blit(hud_sharp, hudtex, &s, &d);
         };
-        part(0, left, -dst.x, -dst.y);
-        if (right > left) part(left, right, 0, 0);
-        part(right, 384, dst.x, -dst.y);
+        for (int x = 0; x < 384;) {
+          if (!lit[x]) { ++x; continue; }
+          int x0 = x, x1 = x, gap = 0;
+          for (; x < 384 && gap < 16; ++x) {
+            if (lit[x]) x1 = x, gap = 0;
+            else ++gap;
+          }
+          bool left = (x0 + x1) / 2 < 192;
+          part(float(std::max(0, x0 - 2)), float(std::min(384, x1 + 3)), left ? -dst.x : dst.x, -dst.y);
+        }
       }
       if (!scar_scene) {   // the feedback starts from what was shown last
         SDL_SetRenderTarget(ren, fb_last);

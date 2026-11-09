@@ -29,6 +29,9 @@ bool Demo();
 // h2hin) and the main loop draws with draw_objects (level select uses draw_oo with the same strip; the title and
 // menu screens set other types; mainloop_routine is never reset after a game, so it can't decide alone).
 bool HudShown();
+// Cheat: warp (a bonus round) at the end of the current level. The other cheats are settings cheat_* held in
+// BeforeFrame: cheat_keys (keypad: Option skips a level, 6 warps), cheat_inf_zap, cheat_beastly, cheat_levels.
+void CheatWarp();
 // Rows of the HUD strip in use: 48 (one player), 32 (head to head).
 int HudRows();
 // Screens where input latency matters (play, the demo, level select): run-ahead is used only there. The menu

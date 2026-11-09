@@ -35,6 +35,13 @@ constexpr uint32_t kMainloopRoutine = 0xE374;
 constexpr uint32_t kDrawObjects = 0x80F05E;
 constexpr uint32_t kDrawOo = 0x802E26;       // level select's main loop routine
 constexpr uint32_t kHudObject = 0xDB7A + 64;   // beasties+64: 14(a0) ObType, 16(a0) screen3
+// Cheats (menu CHEATS; RAM flags held before each frame).
+constexpr uint32_t kChenable = 0xEAA4;  // keypad cheats (normally keypad 1+4+7+A on game select)
+constexpr uint32_t kInfZap = 0xE9C6;    // infinite Superzapper (cleared at every game start)
+constexpr uint32_t kSysflags = 0x80B0;  // byte: bit 2 = Beastly mode earned
+constexpr uint32_t kT2kMax = 0xE9EE;    // highest start level reached, Tempest 2000 / Traditional
+constexpr uint32_t kTradMax = 0xE9F2;
+constexpr uint32_t kWarpy = 0xE8C4;     // power-ups still needed to warp; -1 = warp at the end of this level
 constexpr uint32_t kView = 0xE350;      // camera view 0..2 (keypad 1/4/7, 2/5/8, 3/6/9)
 
 constexpr uint32_t kZ = 0xE9B0;         // "stop whatever you are doing and reset" (checkpause)
@@ -307,6 +314,8 @@ bool LatencyMatters() {
 
 int HudRows() { return g_installed && R16(kHudObject + 14) == 7 ? 32 : 48; }
 
+void CheatWarp() { if (g_installed) W16(kWarpy, 0xFFFF); }
+
 bool HudShown() {
   if (!g_installed || R32(kMainloopRoutine) != kDrawObjects) return false;
   uint16_t type = R16(kHudObject + 14);
@@ -333,6 +342,13 @@ void ReturnToTitle() {
 
 void BeforeFrame(const Pad& pad) {
   if (!g_installed) return;
+  if (settings::Num("cheat_keys", 0) != 0) W16(kChenable, 1);
+  if (settings::Num("cheat_inf_zap", 0) != 0) W16(kInfZap, 1);
+  if (settings::Num("cheat_beastly", 0) != 0) jagMemSpace[kSysflags] |= 4;
+  if (settings::Num("cheat_levels", 0) != 0) {
+    if (R16(kT2kMax) < 98) W16(kT2kMax, 98);
+    if (R16(kTradMax) < 98) W16(kTradMax, 98);
+  }
   uint32_t claw = R32(kPortClaw);
   bool aim = settings::Str("stick_mode", "lr") == "aim";
   double v = 0;

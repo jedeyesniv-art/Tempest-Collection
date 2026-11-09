@@ -14,7 +14,7 @@ struct Nav {            // this frame's menu input (held state; edges are found 
 };
 
 enum class Action {
-  None, Close, Quit, ToggleMusic, ToggleFullscreen, ReturnToTitle, SaveState, LoadState
+  None, Close, Quit, ToggleMusic, ToggleFullscreen, ReturnToTitle, SaveState, LoadState, CheatWarp
 };
 
 bool IsOpen();
