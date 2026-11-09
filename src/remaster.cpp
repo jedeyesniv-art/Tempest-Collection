@@ -183,6 +183,21 @@ struct M7Call {
   std::shared_ptr<const std::vector<uint32_t>> px;   // 640 x 256 ARGB: the image and its mirror (tiles seamlessly)
 };
 std::map<uint32_t, std::vector<M7Call>> g_m7s;           // per gpu_screen
+// ox.gas voo (mode 3; the tunnel bonus): a cloud of points (word count, then x y z words), each scaled per axis,
+// turned in x / y, << 6 (x, y) / << 14 (z), + position, projected (z >> 14 + 1, / z >> 7, + 191 / 119) and
+// plotted as a 2 x 2 pixel of colour with intensity 255 - ((z >> 2) & 255). in_buf: 0 points, 1 / 2 / 3 position,
+// 4 / 5 / 6 scale, 7 colour, 8 angle.
+struct VooCall { uint32_t caller = 0, obj = 0; int32_t in[9]; std::vector<Vec3i> pts; };
+std::map<uint32_t, std::vector<VooCall>> g_voos;         // per gpu_screen
+// ox.gas starseg (mode 2; the tunnel bonus's tunnel): 64 rings from a circular buffer of 16-byte entries (phase,
+// -, -, radius; then three arcs: phase, pixel count, colour, track offset), from z = 550 nearer by 8 a ring, intensity
+// $40 + 3 a ring. in_buf: 0 buffer, 1 global phase, 2 buffer index (16:16), 3 / 4 centre x / y. See BuildStarseg.
+struct SegCall { uint32_t caller = 0, obj = 0; int32_t in[5]; std::vector<uint8_t> buf; };
+std::map<uint32_t, std::vector<SegCall>> g_segs;         // per gpu_screen
+// ox.gas psphere (mode 4; drawsphere in play, the psycho bonus, firework explosions): yzcount rings of xycount
+// single pixels. in_buf: 0-2 x y z, 3 radius, 4 xy phase, 5 yz phase, 6 / 7 counts, 8 / 9 steps, 10 colour, 11 i.
+struct SphereCall { uint32_t caller = 0, obj = 0; int32_t in[12]; };
+std::map<uint32_t, std::vector<SphereCall>> g_spheres;   // per gpu_screen
 std::map<uint32_t, std::vector<RippleCall>> g_ripples;   // per gpu_screen
 std::map<uint32_t, std::vector<PolyCall>> g_polys;       // per gpu_screen
 // Per buffer: g_frames of its last full overwrite we drew ourselves (scar, ripple) / -1: anything drawn in it after
@@ -596,6 +611,39 @@ bool OnGpurun() {
     if (!CaptureText()) return false;
     return g_enabled && PlayBuffer(scr);
   }
+  if (mod == kOx && mode == 4) {
+    SphereCall c;
+    c.caller = Caller();
+    c.obj = traps::Reg(14);
+    for (int i = 0; i < 12; ++i) c.in[i] = In(i);
+    g_spheres[scr].push_back(c);
+    return g_enabled && PlayBuffer(scr);
+  }
+  if (mod == kOx && mode == 2) {
+    SegCall c;
+    c.caller = Caller();
+    c.obj = traps::Reg(14);
+    for (int i = 0; i < 5; ++i) c.in[i] = In(i);
+    uint32_t b = uint32_t(c.in[0]) & 0xFFFFFF;
+    c.buf.resize(64 * 16);
+    for (uint32_t k = 0; k < 64 * 16; ++k) c.buf[k] = traps::Read8(b + k);
+    g_segs[scr].push_back(std::move(c));
+    return g_enabled && PlayBuffer(scr);
+  }
+  if (mod == kOx && mode == 3) {
+    VooCall c;
+    c.caller = Caller();
+    c.obj = traps::Reg(14);
+    for (int i = 0; i < 9; ++i) c.in[i] = In(i);
+    uint32_t p = uint32_t(c.in[0]) & 0xFFFFFF;
+    int n = std::clamp(int(traps::Read16(p)), 0, 4096);
+    p += 2;
+    c.pts.resize(size_t(n));
+    for (int k = 0; k < n; ++k, p += 6)
+      c.pts[size_t(k)] = {int16_t(traps::Read16(p)), int16_t(traps::Read16(p + 2)), int16_t(traps::Read16(p + 4))};
+    g_voos[scr].push_back(std::move(c));
+    return g_enabled && PlayBuffer(scr);
+  }
   if (mod == kOx && mode == 1) {
     M7Call c;
     c.caller = Caller();
@@ -646,6 +694,9 @@ bool OnGpurun() {
     g_ripples[scr].clear();
     g_polys[scr].clear();
     g_m7s[scr].clear();
+    g_voos[scr].clear();
+    g_segs[scr].clear();
+    g_spheres[scr].clear();
     g_taken[scr] = uint64_t(-1);
   }
   else if (mode == 2) {
@@ -986,6 +1037,74 @@ void BuildPoly(const PolyCall& c, std::vector<Tri>& out) {
   out.push_back(t);
 }
 
+// starseg: per ring, centre and radius (signed byte << 16) / z >> 7 (+ 192 / 120); per arc, the arc spans
+// sine[phase] (the unsigned table byte) brads centred on ring phase + global phase (+ track offset), segamp + 1
+// pixels; pixel = centre + (radius * sine) >> 8, (radius * cosine) >> 8, colour << 8 | intensity.
+void BuildStarseg(const SegCall& c, std::vector<Dot>& out) {
+  auto su = [](int a) { return g_sines[a & 0xFF] + 128; };   // the unsigned table byte
+  int ringz = 550, inti = 0x40;
+  int ptr = (c.in[2] >> 16) & 0xFFFF;
+  double gph = c.in[1] / (c.in[1] > 0xFFFFFF ? 65536.0 : 1.0);   // (lerped: 16:16)
+  for (int r = 0; r < 64; ++r, ringz -= 8, --ptr, inti += 3) {
+    const uint8_t* e = &c.buf[size_t((ptr & 63) << 4)];
+    double rph = e[0] + gph;
+    int32_t radius = int32_t(int8_t(e[3])) << 16;
+    double cx = c.in[3] / double(ringz) / 128.0 + 192, cy = c.in[4] / double(ringz) / 128.0 + 120;
+    double rad = radius / double(ringz) / 128.0;
+    for (int sgm = 0; sgm < 3; ++sgm) {
+      const uint8_t* q = e + 4 + sgm * 4;
+      int amp = q[1] + 1, arc = su(q[0]);
+      double sp = rph - arc / 2 + q[3];
+      double step = double(arc) / amp;
+      uint32_t col = CRY16ToRGB32[(q[2] << 8) | std::min(inti, 255)] & 0xFFFFFF;
+      for (int k = 0; k < amp; ++k, sp += step) {
+        double x = rad * SinT(sp) / 256.0 + cx, y = rad * SinT(sp + 0x40) / 256.0 + cy;
+        if (!InView(x, y, 384, 240)) continue;
+        out.push_back({float(x + 0.5), float(y + 0.5), col, 1.f});
+      }
+    }
+  }
+}
+
+// psphere, per ring b (yz phase + b * yz step) and pixel a: the arc point sine / cosine (signed table bytes) of the
+// xy phase * radius; x = s * cos(yz), z = -s * sin(yz), y = c << 7; + position; projected (z >> 14 + 1, / z >> 7,
+// + 191 / 119); intensity (255 - ((z >> 4) & 255)) * i >> 8. The xy phase steps twice a pixel (the original adds the
+// step at the top of the loop and again at its end).
+void BuildSphere(const SphereCall& c, std::vector<Dot>& out) {
+  int xyc = std::clamp(c.in[6], 0, 1024), yzc = std::clamp(c.in[7], 0, 256);
+  double yzp = c.in[5] & 0xFF;
+  for (int b = 0; b < yzc; ++b, yzp += c.in[9]) {
+    double sz = -SinT(yzp), cz = SinT(yzp + 0x40);
+    double xyp = c.in[4] & 0xFF;
+    for (int a = 0; a < xyc; ++a, xyp += 2.0 * c.in[8]) {
+      double s = SinT(xyp) * Low16(c.in[3]), co = SinT(xyp + 0x40) * Low16(c.in[3]);
+      double x = s * cz + c.in[0], z = s * sz + c.in[2], y = co * 128 + c.in[1];
+      if (z < 0) continue;
+      double zi = std::floor(z / 16384.0) + 1;
+      double px = x / zi / 128.0 + 191, py = y / zi / 128.0 + 119;
+      if (!InView(px, py, 383, 239)) continue;
+      int i = ((255 - ((int(zi) >> 4) & 255)) * (c.in[11] & 0xFFFF)) >> 8;
+      out.push_back({float(px + 0.5), float(py + 0.5), CRY16ToRGB32[((c.in[10] & 0xFF) << 8) | std::clamp(i, 0, 255)] & 0xFFFFFF, 1.f});
+    }
+  }
+}
+
+void BuildVoo(const VooCall& c, std::vector<Dot>& out) {
+  double sn = SinT(c.in[8] & 0xFF), cs = SinT((c.in[8] & 0xFF) + 0x40);
+  if (c.in[8] != (c.in[8] & 0xFF)) sn = SinT(c.in[8] / 65536.0), cs = SinT(c.in[8] / 65536.0 + 0x40);   // (lerped)
+  for (const Vec3i& p : c.pts) {
+    double x = double(p.x) * Low16(c.in[4]), y = double(p.y) * Low16(c.in[5]), z = double(p.z) * Low16(c.in[6]);
+    double rx = x * cs + y * sn, ry = -x * sn + y * cs;
+    double X = rx * 64 + c.in[1], Y = ry * 64 + c.in[2], Z = z * 16384 + c.in[3];
+    if (Z < 0) continue;
+    double zi = std::floor(Z / 16384.0) + 1;
+    double sx = X / zi / 128.0 + 191, sy = Y / zi / 128.0 + 119;
+    if (!InView(sx, sy, 382, 238)) continue;
+    int i = 255 - ((int(zi) >> 2) & 255);
+    out.push_back({float(sx + 1), float(sy + 1), CRY16ToRGB32[((c.in[7] & 0xFF) << 8) | i] & 0xFFFFFF, 2.f});
+  }
+}
+
 void BuildLines(const VecCall& c, std::vector<Line>& out) {
   int n = int(c.verts.size());
   std::vector<Pt> pts(n);
@@ -1043,6 +1162,9 @@ struct Scene {
   std::vector<RippleCall> ripple;
   std::vector<PolyCall> poly;
   std::vector<M7Call> m7;
+  std::vector<VooCall> voo;
+  std::vector<SegCall> seg;
+  std::vector<SphereCall> sphere;
 };
 Scene g_scene_a, g_scene_b;   // older, newer
 bool g_interp = true;
@@ -1132,6 +1254,32 @@ bool LerpPlane(const PlaneCall& a, PlaneCall& c, double t) {
   return true;
 }
 
+bool LerpSphere(const SphereCall& a, SphereCall& c, double t) {
+  if (!Near(a.in, c.in) || a.in[6] != c.in[6] || a.in[7] != c.in[7]) return false;
+  for (int i = 0; i < 4; ++i) c.in[i] = LerpI(a.in[i], c.in[i], t);
+  return true;
+}
+
+bool LerpSeg(const SegCall& a, SegCall& c, double t) {
+  if (a.in[2] != c.in[2] || a.buf != c.buf) return false;   // a new ring set: no blend
+  double d = double(c.in[1] - a.in[1]);
+  if (std::fabs(d) > 64) return false;
+  c.in[1] = int32_t((a.in[1] + d * t) * 65536.0) | 0x1000000;   // 16:16 (BuildStarseg reads it so)
+  c.in[3] = LerpI(a.in[3], c.in[3], t);
+  c.in[4] = LerpI(a.in[4], c.in[4], t);
+  return true;
+}
+
+bool LerpVoo(const VooCall& a, VooCall& c, double t) {
+  if (a.pts.size() != c.pts.size() || !Near(a.in + 1, c.in + 1)) return false;
+  for (int i = 1; i < 4; ++i) c.in[i] = LerpI(a.in[i], c.in[i], t);
+  // the angle as 16:16 brads (BuildVoo reads it fractionally)
+  double an = LerpAng(a.in[8] & 0xFF, c.in[8] & 0xFF, t);
+  if (an < 0) an += 256;
+  c.in[8] = int32_t(an * 65536.0) | 0x1000000;   // (marks it as 16:16: any value above $FF)
+  return true;
+}
+
 bool LerpM7(const M7Call& a, M7Call& c, double t) {
   if (a.src != c.src || (a.in[3] < 0) != (c.in[3] < 0)) return false;
   // row offset: grnd wraps at 512 lines
@@ -1201,6 +1349,9 @@ struct CaptureState {
   decltype(g_planes) planes;
   decltype(g_ripples) ripples;
   decltype(g_m7s) m7s;
+  decltype(g_voos) voos;
+  decltype(g_segs) segs;
+  decltype(g_spheres) spheres;
   decltype(g_polys) polys;
   decltype(g_taken) taken;
   int since_scar;
@@ -1208,7 +1359,7 @@ struct CaptureState {
   int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_ripples, g_m7s, g_polys, g_taken, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_ripples, g_m7s, g_voos, g_segs, g_spheres, g_polys, g_taken, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -1223,6 +1374,9 @@ void Rewind() {
   g_planes = g_mark.planes;
   g_ripples = g_mark.ripples;
   g_m7s = g_mark.m7s;
+  g_voos = g_mark.voos;
+  g_segs = g_mark.segs;
+  g_spheres = g_mark.spheres;
   g_polys = g_mark.polys;
   g_taken = g_mark.taken;
   g_since_scar = g_mark.since_scar;
@@ -1245,7 +1399,7 @@ void AfterFrame(bool publish) {
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
   Scene now;
-  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars), get(g_planes), get(g_ripples), get(g_polys), get(g_m7s)};
+  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars), get(g_planes), get(g_ripples), get(g_polys), get(g_m7s), get(g_voos), get(g_segs), get(g_spheres)};
   ++g_since_clear;
   if (g_since_scar < 1000) ++g_since_scar;
   if (publish) {
@@ -1293,6 +1447,9 @@ void Interpolate(float tf) {
   const Scene &a = g_scene_a, &b = g_scene_b;
   Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
   Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
+  Each(a.voo, b.voo, t, LerpVoo, [](const VooCall& c) { BuildVoo(c, g_pix_dots); });
+  Each(a.seg, b.seg, t, LerpSeg, [](const SegCall& c) { BuildStarseg(c, g_pix_dots); });
+  Each(a.sphere, b.sphere, t, LerpSphere, [](const SphereCall& c) { BuildSphere(c, g_pix_dots); });
   g_m7_shown.clear();
   Each(a.m7, b.m7, t, LerpM7, [](const M7Call& c) { g_m7_shown.push_back(c); });
   g_ripple_shown.clear();

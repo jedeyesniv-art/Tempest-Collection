@@ -290,7 +290,12 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   colour + 4 taps along the row; far lines fade into the horizon over the last 30% of the depth). scroll / row /
   ripple interpolated. Bonus states: logs/bonus.state (ceiling), logs/bonus16.state (tunnel), logs/bonus32.state
   (psycho); headless --poke=F:hexaddr:hexword (cweb $AA2A picks the type: 16 tunnel, 32 psycho).
-- Tunnel bonus: ox 3 (voo, ~10 a frame), ox 2 starseg, donky 1 starplane (ours), text: tunnel still emulated (4:3).
+- Tunnel bonus native: ox 3 voo (BuildVoo: point clouds, scale / turn / << 6, 2x2 pixels, depth intensity) and ox 2
+  starseg (BuildStarseg: 64 rings from the captured 64 x 16-byte ring buffer, 3 arcs each, z 550 - 8 a ring, intensity
+  $40 + 3 a ring). Same run matches the GPU; run-ahead consistent; fills wide windows.
+- ox 4 psphere ported (BuildSphere; note the xy phase steps twice a pixel): drawsphere in play, the psycho bonus,
+  firework explosions. The psycho bonus (scar with delta_i $FF0000 = -1 a pass: the dim sphere builds a glowing trail)
+  only checks in the window (headless RM_NOSKIP leaves the scar to the GPU and the scene goes stale).
   Psycho: antelope scar $8061B8 (ours), ox 4 psphere, xcamel 6. No UI ghost found in any of the three (ours or
   the original); the ceiling bonus sets mfudj, which merges screen3 8 lines low at its fade (a possible source).
 
