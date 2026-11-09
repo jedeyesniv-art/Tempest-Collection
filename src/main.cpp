@@ -5,6 +5,7 @@
 //     --shot=F:<file.bmp>                 save the frame after frame F (repeatable)
 //     --press=F:<btn>[:len]               hold a RetroPad button from frame F (default 6 frames)
 //     --wav=<file.wav>                    dump the audio
+//     --aspect=W:H                        rmshots that shape: 4:3 picture centred, remaster around it
 //     --runahead=N                        run-ahead N frames (shots / rmshots show frame f + N)
 //     --opt=key=value                     set a core option
 //     --userdata=<dir>                    save folder (default userdata)
@@ -262,7 +263,9 @@ int main(int argc, char** argv) {
   std::string save_file, load_file, gpulog_spec, start_state, winshot_file;
   int winshot_at = -1;
   std::vector<Shot> rmshots;
-  int runahead = 0;   // --runahead=N (headless; the window uses setting run_ahead)
+  int runahead = 0;
+  int win_w = 1280, win_h = 960;   // --winsize=WxH
+  double aspect = 0;  // --aspect=W:H (headless rmshots: the 4:3 picture centred, our layer filling the rest)   // --runahead=N (headless; the window uses setting run_ahead)
   int rm_scale = 4;
   std::string pause_line = "press y to quit to title";
   std::vector<std::pair<std::string, std::string>> opts;
@@ -272,6 +275,14 @@ int main(int argc, char** argv) {
     if (a == "--headless") headless = true;
     else if (a.rfind("--frames=", 0) == 0) frames = std::atoi(val("--frames=").c_str());
     else if (a.rfind("--runahead=", 0) == 0) runahead = std::atoi(val("--runahead=").c_str());
+    else if (a.rfind("--winsize=", 0) == 0) {
+      auto v = val("--winsize="); auto c = v.find('x');
+      win_w = std::atoi(v.substr(0, c).c_str());
+      win_h = std::atoi(v.substr(c + 1).c_str());
+    } else if (a.rfind("--aspect=", 0) == 0) {
+      auto v = val("--aspect="); auto c = v.find(':');
+      aspect = std::atof(v.substr(0, c).c_str()) / std::atof(v.substr(c + 1).c_str());
+    }
     else if (a.rfind("--wav=", 0) == 0) wav = val("--wav=");
     else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
     else if (a.rfind("--shot=", 0) == 0) {
@@ -365,6 +376,7 @@ int main(int argc, char** argv) {
   eeprom.Load(udir);
 
   if (headless) {
+    if (aspect > 0) remaster::SetView(-1e4, -1e4, 1e4, 1e4);   // the overlay crops
     std::vector<int16_t> all_audio;
     auto t0 = std::chrono::steady_clock::now();
     for (int f = 0; f < frames; ++f) {
@@ -395,7 +407,7 @@ int main(int argc, char** argv) {
       for (auto& s : rmshots)
         if (s.frame == f) {
           if (const char* t = std::getenv("RM_T")) remaster::Interpolate(float(std::atof(t)));   // debug: blend
-          WriteBmp(s.path, remaster::Overlay(host::LastFrame(), rm_scale));
+          WriteBmp(s.path, remaster::Overlay(host::LastFrame(), rm_scale, aspect));
           remaster::DumpLines(s.path + ".lines");
           WriteBmp(s.path + ".orig.bmp", host::LastFrame());
           std::fprintf(stderr, "rmshot %d -> %s (%s)\n", f, s.path.c_str(), remaster::Stats().c_str());
@@ -425,7 +437,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  SDL_Window* win = SDL_CreateWindow("Tempest 2000", 1280, 960, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+  SDL_Window* win = SDL_CreateWindow("Tempest 2000", win_w, win_h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
   if (settings::Num("fullscreen", 0) != 0) SDL_SetWindowFullscreen(win, true);
   SDL_Renderer* ren = SDL_CreateRenderer(win, nullptr);
   SDL_HideCursor();
@@ -611,10 +623,29 @@ int main(int argc, char** argv) {
         // due at next - frame_ns was just emulated). Paused / menu: the latest frame.
         remaster::SetInterpolate(settings::Num("remaster_interpolate", 1) != 0);
         double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(SDL_GetTicksNS())) / frame_ns;
+        remaster::SetWindow(dst, ww, wh, fr.width, fr.height);
         remaster::Interpolate(float(t));
         remaster::Draw(ren, dst, fr.width, fr.height);
       }
-      SDL_RenderTexture(ren, tex, nullptr, &dst);   // the emulated picture over ours (text, HUD, not-yet-ours)
+      // The emulated picture over ours (text, HUD, not-yet-ours). In the game on a window that isn't 4:3, the HUD
+      // corners (score / lives top left, the icon top right) go to the window's corners (setting hud_corners).
+      bool corners = remaster::Enabled() && settings::Num("hud_corners", 1) != 0 && remaster::InGame() &&
+                     !t2k::Demo() && (dst.x > 1 || dst.y > 1);
+      if (!corners) {
+        SDL_RenderTexture(ren, tex, nullptr, &dst);
+      } else {
+        const float fw = float(fr.width), fh = float(fr.height), sx = dst.w / fw, sy = dst.h / fh;
+        const float band = 64, left = 160, right = 260;   // picture pixels: HUD rows; left / right zone edges
+        auto part = [&](float x0, float y0, float x1, float y1, float dx, float dy) {
+          SDL_FRect s{x0, y0, x1 - x0, y1 - y0};
+          SDL_FRect d{dst.x + x0 * sx + dx, dst.y + y0 * sy + dy, (x1 - x0) * sx, (y1 - y0) * sy};
+          SDL_RenderTexture(ren, tex, &s, &d);
+        };
+        part(0, band, fw, fh, 0, 0);                    // the play area: centred as ever
+        part(left, 0, right, band, 0, 0);               // the top middle (centred messages)
+        part(0, 0, left, band, -dst.x, -dst.y);         // score / lives -> top left of the window
+        part(right, 0, fw, band, dst.x, -dst.y);        // icon -> top right
+      }
     }
     if (menu::IsOpen()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, now);

@@ -338,6 +338,14 @@ void CaptureStars() {
   g_stars[traps::Read32(kGpuScreen)].push_back(std::move(c));
 }
 
+// What is culled: the original screen (the GPU's bounds, as the verification tools expect) unless a wider view
+// is set: the part of the GPU screen space the window shows, any aspect ratio (SetWindow / SetView).
+struct View { bool set = false; double x0 = 0, y0 = 0, x1 = 0, y1 = 0; } g_view;
+bool InView(double x, double y, double w, double h) {
+  if (!g_view.set) return x >= 0 && y >= 0 && x < w && y < h;
+  return x >= g_view.x0 && y >= g_view.y0 && x < g_view.x1 && y < g_view.y1;
+}
+
 bool g_enabled = true;
 float g_width = 1.5f;   // line width in game pixels (setting remaster_line_width)
 
@@ -474,7 +482,7 @@ void BuildStars(const StarCall& c, std::vector<Dot>& dots, std::vector<Line>& st
       int inten = 255 - int(z >> 17);
       double zi = double(z) / 16384.0 + 1.0;
       double sx = 192.0 + x / zi / 128.0, sy = cy + y / zi / 128.0;
-      if (sx < 0 || sy < 0 || sx >= 384 || sy >= h) { have = false; continue; }
+      if (!InView(sx, sy, 384, h)) { have = false; continue; }
       uint32_t col = CRY16ToRGB32[(st.colour & 0xFF00) | std::clamp(inten, 0, 255)] & 0xFFFFFF;
       // Warp: the original plots each point separately (a dotted dash per star), so dots, not joined streaks.
       dots.push_back({float(sx), float(sy), col});
@@ -514,7 +522,7 @@ void BuildPix(const PixCall& c, std::vector<Dot>& out) {
     if (z <= 0) return;
     int i = depth_i(z, c.zmax * 2);
     double x = cx + c.in[0] / z / 128.0, y = (pal ? 140 : 120) + c.in[1] / z / 128.0;
-    if (x < 0 || y < 0 || x >= 382 || y >= 278) return;
+    if (!InView(x, y, 382, 278)) return;
     out.push_back({float(x + 0.5), float(y + 0.5), CRY16ToRGB32[((c.in[3] & 0xFF) << 8) | i] & 0xFFFFFF, 2.f});
     return;
   }
@@ -531,7 +539,7 @@ void BuildPix(const PixCall& c, std::vector<Dot>& out) {
   for (int k = 0; k <= count; ++k, phase += step) {
     double sn = SinT(phase), cs = SinT(phase + 0x40);
     double x = x0 + sn * r / 256.0, y = y0 + cs * r / 256.0;
-    if (x < 0 || y < 0 || x >= 382 || y >= (pal ? 278 : 238)) continue;
+    if (!InView(x, y, 382, pal ? 278 : 238)) continue;
     out.push_back({float(x + size * 0.5f), float(y + size * 0.5f), col, size});
   }
 }
@@ -558,7 +566,7 @@ void BuildRex(const RexCall& r, std::vector<Rect>& out) {
       uint16_t p = r.px[size_t(j) * r.w + i];
       if (!p) continue;
       double x = x0 + i * ix + j * jx, y = y0 + i * iy + j * jy;
-      if (x < 0 || y < 0 || x >= 384 || y >= 280) continue;   // the GPU's a1 clip
+      if (!InView(x, y, 384, 280)) continue;   // the GPU's a1 clip
       out.push_back({float(x), float(y), w, h, CRY16ToRGB32[p] & 0xFFFFFF});
     }
 }
@@ -776,16 +784,35 @@ void Interpolate(float tf) {
 
 void SetInterpolate(bool on) { g_interp = on; }
 
+bool InGame() { return !g_scene_b.vec.empty() || !g_scene_b.webs.empty(); }
+
 const std::vector<Line>& Lines() { return g_lines; }
 void SetOrigin(float x, float y) { g_ox = x; g_oy = y; }
 void SetEnabled(bool on) { g_enabled = on; }
 void SetLineWidth(float w) { g_width = w; }
 bool Enabled() { return g_enabled; }
 
-host::Frame Overlay(const host::Frame& f, int scale) {
+void SetView(double x0, double y0, double x1, double y1) { g_view = {true, x0, y0, x1, y1}; }
+
+void SetWindow(const SDL_FRect& dst, int ww, int wh, unsigned fw, unsigned fh) {
+  if (!fw || !fh) return;
+  float sx = dst.w / fw, sy = dst.h / fh;
+  const double m = 4;   // margin (dot radii, line widths)
+  SetView(-dst.x / sx - g_ox - m, -dst.y / sy - g_oy - m, (ww - dst.x) / sx - g_ox + m, (wh - dst.y) / sy - g_oy + m);
+}
+
+host::Frame Overlay(const host::Frame& f, int scale, double aspect) {
   host::Frame o;
-  o.width = f.width * scale;
-  o.height = f.height * scale;
+  // aspect (W / H of the shown picture, 0 = the emulated frame's 4:3): the 4:3 picture centred, ours around it.
+  int pw = int(f.width) * scale, ph = int(f.height) * scale, ofx = 0, ofy = 0;
+  o.width = pw;
+  o.height = ph;
+  if (aspect > 0) {
+    if (aspect > 4.0 / 3.0) o.width = unsigned(std::lround(pw * aspect * 0.75));
+    else o.height = unsigned(std::lround(ph * (4.0 / 3.0) / aspect));
+    ofx = (int(o.width) - pw) / 2;
+    ofy = (int(o.height) - ph) / 2;
+  }
   o.pixels.resize(size_t(o.width) * o.height);
   std::fill(o.pixels.begin(), o.pixels.end(), 0u);
   auto plot = [&](int x, int y, uint32_t c) {
@@ -794,11 +821,11 @@ host::Frame Overlay(const host::Frame& f, int scale) {
   for (auto& dt : g_dots)
     for (int by = 0; by < std::max(1, scale / 2); ++by)
       for (int bx = 0; bx < std::max(1, scale / 2); ++bx)
-        plot(int((dt.x + g_ox) * scale) + bx, int((dt.y + g_oy) * scale) + by, dt.c);
+        plot(int((dt.x + g_ox) * scale + ofx) + bx, int((dt.y + g_oy) * scale + ofy) + by, dt.c);
   auto fill = [&](const std::vector<Tri>& tris) {
   for (auto& t : tris) {
     double X[3], Y[3];
-    for (int k = 0; k < 3; ++k) X[k] = (t.x[k] + g_ox) * scale, Y[k] = (t.y[k] + g_oy) * scale;
+    for (int k = 0; k < 3; ++k) X[k] = (t.x[k] + g_ox) * scale + ofx, Y[k] = (t.y[k] + g_oy) * scale + ofy;
     int y0 = int(std::floor(std::min({Y[0], Y[1], Y[2]}))), y1 = int(std::ceil(std::max({Y[0], Y[1], Y[2]})));
     int x0 = int(std::floor(std::min({X[0], X[1], X[2]}))), x1 = int(std::ceil(std::max({X[0], X[1], X[2]})));
     double area = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
@@ -823,8 +850,8 @@ host::Frame Overlay(const host::Frame& f, int scale) {
   int brush = std::max(1, scale * 3 / 4);
   for (auto& l : g_lines) {
     for (int pass = 0; pass < (l.thick ? 2 : 1); ++pass) {
-      double x0 = (l.x0 + g_ox + pass) * scale, y0 = (l.y0 + g_oy) * scale;
-      double x1 = (l.x1 + g_ox + pass) * scale, y1 = (l.y1 + g_oy) * scale;
+      double x0 = (l.x0 + g_ox + pass) * scale + ofx, y0 = (l.y0 + g_oy) * scale + ofy;
+      double x1 = (l.x1 + g_ox + pass) * scale + ofx, y1 = (l.y1 + g_oy) * scale + ofy;
       int steps = int(std::max(std::fabs(x1 - x0), std::fabs(y1 - y0))) + 1;
       for (int st = 0; st <= steps; ++st) {
         double t = double(st) / steps;
@@ -838,22 +865,23 @@ host::Frame Overlay(const host::Frame& f, int scale) {
   }
   fill(g_solid_tris);
   for (auto& r : g_rex_rects) {
-    int x0 = int(std::floor((r.x + g_ox) * scale)), y0 = int(std::floor((r.y + g_oy) * scale));
-    int x1 = std::max(x0 + 1, int(std::floor((r.x + r.w + g_ox) * scale)));
-    int y1 = std::max(y0 + 1, int(std::floor((r.y + r.h + g_oy) * scale)));
+    int x0 = int(std::floor((r.x + g_ox) * scale + ofx)), y0 = int(std::floor((r.y + g_oy) * scale + ofy));
+    int x1 = std::max(x0 + 1, int(std::floor((r.x + r.w + g_ox) * scale + ofx)));
+    int y1 = std::max(y0 + 1, int(std::floor((r.y + r.h + g_oy) * scale + ofy)));
     for (int y = y0; y < y1; ++y)
       for (int x = x0; x < x1; ++x) plot(x, y, r.c);
   }
   for (auto& dt : g_pix_dots)
     for (int by = 0; by < std::max(1, int(scale * dt.size)); ++by)
       for (int bx = 0; bx < std::max(1, int(scale * dt.size)); ++bx)
-        plot(int((dt.x - dt.size * 0.5f + g_ox) * scale) + bx, int((dt.y - dt.size * 0.5f + g_oy) * scale) + by, dt.c);
+        plot(int((dt.x - dt.size * 0.5f + g_ox) * scale + ofx) + bx, int((dt.y - dt.size * 0.5f + g_oy) * scale + ofy) + by,
+             dt.c);
   // The emulated picture on top, black see-through (RM_OURS: ours alone).
   if (!std::getenv("RM_OURS"))
-  for (unsigned y = 0; y < o.height; ++y)
-    for (unsigned x = 0; x < o.width; ++x) {
+  for (int y = 0; y < ph; ++y)
+    for (int x = 0; x < pw; ++x) {
       uint32_t p = f.pixels[size_t(y / scale) * f.width + x / scale] & 0xFFFFFF;
-      if (p) o.pixels[size_t(y) * o.width + x] = p;
+      if (p) o.pixels[size_t(y + ofy) * o.width + x + ofx] = p;
     }
   return o;
 }

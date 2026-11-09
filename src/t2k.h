@@ -20,6 +20,8 @@ void AfterFrame();
 void Mark();
 void Rewind();
 bool InPlay();
+// The attract-mode demo is running.
+bool Demo();
 std::string Status();   // one line for the log / overlay
 // The game's own pause screen is up (Start in play).
 bool Paused();

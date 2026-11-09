@@ -49,9 +49,17 @@ void SetOrigin(float x, float y);
 void SetEnabled(bool on);
 void SetLineWidth(float game_pixels);   // setting remaster_line_width (default 1.5)
 bool Enabled();
+// The shown scene is the game screen (vector objects or a solid web: not the title / menu screens).
+bool InGame();
 
 // Headless check: the emulated frame scaled up `scale` times with our lines drawn over it.
-host::Frame Overlay(const host::Frame& f, int scale);
+// aspect > 0: a picture of that shape (W / H), the emulated 4:3 frame centred and our layer filling the rest
+// (set a wide view first: SetView).
+host::Frame Overlay(const host::Frame& f, int scale, double aspect = 0);
+// Any aspect ratio: cull to this part of the GPU screen space instead of the original screen (0..384 x 0..240).
+void SetView(double x0, double y0, double x1, double y1);
+// Window: the view from the window size and the emulated frame's rectangle dst in it.
+void SetWindow(const SDL_FRect& dst, int ww, int wh, unsigned frame_w, unsigned frame_h);
 std::string Stats();
 void DumpLines(const std::string& path);   // x0 y0 x1 y1 per line (GPU screen space)
 

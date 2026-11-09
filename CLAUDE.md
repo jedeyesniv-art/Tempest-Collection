@@ -92,7 +92,9 @@ classifier (downloaded code) - ask the owner before trying again.
   pixels / rings, all verified against the original in one run (RM_NOSKIP=1 RM_OURS=1 --rmshot). Details: REMASTER.md.
 - 2026-11-09: camel rex (shots, pixel explosions, Excellent) native - REMASTER.md step 4.
 - 2026-11-09: interpolation (menu: Smooth motion, remaster_interpolate) + run-ahead (run_ahead = 2) - REMASTER.md step 5.
-- Next: owner tries smooth motion / run-ahead feel, then 16:9. Later: the dash-lattice layer (not a GPU call), text / HUD upscale, title and menu screens, Defender 2000.
+- 2026-11-09: any aspect ratio (Hor+ / Vert+, HUD corners: hud_corners) - REMASTER.md step 6. Owner: smooth motion +
+  run-ahead "look and feel incredible".
+- Next: ask the owner. Candidates: the dash-lattice layer, superzapper bolts (ox fline), text / HUD upscale (not a GPU call), text / HUD upscale, title and menu screens, Defender 2000.
 - Owner's test states: logs/owner_star.state (warp starfield between levels). logs/play.state = in play, level 1.
 
 ## Lessons (2026-11-08)

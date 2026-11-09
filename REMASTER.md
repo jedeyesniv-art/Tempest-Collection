@@ -129,6 +129,17 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Not covered: hidden frames can write the EEPROM save buffer early (the same write the real frame makes 2 frames
   later unless the input changes). The emulated HUD / text shows frame f + N while our layer blends f + N - 1 -> f + N.
 
+## Step 6 (2026-11-09): any aspect ratio - DONE
+- Hor+ / Vert+: the emulated picture stays a 4:3 box fitted to the window; our layer fills the window with the same
+  projection (the game's world is there: web, enemies and the starfield cover 21:9 and portrait). Culls (stars,
+  pixels, rex) use the window's visible GPU-space range (remaster::SetWindow) instead of the original screen; headless
+  keeps the original culls unless --aspect=W:H (rmshots that shape). Window size for tests: --winsize=WxH.
+- HUD: in the game (scene has vector objects or a solid web, not the demo) the picture's top band (rows 0-64) is
+  split: x 0-160 (score, lives) to the window's top left, 260-326 (icon) to the top right, the middle stays
+  (setting hud_corners, default on). A stopgap until the HUD text is ours.
+- Still 4:3: everything not ours (title / menu screens, the dash lattice, superzapper bolts). Untested: 2-player /
+  duel HUD (player 2's score may reach left of x 260).
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

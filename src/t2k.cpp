@@ -254,6 +254,8 @@ void Rewind() {
   std::copy(s.port, s.port + 0x400, jagMemSpace + 0xDFFC00);
 }
 
+bool Demo() { return g_installed && R16(kAuto) != 0; }
+
 bool InPlay() { return g_installed && g_frames_since_tick < 4; }
 
 bool Paused() { return g_installed && R16(kPawsed) != 0; }
