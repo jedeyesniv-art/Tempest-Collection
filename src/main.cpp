@@ -563,7 +563,7 @@ int main(int argc, char** argv) {
       while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
       if (now > next + uint64_t(frame_ns * 8)) next = now;  // stalled: resync
     }
-    const int run_ahead = std::clamp(int(settings::Num("run_ahead", 2)), 0, 4);
+    const int run_ahead = t2k::LatencyMatters() ? std::clamp(int(settings::Num("run_ahead", 2)), 0, 4) : 0;
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
       host::Input in = ReadPad(pad, held, keys, &tp);
@@ -619,6 +619,8 @@ int main(int argc, char** argv) {
       SDL_FRect dst{(ww - sw) / 2, (wh - sh) / 2, sw, sh};
       if (remaster::Enabled()) {
         remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
+        remaster::SetEffects(float(settings::Num("remaster_bolt_width", 2.0)), settings::Num("remaster_bolt_glow", 1) != 0,
+                             float(settings::Num("remaster_particle_size", 1.5)));
         // Blend between the last two frames by how far real time is into the current frame's slot (the frame
         // due at next - frame_ns was just emulated). Paused / menu: the latest frame.
         remaster::SetInterpolate(settings::Num("remaster_interpolate", 1) != 0);

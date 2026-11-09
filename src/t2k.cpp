@@ -33,6 +33,7 @@ constexpr uint32_t kWebMax = 0xC990;
 constexpr uint32_t kConnect = 0xDB3E;
 constexpr uint32_t kMainloopRoutine = 0xE374;
 constexpr uint32_t kDrawObjects = 0x80F05E;
+constexpr uint32_t kDrawOo = 0x802E26;       // level select's main loop routine
 constexpr uint32_t kHudObject = 0xDB7A + 64;   // beasties+64: 14(a0) ObType, 16(a0) screen3
 constexpr uint32_t kView = 0xE350;      // camera view 0..2 (keypad 1/4/7, 2/5/8, 3/6/9)
 
@@ -52,6 +53,19 @@ constexpr uint32_t kPortVel = kPort + 0x04;     // l: host -> game, 16.16 lanes 
 constexpr uint32_t kPortClaw = kPort + 0x10;    // l: game -> host, player 1 claw object
 constexpr uint32_t kPortTicks = kPort + 0x14;   // w: game -> host, claw ticks
 constexpr uint32_t kPortPauseLine = kPort + 0x20;  // w: host -> game, 1 = print kPauseText on the pause screen
+constexpr uint32_t kPortHold = kPort + 0x30;       // w: host -> game, frames gpuwait still waits (render pacing)
+
+// Render pacing. The emulated GPU / blitter finish the menu screens' full-screen effects (antelope scar: the melt
+// between screens and the Top Guns background; ripplewarp: the mode select background) well inside a frame;
+// on hardware they take several, and the game paces those screens on render completion: the melt (32 steps of
+// -8 intensity inside a fixed 150-frame transition) went black early and sat black for ~2 s, the ripple ran too
+// fast. gpuwait ($81A50E) jumps to a stub that first spins while kPortHold != 0; the gpurun trap sets the hold
+// for those callers, AfterFrame counts it down.
+constexpr uint32_t kGpuwait = 0x81A50E;
+constexpr uint32_t kGpuwaitStub = 0xDFFDC0;
+constexpr uint32_t kAntelope = 0x81BBFA;
+constexpr uint32_t kScarCaller = 0x806114;     // failfade: the melt (ffade) and the Top Guns background
+constexpr uint32_t kRippleCaller = 0x804980;   // optiondraw: the mode select background
 
 uint16_t R16(uint32_t a) { return uint16_t(jagMemSpace[a] << 8 | jagMemSpace[a + 1]); }
 uint32_t R32(uint32_t a) { return uint32_t(R16(a)) << 16 | R16(a + 2); }
@@ -228,6 +242,31 @@ bool Install(std::string* err) {
   W16(kNpspri, 0x4EB9);
   W32(kNpspri + 2, kPauseStub);
 
+  // gpuwait: movem.l a0/d0,-(sp); lea G_CTRL,a0 (10 bytes) -> jmp kGpuwaitStub; nop; nop. The stub waits out the
+  // host's hold, then is the original routine.
+  static const uint8_t kOrigGw[] = {0x48, 0xE7, 0x80, 0x80, 0x41, 0xF9, 0x00, 0xF0, 0x21, 0x14, 0x20, 0x10};
+  for (size_t i = 0; i < sizeof kOrigGw; ++i)
+    if (jagMemSpace[kGpuwait + i] != kOrigGw[i]) {
+      *err = "not the expected Tempest 2000 ROM (gpuwait differs)";
+      return false;
+    }
+  static const uint16_t kGwCode[] = {
+      0x4A79, 0x00DF, uint16_t(kPortHold),                  // +0  hold: tst.w PortHold
+      0x66F8,                                               // +6  bne.s hold
+      0x48E7, 0x8080,                                       // +8  movem.l a0/d0,-(sp)
+      0x41F9, 0x00F0, 0x2114,                               // +12 lea G_CTRL,a0
+      0x2010,                                               // +18 wt: move.l (a0),d0
+      0x0800, 0x0000,                                       // +20 btst #0,d0
+      0x66F8,                                               // +24 bne.s wt
+      0x4CDF, 0x0101,                                       // +26 movem.l (sp)+,a0/d0
+      0x4E75,                                               // +30 rts
+  };
+  for (size_t i = 0; i < sizeof kGwCode / 2; ++i) W16(kGpuwaitStub + 2 * uint32_t(i), kGwCode[i]);
+  W16(kGpuwait + 0, 0x4EF9);
+  W32(kGpuwait + 2, kGpuwaitStub);
+  W16(kGpuwait + 6, 0x4E71);
+  W16(kGpuwait + 8, 0x4E71);
+
   // clawcon: jsr kStub; nop (replaces the 8 bytes of the two moves).
   W16(kClawcon + 0, 0x4EB9);
   W32(kClawcon + 2, kStub);
@@ -258,6 +297,8 @@ void Rewind() {
 }
 
 bool Demo() { return g_installed && R16(kAuto) != 0; }
+bool LatencyMatters() { return HudShown() || (g_installed && R32(kMainloopRoutine) == kDrawOo); }
+
 bool HudShown() {
   if (!g_installed || R32(kMainloopRoutine) != kDrawObjects) return false;
   uint16_t type = R16(kHudObject + 14);
@@ -295,8 +336,17 @@ void BeforeFrame(const Pad& pad) {
   W32(kPortVel, uint32_t(int32_t(std::lround(v * 65536.0))));
 }
 
+void OnGpurun(uint32_t caller, uint32_t module, uint32_t mode) {
+  if (!g_installed || module != kAntelope) return;
+  int frames = 0;
+  if (caller == kScarCaller && mode == 2) frames = int(settings::Num("pace_melt", 4));
+  else if (caller == kRippleCaller && mode == 1) frames = int(settings::Num("pace_ripple", 2));
+  if (frames > 1) W16(kPortHold, uint16_t(std::min(frames - 1, 30)));
+}
+
 void AfterFrame() {
   if (!g_installed) return;
+  if (uint16_t h = R16(kPortHold)) W16(kPortHold, uint16_t(h - 1));
   uint16_t t = R16(kPortTicks);
   g_ticks_this_frame = uint16_t(t - g_last_ticks);
   g_last_ticks = t;

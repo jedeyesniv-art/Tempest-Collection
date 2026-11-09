@@ -110,6 +110,9 @@ classifier (downloaded code) - ask the owner before trying again.
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).
 
 ## Lessons (2026-11-09)
+- Emulated GPU / blitter work is near free: screens paced on render completion (melt, ripple) run too fast. Measure
+  with a timeline contact sheet (--shot every N frames) and a brightness curve, fix with host pacing (gpuwait hold).
+- Heavy (menu) screens can't afford run-ahead: check real-time cost per screen (headless fps with --runahead).
 - Capture lists only refresh when the game clears with the GPU: screens drawn another way (blitter menus) leave
   stale lists, so anything keyed off "what we captured" needs a staleness check. Tell play from menus by the HUD
   overlay object (beasties+64 ObType 8/7) plus mainloop_routine == draw_objects; test the path play -> quit to

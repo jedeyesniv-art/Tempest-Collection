@@ -22,6 +22,7 @@
 #include <tuple>
 #include <type_traits>
 
+#include "t2k.h"
 #include "traps.h"
 
 extern "C" uint32_t CRY16ToRGB32[0x10000];
@@ -378,6 +379,9 @@ bool InView(double x, double y, double w, double h) {
 
 bool g_enabled = true;
 float g_width = 1.5f;   // line width in game pixels (setting remaster_line_width)
+// Effects (SetEffects): bolt core width in game px (0 = the original thin line), glow on / off, particle size scale.
+float g_bolt_width = 2.0f, g_particle = 1.5f;
+bool g_bolt_glow = true;
 
 // The game's two play buffers (cscreen / dscreen): only draws into these are taken over.
 bool PlayBuffer(uint32_t scr) {
@@ -390,6 +394,7 @@ bool OnGpurun() {
   uint32_t mod = traps::Reg(8);
   uint32_t mode = traps::Read32(kGpuMode);
   uint32_t scr = traps::Read32(kGpuScreen);
+  t2k::OnGpurun(Caller(), mod, mode);
   if (mod == kDonky && mode == 0) {
     CaptureWeb();
     return g_enabled && PlayBuffer(scr);
@@ -895,6 +900,11 @@ const std::vector<Line>& Lines() { return g_lines; }
 void SetOrigin(float x, float y) { g_ox = x; g_oy = y; }
 void SetEnabled(bool on) { g_enabled = on; }
 void SetLineWidth(float w) { g_width = w; }
+void SetEffects(float bw, bool glow, float particle) {
+  g_bolt_width = std::clamp(bw, 0.f, 8.f);
+  g_bolt_glow = glow;
+  g_particle = std::clamp(particle, 0.5f, 4.f);
+}
 bool Enabled() { return g_enabled; }
 
 void SetView(double x0, double y0, double x1, double y1) { g_view = {true, x0, y0, x1, y1}; }
@@ -1010,9 +1020,14 @@ std::string Stats() {
 }
 
 void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy);
+void DrawLineList(SDL_Renderer* ren, const std::vector<Line>& lines, const SDL_FRect& dst, float sx, float sy,
+                  float width = 0, float feather = 1.0f, float alpha = 1.0f,
+                  SDL_BlendMode mode = SDL_BLENDMODE_BLEND, float whiten = 0);
 
 // A dot: a small disc, full colour in the middle fading out at the edge (8-triangle fan); size in game pixels.
-void DrawDots(SDL_Renderer* ren, const std::vector<Dot>& dots, const SDL_FRect& dst, float sx, float sy) {
+// scale > 0: particles (the game's 1x1 / 2x2 pixels): a solid disc `size * scale` game px across, 1-px soft edge.
+void DrawDots(SDL_Renderer* ren, const std::vector<Dot>& dots, const SDL_FRect& dst, float sx, float sy,
+              float scale = 0) {
   if (dots.empty()) return;
   std::vector<SDL_Vertex> d;
   d.reserve(dots.size() * 24);
@@ -1025,6 +1040,15 @@ void DrawDots(SDL_Renderer* ren, const std::vector<Dot>& dots, const SDL_FRect& 
     SDL_FColor c{((dt.c >> 16) & 255) / 255.f, ((dt.c >> 8) & 255) / 255.f, (dt.c & 255) / 255.f, 1.f};
     SDL_FColor e = c;
     e.a = 0;
+    if (scale > 0) {
+      float ri = std::max(0.7f, sx * 0.5f * dt.size * scale), ro = ri + 1.0f;
+      for (int k = 0; k < 8; ++k) {
+        SDL_Vertex i0{{cx + cs[k] * ri, cy + sn[k] * ri}, c, {0, 0}}, i1{{cx + cs[k + 1] * ri, cy + sn[k + 1] * ri}, c, {0, 0}};
+        SDL_Vertex o0{{cx + cs[k] * ro, cy + sn[k] * ro}, e, {0, 0}}, o1{{cx + cs[k + 1] * ro, cy + sn[k + 1] * ro}, e, {0, 0}};
+        d.insert(d.end(), {SDL_Vertex{{cx, cy}, c, {0, 0}}, i0, i1, i0, o0, i1, i1, o0, o1});
+      }
+      continue;
+    }
     for (int k = 0; k < 8; ++k) {
       d.push_back({{cx, cy}, c, {0, 0}});
       d.push_back({{cx + cs[k] * r, cy + sn[k] * r}, e, {0, 0}});
@@ -1057,6 +1081,10 @@ void DrawRects(SDL_Renderer* ren, const std::vector<Rect>& rects, const SDL_FRec
   for (auto& r : rects) {
     float x0 = dst.x + (r.x + g_ox) * sx, y0 = dst.y + (r.y + g_oy) * sy;
     float x1 = x0 + std::max(1.f, r.w * sx), y1 = y0 + std::max(1.f, r.h * sy);
+    if (r.w >= 1 && r.h >= 1 && g_particle != 1) {   // a dot of a scaled-up dot matrix: grow it about its centre
+      float g = (g_particle - 1) * 0.5f;
+      x0 -= sx * g, x1 += sx * g, y0 -= sy * g, y1 += sy * g;
+    }
     SDL_FColor c{((r.c >> 16) & 255) / 255.f, ((r.c >> 8) & 255) / 255.f, (r.c & 255) / 255.f, 1.f};
     SDL_Vertex a{{x0, y0}, c, {0, 0}}, b{{x1, y0}, c, {0, 0}}, d{{x0, y1}, c, {0, 0}}, e{{x1, y1}, c, {0, 0}};
     v.insert(v.end(), {a, b, d, b, e, d});
@@ -1080,44 +1108,59 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   DrawTris(ren, g_tris, dst, sx, sy);
   DrawLines(ren, dst, sx, sy);
   DrawTris(ren, g_solid_tris, dst, sx, sy);
-  if (!g_bolt_lines.empty()) {
-    std::swap(g_lines, g_bolt_lines);   // the bolts: over the solids, as the game draws them last
-    DrawLines(ren, dst, sx, sy);
-    std::swap(g_lines, g_bolt_lines);
+  // The bolts, over the solids as the game draws them last: a wide additive glow, then a hot whitened core.
+  if (g_bolt_glow) {
+    float bw = std::max(g_bolt_width, 1.0f);
+    DrawLineList(ren, g_bolt_lines, dst, sx, sy, bw * 2.5f, bw * 2.5f * sx, 0.35f, SDL_BLENDMODE_ADD);
+    DrawLineList(ren, g_bolt_lines, dst, sx, sy, bw * 1.2f, bw * sx, 0.5f, SDL_BLENDMODE_ADD);
   }
+  if (g_bolt_width > 0) DrawLineList(ren, g_bolt_lines, dst, sx, sy, g_bolt_width, 1.0f, 1.0f, SDL_BLENDMODE_BLEND,
+                                     g_bolt_glow ? 0.35f : 0.f);
+  else DrawLineList(ren, g_bolt_lines, dst, sx, sy);
   DrawRects(ren, g_rex_rects, dst, sx, sy);
-  DrawDots(ren, g_pix_dots, dst, sx, sy);
+  DrawDots(ren, g_pix_dots, dst, sx, sy, g_particle);
 }
 
-void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy) {
-  if (g_lines.empty()) return;
+// Lines as quads: a solid core `width` game pixels wide (0 = the vector rule: remaster_line_width, thinner for the
+// game's thin vectors) with a feathered edge `feather` window pixels wide each side; colours scaled by alpha.
+void DrawLineList(SDL_Renderer* ren, const std::vector<Line>& lines, const SDL_FRect& dst, float sx, float sy,
+                  float width, float feather, float alpha, SDL_BlendMode mode, float whiten) {
+  if (lines.empty()) return;
   std::vector<SDL_Vertex> v;
-  v.reserve(g_lines.size() * 18);
-  // Core width in game pixels (the original's thick vectors are 2 px wide), plus a 1-px feathered edge on each
-  // side for anti-aliasing.
-  const float feather = 1.0f;
-  auto col = [](uint32_t c, float a) {
-    return SDL_FColor{((c >> 16) & 255) / 255.f, ((c >> 8) & 255) / 255.f, (c & 255) / 255.f, a};
+  v.reserve(lines.size() * 18);
+  auto col = [&](uint32_t c, float a) {
+    auto ch = [&](int sh) { float x = ((c >> sh) & 255) / 255.f; return x + (1 - x) * whiten; };
+    return SDL_FColor{ch(16), ch(8), ch(0), a * alpha};
   };
-  for (auto& l : g_lines) {
+  for (auto& l : lines) {
     float x0 = dst.x + (l.x0 + g_ox + 0.5f) * sx, y0 = dst.y + (l.y0 + g_oy + 0.5f) * sy;
     float x1 = dst.x + (l.x1 + g_ox + 0.5f) * sx, y1 = dst.y + (l.y1 + g_oy + 0.5f) * sy;
     if (l.thick) { x0 += sx * 0.5f; x1 += sx * 0.5f; }
     float dx = x1 - x0, dy = y1 - y0, len = std::sqrt(dx * dx + dy * dy);
     if (len < 0.01f) continue;
-    float w = std::max(0.5f, g_width * (l.thick ? 1.0f : 0.6f) * sx * 0.5f - feather * 0.5f);
+    float w = width > 0 ? std::max(0.5f, width * sx * 0.5f - feather * 0.5f)
+                        : std::max(0.5f, g_width * (l.thick ? 1.0f : 0.6f) * sx * 0.5f - feather * 0.5f);
     float ux = -dy / len, uy = dx / len;
     SDL_FColor c0 = col(l.c0, 1), c1 = col(l.c1, 1), e0 = col(l.c0, 0), e1 = col(l.c1, 0);
+    if (mode == SDL_BLENDMODE_ADD) {   // additive: fade by colour, alpha is ignored there
+      auto pre = [](SDL_FColor c) { return SDL_FColor{c.r * c.a, c.g * c.a, c.b * c.a, 1}; };
+      c0 = pre(c0), c1 = pre(c1), e0 = pre(e0), e1 = pre(e1);
+    }
     auto V = [](float x, float y, SDL_FColor c) { return SDL_Vertex{{x, y}, c, {0, 0}}; };
     float o = w + feather;
+    // Extend the ends by the half width so joined segments (lightning) have no gaps at the corners.
+    float ex = dx / len * w, ey = dy / len * w;
+    x0 -= ex, y0 -= ey, x1 += ex, y1 += ey;
     SDL_Vertex a0 = V(x0 + ux * o, y0 + uy * o, e0), a1 = V(x0 + ux * w, y0 + uy * w, c0);
     SDL_Vertex a2 = V(x0 - ux * w, y0 - uy * w, c0), a3 = V(x0 - ux * o, y0 - uy * o, e0);
     SDL_Vertex b0 = V(x1 + ux * o, y1 + uy * o, e1), b1 = V(x1 + ux * w, y1 + uy * w, c1);
     SDL_Vertex b2 = V(x1 - ux * w, y1 - uy * w, c1), b3 = V(x1 - ux * o, y1 - uy * o, e1);
     v.insert(v.end(), {a0, a1, b0, a1, b1, b0, a1, a2, b1, a2, b2, b1, a2, a3, b2, a3, b3, b2});
   }
-  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderDrawBlendMode(ren, mode);
   SDL_RenderGeometry(ren, nullptr, v.data(), int(v.size()), nullptr, 0);
 }
+
+void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy) { DrawLineList(ren, g_lines, dst, sx, sy); }
 
 }  // namespace remaster

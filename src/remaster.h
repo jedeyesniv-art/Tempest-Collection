@@ -48,6 +48,9 @@ void SetOrigin(float x, float y);
 // On: the captured GPU draws are skipped and drawn by us instead (setting remaster, F8).
 void SetEnabled(bool on);
 void SetLineWidth(float game_pixels);   // setting remaster_line_width (default 1.5)
+// Settings remaster_bolt_width (game px, 0 = the original thin line; default 2), remaster_bolt_glow (default on),
+// remaster_particle_size (power-up / explosion pixels, x the original; default 1.5).
+void SetEffects(float bolt_width, bool bolt_glow, float particle_size);
 bool Enabled();
 
 // Headless check: the emulated frame scaled up `scale` times with our lines drawn over it.

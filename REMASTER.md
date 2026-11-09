@@ -160,6 +160,21 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   thin lines after the solids. Interpolation moves the ends only; each frame's jitter is kept whole (blending two
   random shapes made the bolt calm down between frames). Run-ahead 2 picture == plain run + 2 frames.
 
+## Step 8 (2026-11-09): bolt glow, particle size, menu timing
+- Bolts: an additive glow (two wide feathered passes) under a whitened core (settings remaster_bolt_width game px,
+  default 2, 0 = the original thin line; remaster_bolt_glow). Particles (xcamel pixels / rings) are solid discs and,
+  with the rex dot-matrix dots (explosions; not the small sharp images), x remaster_particle_size (default 1.5).
+- Menu timing (owner, comparing BigPEmu: melts too quick then black for a second, mode select texture too fast).
+  The melt (fade -> ffade / failfade, caller $806114 antelope 2 'scar') is 32 steps of -8 intensity inside a fixed
+  150-frame transition (failcount); thang syncs each step to a VBL, and the emulated scar (one full-screen blit)
+  finished inside a frame, so it was black by ~35 frames. The core's experimental timing options (blitter / GPU
+  pipeline / DRAM) changed nothing measurable here (its blit model caps at 2 fields; checked with a debug print).
+  Host pacing instead: gpuwait ($81A50E) -> jmp stub $DFFDC0 that spins while port $DFFE30 != 0; the gpurun trap
+  sets it for scar (pace_melt, default 4 frames a step: the fade now lasts ~126 of the 150 frames) and optiondraw's
+  ripple ($804980 antelope 1; pace_ripple, default 2: 30 fps). The Top Guns background shares scar's caller.
+- Run-ahead only where latency matters (t2k::LatencyMatters: play HUD up or level select's draw_oo): on the menu
+  screens N extra frames a shown frame dropped emulation below real time (~40 fps in the window).
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.
