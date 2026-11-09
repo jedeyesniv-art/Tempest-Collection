@@ -32,6 +32,7 @@
 #include "host.h"
 #include "remaster.h"
 #include "xbr.h"
+#include "crt.h"
 #include "menu.h"
 #include "settings.h"
 #include "t2k.h"
@@ -441,7 +442,9 @@ int main(int argc, char** argv) {
 
   SDL_Window* win = SDL_CreateWindow("Tempest 2000", win_w, win_h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
   if (settings::Num("fullscreen", 0) != 0) SDL_SetWindowFullscreen(win, true);
-  SDL_Renderer* ren = SDL_CreateRenderer(win, nullptr);
+  // SDL's GPU renderer (D3D12) for the CRT shaders; the default renderer if it isn't available (no CRT then).
+  SDL_Renderer* ren = crt::CreateRenderer(win);
+  if (ren && !crt::Init(ren)) std::fprintf(stderr, "crt: unavailable on renderer %s\n", SDL_GetRendererName(ren));
   SDL_HideCursor();
   SDL_SetRenderVSync(ren, 1);
   SDL_Texture* tex = nullptr;
@@ -487,6 +490,12 @@ int main(int argc, char** argv) {
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F2) {
         settings::Save("stick_mode", settings::Str("stick_mode", "lr") == "aim" ? "lr" : "aim");
         menu::Toast(settings::Str("stick_mode", "lr") == "aim" ? "Stick: aim" : "Stick: left / right", now);
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F9) {
+        int m = (int(settings::Num("crt", 0)) + 1) % 3;
+        settings::Save("crt", std::to_string(m));
+        crt::LoadSettings();
+        menu::Toast(!crt::Available() ? "CRT unavailable (needs the GPU renderer)"
+                    : m == 2 ? "CRT++" : m == 1 ? "CRT+" : "CRT off", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F8) {
         remaster::SetEnabled(!remaster::Enabled());
         settings::Save("remaster", remaster::Enabled() ? "1" : "0");
@@ -605,8 +614,23 @@ int main(int argc, char** argv) {
 
     int ww, wh;
     SDL_GetRenderOutputSize(ren, &ww, &wh);
+    // The CRT (setting crt, F9): everything drawn into a window-sized scene, which the CRT then draws to the window.
+    crt::LoadSettings();
+    const bool use_crt = !native && crt::Mode() > 0;
+    static SDL_Texture* scene = nullptr;
+    static int scene_w = 0, scene_h = 0;
+    if (use_crt && (!scene || scene_w != ww || scene_h != wh)) {
+      if (scene) SDL_DestroyTexture(scene);
+      scene = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ww, wh);
+      SDL_SetTextureBlendMode(scene, SDL_BLENDMODE_NONE);
+      SDL_SetTextureScaleMode(scene, SDL_SCALEMODE_LINEAR);
+      scene_w = ww; scene_h = wh;
+    }
+    SDL_Texture* const frame_target = use_crt ? scene : nullptr;
+    SDL_SetRenderTarget(ren, frame_target);
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
+    float crt_src_w = 0, crt_src_h = 0;   // the window in game pixels (scanlines / mask follow the game's lines)
     const auto& fr = host::LastFrame();
     if (fr.width) {
       if (!tex || tw != fr.width || th != fr.height) {
@@ -706,7 +730,7 @@ int main(int argc, char** argv) {
         SDL_SetTextureBlendMode(src, SDL_BLENDMODE_NONE);
         SDL_RenderTexture(ren, src, nullptr, nullptr);
         SDL_SetTextureBlendMode(src, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderTarget(ren, nullptr);
+        SDL_SetRenderTarget(ren, frame_target);
         cleared = true;
       };
       // A part of a source (in its pixels; null = all) to a window rectangle.
@@ -754,6 +778,14 @@ int main(int argc, char** argv) {
         part(left, right, 0, 0);
         part(right, 384, dst.x, -dst.y);
       }
+      crt_src_w = ww * float(fr.width) / dst.w;
+      crt_src_h = wh * float(fr.height) / dst.h;
+    }
+    if (use_crt) {
+      SDL_SetRenderTarget(ren, nullptr);
+      SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+      SDL_RenderClear(ren);
+      crt::DrawPicture(ren, scene, SDL_FRect{0, 0, float(ww), float(wh)}, crt_src_w, crt_src_h);
     }
     if (menu::IsOpen()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, now);
@@ -771,6 +803,7 @@ int main(int argc, char** argv) {
   host::Unload();
   if (pad) SDL_CloseGamepad(pad);
   if (audio) SDL_DestroyAudioStream(audio);
+  crt::Shutdown();
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
   SDL_Quit();

@@ -211,6 +211,16 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Original mode (setting native, menu DISPLAY): remaster off, run-ahead 0, no HUD layer, bilinear 4:3, no menu
   pacing. Controls (stick hook, remapping) stay.
 
+## Step 11 (2026-11-09): CRT+ / CRT++ from Llamasoft on the ST
+- src/crt.cpp = the ST's crt.cpp (per-game looks and docs mode left out; settings via settings::Num, read every
+  frame), shaders copied (src/shaders/*.frag.hlsl + committed .dxil.h; tools/build_shaders.py rebuilds with the SDK's
+  dxc). Renderer: SDL's GPU renderer with DXIL (D3D12) via crt::CreateRenderer; T2K_RENDERER=<name> for tests.
+- With a look on (setting crt 1 / 2, F9 cycles, menu CRT section with the ST panel's sliders and the owner's ST
+  defaults): the whole window (our layer, picture, HUD) is drawn into a window-sized target, then crt::DrawPicture
+  draws it with src = the window in game pixels (ww * 326 / dst.w, wh * 240 / dst.h), so the scanlines / mask follow
+  the Jaguar's lines on any window shape. Menu and toasts are drawn after, unfiltered. Off in Original mode.
+  Verified at 1440p: off unchanged, CRT+ / CRT++ real time.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.
