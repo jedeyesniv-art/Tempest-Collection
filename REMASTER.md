@@ -189,8 +189,9 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   Drop-shadow mode (in_buf+36 = 1) and other texter callers stay with the GPU. Pixels: squares of min(scale, 1),
   not grown by the particle setting. Interpolated: scale / shear. Verified same run (RM_NOSKIP): lattice frames and
   "SUPERZAPPER RECHARGE" match; run-ahead 2 == plain + 2.
-- Seen while checking (owner_star.state, warp): the yellow lane-highlight lines the GPU draws there are missing
-  from ours. To look into.
+- Fixed: yellow lane lines missing in the warp. vect3d ends a vertex's connection list when the vertex BYTE is 0
+  (after applying its colour byte: $0200 = colour 2, end); we ended only on a 0 word, so the web's second, colourless
+  section (after $0200 0000) was drawn too and repainted the yellow lane blue. Same-run checks: warp, play, demo.
 
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),

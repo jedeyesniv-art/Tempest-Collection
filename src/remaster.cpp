@@ -183,7 +183,9 @@ void Capture() {
   c.verts.resize(n);
   for (int k = 0; k < n; ++k)
     c.verts[k] = {S32(vb + 12 * k), S32(vb + 12 * k + 4), S32(vb + 12 * k + 8)};
-  // Connection list: vertex, joined..., 0 ... 0. Bounded in case of junk.
+  // Connection list: vertex, joined..., end ... 0. A joined word is colour << 8 | vertex; the GPU applies the colour
+  // and ends the vertex's list when the vertex byte is 0 ($0200 = colour 2, end), so a following 0 ends the object
+  // even if more data follows (the web's second, colourless section is never drawn). Bounded in case of junk.
   for (int guard = 0; guard < 8192; ++guard) {
     uint16_t v = traps::Read16(cb);
     cb += 2;
@@ -193,7 +195,7 @@ void Capture() {
       uint16_t w = traps::Read16(cb);
       cb += 2;
       c.conns.push_back(w);
-      if (w == 0) break;
+      if ((w & 0xFF) == 0) break;
     }
   }
   g_pending = c;
@@ -760,9 +762,9 @@ void BuildLines(const VecCall& c, std::vector<Line>& out) {
     if (a == 0) break;
     while (i < c.conns.size()) {
       uint16_t w = c.conns[i++];
-      if (w == 0) break;
       if (w >> 8) col = w >> 8;
       int b = w & 0xFF;
+      if (b == 0) break;
       if (a < 1 || a > n || b < 1 || b > n || col == 1) continue;
       Pt p0 = pts[a - 1], p1 = pts[b - 1];
       if (!p0.ok && !p1.ok) continue;
@@ -964,6 +966,12 @@ void AfterFrame(bool publish) {
       for (auto& c : g_scene_b.vec)
         std::fprintf(stderr, "  vec %06X %06X pos %d %d %d ang %.0f %.0f %.0f n %zu\n", c.caller, c.obj, c.pos[0] >> 16,
                     c.pos[1] >> 16, c.pos[2] >> 16, c.ang[0], c.ang[1], c.ang[2], c.verts.size());
+      if (std::getenv("RM_TRACE")[0] == '2')
+        for (auto& c : g_scene_b.vec) {
+          std::fprintf(stderr, "  col %02X sys %X conns:", c.col, c.sysflags);
+          for (auto w : c.conns) std::fprintf(stderr, " %04X", w);
+          std::fprintf(stderr, "\n");
+        }
     }
   }
   prev = std::move(now);
@@ -1106,7 +1114,8 @@ host::Frame Overlay(const host::Frame& f, int scale, double aspect) {
 void DumpLines(const std::string& path) {
   FILE* f = std::fopen(path.c_str(), "w");
   if (!f) return;
-  for (auto& l : g_lines) std::fprintf(f, "%.3f %.3f %.3f %.3f\n", l.x0, l.y0, l.x1, l.y1);
+  for (auto& l : g_lines)
+    std::fprintf(f, "%.3f %.3f %.3f %.3f %06X %06X\n", l.x0, l.y0, l.x1, l.y1, unsigned(l.c0), unsigned(l.c1));
   std::fclose(f);
 }
 
