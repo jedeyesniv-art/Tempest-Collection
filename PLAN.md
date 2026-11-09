@@ -33,6 +33,9 @@ original code runs unchanged in an emulator, and we add hooks around it.
 4. **QoL**: no slowdown (GPU and 68K clock options, or hooks), skip the boot logos, save states, save slots for the
    game's own high scores and keys, a CRT / bloom option, widescreen if the web projection allows it.
 
+5. **Automation** (later, trial on Defender 2000): signature logger, save-state explorer, residual detector,
+   porting against the GPU oracle. Plan: AUTOMATION.md.
+
 ## Owner decisions (2026-11-08)
 - Entirely offline for now: local git only, publishing decided later.
 - Project becomes "Llamasoft on the Jaguar": Tempest 2000 first, Defender 2000 later (low priority; the owner

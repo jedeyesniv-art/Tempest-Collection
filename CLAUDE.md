@@ -110,7 +110,7 @@ classifier (downloaded code) - ask the owner before trying again.
 6. Performance: 4K with CRT++; a low-end GPU (Steam Deck class) if that's a target.
 7. Open questions: the psycho bonus sphere invisible on the original (left to the GPU); the owner's "offset ghost
    image of the UI" (not reproduced; ceiling bonus mfudj merge 8 lines low is a candidate).
-8. Then Defender 2000.
+8. Then Defender 2000, starting with the automation trial (AUTOMATION.md, owner's plan 2026-11-09).
 - Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).
 
