@@ -100,8 +100,7 @@ classifier (downloaded code) - ask the owner before trying again.
    with --gpulog over a game with zaps, deaths and power-ups.
 3. DONE 2026-11-09: HUD layer from screen3 + sharp-bilinear picture (REMASTER.md step 10). Option: a pixel-art
    upscaler (xBR-style) for the HUD / text if the owner wants smoother than crisp pixels.
-4. Check 2-player / Duel and Traditional / Plus modes: HUD corners (player 2 score may cross x 260), vector webs,
-   anything uncaptured. All modes are first-class.
+4. DONE 2026-11-09: 2-player team / Duel checked (REMASTER.md step 12). Left: goat vect3d (Duel webs) native.
 5. Unseen in tests: the "Excellent" and one-up rex graphics (code covers them) - ask the owner for a save state.
 6. Menu items for run_ahead (0-4) and hud_corners; remember the window size / position.
 7. Interpolation polish: a scene that didn't change (game slowdown, no buffer swap) still steps; objects drawn with

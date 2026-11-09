@@ -221,6 +221,18 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   the Jaguar's lines on any window shape. Menu and toasts are drawn after, unfiltered. Off in Original mode.
   Verified at 1440p: off unchanged, CRT+ / CRT++ real time.
 
+## Step 12 (2026-11-09): 2-player team and Duel
+- How to get there: game select (cursor starts on Tempest 2000): Tempest Plus -> "1 player / AI droid / 2 player team";
+  Tempest Duel -> play / practice -> one round / best of 3 / 5 -> a two-web level select. States: logs/team.state,
+  logs/duelplay.state (logs/modesel.state = game select).
+- Team: two claws on one web, one shared HUD: all ours, matches the original.
+- Duel: two webs drawn by goat (mode 2, a vect3d with a viewer matrix, view_otm mode 4): NOT captured, so they stay in
+  the emulated picture (sharp scaled). The HUD (ObType 7, 32 rows) is player 1 x 0-186 | player 2 186-384.
+- The HUD layer no longer masks the picture: masking left holes where the HUD covered things in the picture (the Duel
+  web tops). Core hook (op.c vjOPSkipLo / Hi): the OP skips fixed bitmaps reading screen3's HUD rows while our HUD
+  layer is up (set before each emulated batch), so the picture is the play area alone.
+- Open: port goat vect3d so the Duel webs are native too.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

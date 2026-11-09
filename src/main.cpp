@@ -33,6 +33,7 @@
 #include "remaster.h"
 #include "xbr.h"
 #include "crt.h"
+extern "C" uint32_t vjOPSkipLo, vjOPSkipHi;   // core hook: an OP overlay range not drawn
 #include "menu.h"
 #include "settings.h"
 #include "t2k.h"
@@ -589,6 +590,16 @@ int main(int argc, char** argv) {
     remaster::SetEnabled(!native && settings::Num("remaster", 1) != 0);
     const int run_ahead =
         !native && t2k::LatencyMatters() ? std::clamp(int(settings::Num("run_ahead", 2)), 0, 4) : 0;
+    {
+      // The HUD layer: the core leaves screen3's HUD rows out of the picture (we draw them at the window's corners).
+      int ow = 0, oh = 0;
+      SDL_GetRenderOutputSize(ren, &ow, &oh);
+      const bool wide = ow * 3 != oh * 4;
+      const bool layer = !native && remaster::Enabled() && settings::Num("hud_corners", 1) != 0 && t2k::HudShown() &&
+                         !t2k::Demo() && wide;
+      vjOPSkipLo = layer ? 0x50000u : 0;
+      vjOPSkipHi = layer ? 0x50000u + 384u * 2u * 48u : 0;
+    }
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
       host::Input in = ReadPad(pad, held, keys, &tp);
@@ -651,8 +662,7 @@ int main(int argc, char** argv) {
       // part at the window's top left and the icon part at the top right (setting hud_corners), and its pixels are
       // see-through in the picture. screen3 (0, 0) is picture (-24, 14) (measured: exact match).
       constexpr int kHudX = -24, kHudY = 14;
-      const bool hud_layer = remaster::Enabled() && settings::Num("hud_corners", 1) != 0 && t2k::HudShown() &&
-                             !t2k::Demo() && (dst.x > 1 || dst.y > 1);
+      const bool hud_layer = vjOPSkipHi != 0;   // (set before emulating this batch)
       const host::Frame& hud = remaster::Hud();
       const int hud_h = hud.pixels.empty() ? 0 : std::min(t2k::HudRows(), int(hud.height));
       const std::string filter = native ? "smooth" : settings::Str("picture_filter", "sharp");
@@ -683,12 +693,6 @@ int main(int argc, char** argv) {
           argb[i] = p ? (p | 0xFF000000u) : 0;
         }
         if (hud_layer) {
-          for (int hy = 0; hy < hud_h; ++hy)
-            for (int hx = 0; hx < int(hud.width); ++hx) {
-              int px = hx + kHudX, py = hy + kHudY;
-              if (px < 0 || py < 0 || px >= int(fr.width) || py >= int(fr.height)) continue;
-              if (hud.pixels[size_t(hy) * hud.width + hx]) argb[size_t(py) * fr.width + px] = 0;
-            }
           if (!hudtex) {
             hudtex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 384, 48);
             SDL_SetTextureBlendMode(hudtex, SDL_BLENDMODE_BLEND);
@@ -771,14 +775,16 @@ int main(int argc, char** argv) {
       blit(pic_sharp, tex, nullptr, &dst);
       if (hud_layer && hudtex) {
         const float sx = dst.w / float(fr.width), sy = dst.h / float(fr.height);
-        const float left = 184, right = 284;   // screen3 x: score / lives | centre | icon
+        // screen3 x: one player: score / lives | centre | icon; head to head (32 rows): player 1 | player 2.
+        const bool h2h = t2k::HudRows() == 32;
+        const float left = h2h ? 186 : 184, right = h2h ? 186 : 284;
         auto part = [&](float x0, float x1, float dx, float dy) {
           SDL_FRect s{x0, 0, x1 - x0, float(hud_h)};
           SDL_FRect d{dst.x + (x0 + kHudX) * sx + dx, dst.y + kHudY * sy + dy, (x1 - x0) * sx, hud_h * sy};
           blit(hud_sharp, hudtex, &s, &d);
         };
         part(0, left, -dst.x, -dst.y);
-        part(left, right, 0, 0);
+        if (right > left) part(left, right, 0, 0);
         part(right, 384, dst.x, -dst.y);
       }
       crt_src_w = ww * float(fr.width) / dst.w;
