@@ -148,6 +148,18 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Still 4:3: everything not ours (title / menu screens, the dash lattice, superzapper bolts). Untested: 2-player /
   duel HUD (player 2's score may reach left of x 260).
 
+## Step 7 (2026-11-09): ox fline (Superzapper bolts, AI droid zap) - DONE
+- Callers: namsg $80F42E / $80F4B6 (two bolts, zapped enemy boltx/y/z -> the claw lane's two rim points; only with
+  solids on, bolt_lock set by zappit), draw_adroid (droid zap), nohorra, pyrfb (unused). All in play: every ox mode 0
+  into the play buffers is taken over.
+- in_buf: x1 y1 z1 x2 y2 z2 (camera relative), colour (flashcol), segs (32), seed (frames & $FF | 1). Per segment:
+  base += (end - start) / segs (sdiv); inner points get x += (r - 128) << 10, y += (r' - 128) << 10 from the 8-bit
+  shift register (odd: >> 1 ^ $B8, even: >> 1; two steps a point; the last point unmoved); project z >> 14,
+  / z >> 7 + xcent / ycent; vect3d depth intensity; a segment with an end off screen is dropped (ours: off the view).
+- Verified same run (RM_NOSKIP, red / green overlay of the bolt pixels): identical paths (1 px rounding). Drawn as
+  thin lines after the solids. Interpolation moves the ends only; each frame's jitter is kept whole (blending two
+  random shapes made the bolt calm down between frames). Run-ahead 2 picture == plain run + 2 frames.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

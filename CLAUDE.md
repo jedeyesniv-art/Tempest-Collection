@@ -96,7 +96,7 @@ classifier (downloaded code) - ask the owner before trying again.
 
 ## To do next (owner to pick the order tonight)
 1. Dash-lattice layer (death / between levels; not a GPU call: find what draws it) - so it fills wide screens too.
-2. Superzapper lightning (ox fline) and the other uncaptured play draws (ox / horse psphere, ox starseg); survey
+2. DONE 2026-11-09: Superzapper lightning (ox fline, REMASTER.md step 7). Left: ox / horse psphere, ox starseg; survey
    with --gpulog over a game with zaps, deaths and power-ups.
 3. HUD / text native and sharp (stoat text $80DC2E: score, messages; lives icons): replaces the hud_corners split.
 4. Check 2-player / Duel and Traditional / Plus modes: HUD corners (player 2 score may cross x 260), vector webs,

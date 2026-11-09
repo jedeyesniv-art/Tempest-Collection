@@ -35,6 +35,7 @@ constexpr uint32_t kDonky = 0x81F6A2;
 constexpr uint32_t kHorse = 0x81EB52;
 constexpr uint32_t kXcamel = 0x81D0DA;
 constexpr uint32_t kCamel = 0x81CA4A;
+constexpr uint32_t kOx = 0x81E10E;
 constexpr uint32_t kXcent = 0xF03EFC;     // xcent (G_RAM + $EFC)
 constexpr uint32_t kYcent = 0xF03EF8;     // ycent (G_RAM + $EF8)
 constexpr uint32_t kInBuf = 0xF03F60;
@@ -109,6 +110,16 @@ struct RexCall {
   std::vector<uint16_t> px;
 };
 std::map<uint32_t, std::vector<RexCall>> g_rex;        // per gpu_screen
+// ox.gas fline (mode 0): a 3D line of `segs` segments from (x1, y1, z1) to (x2, y2, z2), every inner point moved by
+// random x / y offsets (lightning: the Superzapper bolts, the AI droid's zap). in_buf: x1 y1 z1 x2 y2 z2 (camera
+// relative, 16.16), colour, segs, seed (frames | 1). Interpolated: the ends move; the jitter is the newer frame's
+// (blending two random shapes calms the bolt between frames: it pulsed).
+struct FlineCall {
+  uint32_t caller = 0, obj = 0;
+  int32_t p[6], col, segs, seed, xcent, ycent, zmax, ztop;
+};
+std::map<uint32_t, std::vector<FlineCall>> g_flines;  // per gpu_screen
+std::vector<Line> g_bolt_lines;                       // the displayed frame's (drawn after the solids)
 struct Rect { float x, y, w, h; uint32_t c; };
 std::vector<Rect> g_rex_rects;                         // the displayed frame's
 std::vector<Dot> g_dots;                            // the displayed frame's stars
@@ -325,6 +336,21 @@ bool CaptureRex() {
   return true;
 }
 
+void CaptureFline() {
+  FlineCall c;
+  c.caller = Caller();
+  c.obj = traps::Reg(14);
+  for (int i = 0; i < 6; ++i) c.p[i] = In(i);
+  c.col = In(6) & 0xFF;
+  c.segs = std::clamp(In(7), 0, 256);
+  c.seed = In(8);
+  c.xcent = S32(kXcent);
+  c.ycent = S32(kYcent);
+  c.zmax = S32(0xF03FD8);
+  c.ztop = S32(0xF03FDC);
+  g_flines[traps::Read32(kGpuScreen)].push_back(c);
+}
+
 void CaptureStars() {
   StarCall c;
   c.caller = Caller();
@@ -376,6 +402,10 @@ bool OnGpurun() {
     CapturePix(int(mode));
     return g_enabled && PlayBuffer(scr);
   }
+  if (mod == kOx && mode == 0) {
+    CaptureFline();
+    return g_enabled && PlayBuffer(scr);
+  }
   if (mod == kCamel && mode == 4) {
     if (!CaptureRex()) return false;
     return g_enabled && PlayBuffer(scr);
@@ -389,6 +419,7 @@ bool OnGpurun() {
     g_solids[scr].clear();
     g_pix[scr].clear();
     g_rex[scr].clear();
+    g_flines[scr].clear();
   }
   else if (mode == 2) {
     Capture();
@@ -576,6 +607,54 @@ void BuildRex(const RexCall& r, std::vector<Rect>& out) {
     }
 }
 
+// fline, per segment: base point += (end - start) / segs (sdiv); unless it is the last point, x += (r - 128) << 10
+// and y += (r' - 128) << 10 with two steps of the GPU's 8-bit shift register (odd: >> 1 ^ $B8, even: >> 1); then
+// z >> 14, x / z >> 7 + xcent, y / z >> 7 + ycent, intensity (z_max - z) * z_top / z_max (the vect3d form). A
+// segment with an end off screen is dropped (the GPU's rough clip; here the visible view).
+void BuildFline(const FlineCall& c, std::vector<Line>& out) {
+  if (c.segs <= 0) return;
+  auto rnd = [](uint32_t& s) {
+    s = (s & 1) ? (s >> 1) ^ 0xB8 : s >> 1;
+    return (int32_t(s) - 0x80) * 1024;
+  };
+  uint32_t sd = uint32_t(c.seed);
+  int32_t dx = SDiv(c.p[3] - c.p[0], uint32_t(c.segs)), dy = SDiv(c.p[4] - c.p[1], uint32_t(c.segs));
+  int32_t dz = SDiv(c.p[5] - c.p[2], uint32_t(c.segs));
+  auto proj = [&](double x, double y, int32_t z, float* sx, float* sy, double* in) {
+    double zi = double(uint32_t(z) >> 14);
+    if (zi <= 0) return false;
+    *sx = float(c.xcent + x / zi / 128.0);
+    *sy = float(c.ycent + y / zi / 128.0);
+    double zr = c.zmax - zi;
+    *in = zr <= 0 || c.zmax == 0 ? 0 : (zr * c.ztop / c.zmax) * 256.0 / 65536.0;
+    return true;
+  };
+  float x0, y0;
+  double i0;
+  bool ok0 = proj(c.p[0], c.p[1], c.p[2], &x0, &y0, &i0);
+  int32_t bx = c.p[0], by = c.p[1], bz = c.p[2];
+  for (int s = c.segs; s > 0; --s) {
+    bx += dx, by += dy, bz += dz;
+    double x = bx, y = by;
+    if (s != 1) {
+      x += rnd(sd);
+      y += rnd(sd);
+    }
+    float x1, y1;
+    double i1;
+    bool ok1 = proj(x, y, bz, &x1, &y1, &i1);
+    if (ok0 && ok1 && InView(x0, y0, 384, 240) && InView(x1, y1, 384, 240)) {
+      Line l;
+      l.x0 = x0, l.y0 = y0, l.x1 = x1, l.y1 = y1;
+      l.c0 = Rgb(c.col, i0);
+      l.c1 = Rgb(c.col, i1);
+      l.thick = false;
+      out.push_back(l);
+    }
+    x0 = x1, y0 = y1, i0 = i1, ok0 = ok1;
+  }
+}
+
 void BuildLines(const VecCall& c, std::vector<Line>& out) {
   int n = int(c.verts.size());
   std::vector<Pt> pts(n);
@@ -626,6 +705,7 @@ struct Scene {
   std::vector<SolidCall> solids;
   std::vector<PixCall> pix;
   std::vector<RexCall> rex;
+  std::vector<FlineCall> fl;
 };
 Scene g_scene_a, g_scene_b;   // older, newer
 bool g_interp = true;
@@ -690,6 +770,12 @@ bool LerpRex(const RexCall& a, RexCall& c, double t) {
   return true;
 }
 
+bool LerpFline(const FlineCall& a, FlineCall& c, double t) {
+  if (!Near(a.p, c.p) || !Near(a.p + 3, c.p + 3) || a.segs != c.segs) return false;
+  for (int i = 0; i < 6; ++i) c.p[i] = LerpI(a.p[i], c.p[i], t);
+  return true;
+}
+
 template <class T, class L, class B>
 void Each(const std::vector<T>& a, const std::vector<T>& b, double t, L lerp, B build) {
   if (t >= 1.0) {
@@ -729,11 +815,12 @@ struct CaptureState {
   decltype(g_solids) solids;
   decltype(g_pix) pix;
   decltype(g_rex) rex;
+  decltype(g_flines) flines;
   Scene prev;
   int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_prev_scene, g_web_colour, g_since_clear}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -742,6 +829,7 @@ void Rewind() {
   g_solids = g_mark.solids;
   g_pix = g_mark.pix;
   g_rex = g_mark.rex;
+  g_flines = g_mark.flines;
   g_prev_scene = g_mark.prev;
   g_web_colour = g_mark.web_colour;
   g_since_clear = g_mark.since_clear;
@@ -761,7 +849,7 @@ void AfterFrame(bool publish) {
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
   Scene now;
-  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex)};
+  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines)};
   ++g_since_clear;
   if (publish) {
     g_scene_a = std::move(g_scene_b);
@@ -790,6 +878,7 @@ void Interpolate(float tf) {
   g_solid_tris.clear();
   g_pix_dots.clear();
   g_rex_rects.clear();
+  g_bolt_lines.clear();
   const Scene &a = g_scene_a, &b = g_scene_b;
   Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
   Each(a.webs, b.webs, t, LerpWeb, [](const WebCall& c) { BuildWeb(c, g_tris); });
@@ -797,6 +886,7 @@ void Interpolate(float tf) {
   Each(a.pix, b.pix, t, LerpPix, [](const PixCall& c) { BuildPix(c, g_pix_dots); });
   Each(a.rex, b.rex, t, LerpRex, [](const RexCall& c) { BuildRex(c, g_rex_rects); });
   Each(a.vec, b.vec, t, LerpVec, [](const VecCall& c) { BuildLines(c, g_lines); });
+  Each(a.fl, b.fl, t, LerpFline, [](const FlineCall& c) { BuildFline(c, g_bolt_lines); });
 }
 
 void SetInterpolate(bool on) { g_interp = on; }
@@ -863,7 +953,8 @@ host::Frame Overlay(const host::Frame& f, int scale, double aspect) {
   };
   fill(g_tris);
   int brush = std::max(1, scale * 3 / 4);
-  for (auto& l : g_lines) {
+  auto draw_lines = [&](const std::vector<Line>& lines) {
+  for (auto& l : lines) {
     for (int pass = 0; pass < (l.thick ? 2 : 1); ++pass) {
       double x0 = (l.x0 + g_ox + pass) * scale + ofx, y0 = (l.y0 + g_oy) * scale + ofy;
       double x1 = (l.x1 + g_ox + pass) * scale + ofx, y1 = (l.y1 + g_oy) * scale + ofy;
@@ -878,7 +969,10 @@ host::Frame Overlay(const host::Frame& f, int scale, double aspect) {
       }
     }
   }
+  };
+  draw_lines(g_lines);
   fill(g_solid_tris);
+  draw_lines(g_bolt_lines);
   for (auto& r : g_rex_rects) {
     int x0 = int(std::floor((r.x + g_ox) * scale + ofx)), y0 = int(std::floor((r.y + g_oy) * scale + ofy));
     int x1 = std::max(x0 + 1, int(std::floor((r.x + r.w + g_ox) * scale + ofx)));
@@ -910,8 +1004,8 @@ void DumpLines(const std::string& path) {
 
 std::string Stats() {
   char b[256];
-  std::snprintf(b, sizeof b, "remaster: %zu lines, %zu web triangles shown, %llu vect3d calls captured, "
-                "sin 0/40/80/C0 = %d %d %d %d", g_lines.size(), g_tris.size(), (unsigned long long)g_calls, g_sines[0], g_sines[0x40], g_sines[0x80], g_sines[0xC0]);
+  std::snprintf(b, sizeof b, "remaster: %zu lines, %zu bolt lines, %zu web triangles shown, %llu vect3d calls captured, "
+                "sin 0/40/80/C0 = %d %d %d %d", g_lines.size(), g_bolt_lines.size(), g_tris.size(), (unsigned long long)g_calls, g_sines[0], g_sines[0x40], g_sines[0x80], g_sines[0xC0]);
   return b;
 }
 
@@ -986,6 +1080,11 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   DrawTris(ren, g_tris, dst, sx, sy);
   DrawLines(ren, dst, sx, sy);
   DrawTris(ren, g_solid_tris, dst, sx, sy);
+  if (!g_bolt_lines.empty()) {
+    std::swap(g_lines, g_bolt_lines);   // the bolts: over the solids, as the game draws them last
+    DrawLines(ren, dst, sx, sy);
+    std::swap(g_lines, g_bolt_lines);
+  }
   DrawRects(ren, g_rex_rects, dst, sx, sy);
   DrawDots(ren, g_pix_dots, dst, sx, sy);
 }
