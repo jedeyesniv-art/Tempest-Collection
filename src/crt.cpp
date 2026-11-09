@@ -19,6 +19,7 @@ namespace {
 #include "shaders/psy_trail.dxil.h"
 #include "shaders/psy_mix.dxil.h"
 #include "shaders/scar.dxil.h"
+#include "shaders/m7.dxil.h"
 
 // The shader's cbuffer (six float4s, see crt.frag.hlsl).
 struct Params {
@@ -35,6 +36,8 @@ SDL_GPURenderState* g_state = nullptr;
 SDL_GPUDevice* g_device = nullptr;
 SDL_GPUShader* g_scar_shader = nullptr;
 SDL_GPURenderState* g_scar_state = nullptr;
+SDL_GPUShader* g_m7_shader = nullptr;
+SDL_GPURenderState* g_m7_state = nullptr;
 int g_mode = 0;  // 0 off, 1 CRT+, 2 CRT++ (setting crt)
 
 Params g_params{};
@@ -364,6 +367,15 @@ bool Init(SDL_Renderer* renderer) {
       g_scar_state = SDL_CreateGPURenderState(renderer, &st);
     }
     if (!g_scar_state) LOG("scar shader: %s", SDL_GetError());
+    si.code = k_m7_dxil;
+    si.code_size = sizeof(k_m7_dxil);
+    si.num_uniform_buffers = 0;
+    if ((g_m7_shader = SDL_CreateGPUShader(g_device, &si))) {
+      SDL_GPURenderStateCreateInfo st{};
+      st.fragment_shader = g_m7_shader;
+      g_m7_state = SDL_CreateGPURenderState(renderer, &st);
+    }
+    if (!g_m7_state) LOG("m7 shader: %s", SDL_GetError());
   }
   LoadSettings();
   LOG("crt shader ready, %s", g_mode == 2 ? "CRT++" : g_mode ? "on" : "off");
@@ -372,6 +384,8 @@ bool Init(SDL_Renderer* renderer) {
 
 void Shutdown() {
   if (g_scar_state) SDL_DestroyGPURenderState(g_scar_state), g_scar_state = nullptr;
+  if (g_m7_state) SDL_DestroyGPURenderState(g_m7_state), g_m7_state = nullptr;
+  if (g_m7_shader) SDL_ReleaseGPUShader(g_device, g_m7_shader), g_m7_shader = nullptr;
   if (g_scar_shader) SDL_ReleaseGPUShader(g_device, g_scar_shader), g_scar_shader = nullptr;
   if (g_state) SDL_DestroyGPURenderState(g_state), g_state = nullptr;
   FreePsy();
@@ -380,6 +394,8 @@ void Shutdown() {
 }
 
 bool Available() { return g_state != nullptr; }
+
+SDL_GPURenderState* M7State() { return g_m7_state; }
 
 void DrawScar(SDL_Renderer* r, SDL_Texture* src, const float corners[4][2], int ww, int wh, float dim,
               const Melt* melt) {

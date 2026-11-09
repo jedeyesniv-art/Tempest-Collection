@@ -282,6 +282,8 @@ int main(int argc, char** argv) {
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
   std::string save_file, load_file, gpulog_spec, start_state, winshot_file;
   int winshot_at = -1;
+  struct Poke { int frame; uint32_t addr, value; };
+  std::vector<Poke> pokes;   // --poke=F:hexaddr:hexword: write a RAM word before frame F (tests)
   int peek0 = -1, peek1 = -1;
   uint32_t peek_addr = 0;   // --peek=F0:F1:hexaddr: a RAM long each frame (stderr)
   int menu_test = 0;   // --menu (1) / --menu=all (2): open the menu at start (tests; winshot counts presents)
@@ -339,6 +341,10 @@ int main(int argc, char** argv) {
       rm_scale = std::atoi(val("--rmscale=").c_str());
     } else if (a.rfind("--state=", 0) == 0) {
       start_state = val("--state=");
+    } else if (a.rfind("--poke=", 0) == 0) {
+      Poke p{};
+      std::sscanf(val("--poke=").c_str(), "%d:%x:%x", &p.frame, &p.addr, &p.value);
+      pokes.push_back(p);
     } else if (a.rfind("--peek=", 0) == 0) {
       auto v = val("--peek=");
       std::sscanf(v.c_str(), "%d:%d:%x", &peek0, &peek1, &peek_addr);
@@ -427,6 +433,11 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> st((std::istreambuf_iterator<char>(lf)), {});
         std::fprintf(stderr, "load state %zu bytes: %s\n", st.size(), host::LoadState(st) ? "ok" : "FAILED");
       }
+      for (auto& p : pokes)
+        if (p.frame == f) {
+          jagMemSpace[p.addr & 0xFFFFFF] = uint8_t(p.value >> 8);
+          jagMemSpace[(p.addr + 1) & 0xFFFFFF] = uint8_t(p.value);
+        }
       host::RunFrame();
       t2k::AfterFrame();
       if (runahead > 0) {

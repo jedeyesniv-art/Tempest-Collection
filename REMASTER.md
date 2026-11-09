@@ -284,6 +284,15 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   in_buf: source, z_max, offset, yfront, yback, xcentr, sc (see ox.gas mode7: per scanline z = yfront / line,
   scale rippled by the sine table, SRCSHADE intensity by z). TODO: port mode7 natively (extend past 4:3), then look
   at the owner's "offset ghost image of the UI" there; then _tunn and m7test2 (psycho: scar + psphere).
+- DONE: mode7 ported (DrawM7: per scanline z = |yfront| / k, rippled scale, ping-pong source row, x from the
+  centre; a strip a line from a 640-wide image + mirror with wrap addressing, so the ceiling runs on across wide
+  windows; horizontal mip levels (640..40) per line by squeeze; m7.frag.hlsl: CRY-style dimming from the vertex
+  colour + 4 taps along the row; far lines fade into the horizon over the last 30% of the depth). scroll / row /
+  ripple interpolated. Bonus states: logs/bonus.state (ceiling), logs/bonus16.state (tunnel), logs/bonus32.state
+  (psycho); headless --poke=F:hexaddr:hexword (cweb $AA2A picks the type: 16 tunnel, 32 psycho).
+- Tunnel bonus: ox 3 (voo, ~10 a frame), ox 2 starseg, donky 1 starplane (ours), text: tunnel still emulated (4:3).
+  Psycho: antelope scar $8061B8 (ours), ox 4 psphere, xcamel 6. No UI ghost found in any of the three (ours or
+  the original); the ceiling bonus sets mfudj, which merges screen3 8 lines low at its fade (a possible source).
 
 - HUD corners by content (owner: six lives / the warp pyramids were cut): screen3's lit columns split into clusters
   (16+ empty columns between them), each drawn whole to the nearer top corner (replaces the fixed 184 / 284 zones and

@@ -24,6 +24,8 @@ void LoadSettings(); // rereads the settings (cheap: call once a frame)
 // drip (uv) and bright parts spreading (blob, 0..1).
 // spin: radians a step; mosaic: 0..1 of the screen in square cells at a time; cell: the cell size (uv, of the height).
 struct Melt { float wobble, drip, blob; uint64_t step; float spin = 0, mosaic = 0, cell = 0; };
+// The mode7 shader (CRY-style dimming by 1 - vertex colour, filtered along the row); null without the GPU renderer.
+SDL_GPURenderState* M7State();
 void DrawScar(SDL_Renderer* renderer, SDL_Texture* src, const float corners[4][2], int ww, int wh, float dim,
               const Melt* melt = nullptr);
 

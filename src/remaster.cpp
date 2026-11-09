@@ -23,6 +23,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "crt.h"
 #include "t2k.h"
 #include "traps.h"
 
@@ -172,6 +173,16 @@ struct RippleCall {
 // camel.gas pretty_poly (mode 2; the mode select cursor, head-to-head pyramids): a Gouraud triangle, per vertex x, y,
 // intensity word (byte = >> 8), CRY colour byte (its two nibbles interpolated with the intensity).
 struct PolyCall { uint32_t caller = 0, obj = 0; int16_t x[3], y[3]; uint16_t i[3], c[3]; };
+// ox.gas mode7 (mode 1; the bonus round's ceiling / ground): 128 scanlines, each one row of a 320 x 256 CRY image
+// stretched across the screen (see BuildM7). in_buf: 0 image, 1 z_max, 2 row offset (grnd << 16), 3 yfront (< 0:
+// from the top, the ceiling), 4 yback, 5 x centre, 6 ripple phase (frames & $FF). All 16:16.
+struct M7Call {
+  uint32_t caller = 0, obj = 0;
+  int32_t in[7];
+  uint32_t src = 0;
+  std::shared_ptr<const std::vector<uint32_t>> px;   // 640 x 256 ARGB: the image and its mirror (tiles seamlessly)
+};
+std::map<uint32_t, std::vector<M7Call>> g_m7s;           // per gpu_screen
 std::map<uint32_t, std::vector<RippleCall>> g_ripples;   // per gpu_screen
 std::map<uint32_t, std::vector<PolyCall>> g_polys;       // per gpu_screen
 // Per buffer: g_frames of its last full overwrite we drew ourselves (scar, ripple) / -1: anything drawn in it after
@@ -585,6 +596,32 @@ bool OnGpurun() {
     if (!CaptureText()) return false;
     return g_enabled && PlayBuffer(scr);
   }
+  if (mod == kOx && mode == 1) {
+    M7Call c;
+    c.caller = Caller();
+    c.obj = traps::Reg(14);
+    for (int i = 0; i < 7; ++i) c.in[i] = In(i);
+    c.src = uint32_t(c.in[0]) & 0xFFFFFF;
+    static std::shared_ptr<const std::vector<uint32_t>> cache;
+    static uint32_t cache_src = 0, cache_sum = 0;
+    uint32_t sum = 0;
+    for (uint32_t k = 0; k < 320 * 256; k += 997) sum = sum * 31 + traps::Read16(c.src + k * 2);
+    if (!cache || cache_src != c.src || cache_sum != sum) {
+      auto v = std::make_shared<std::vector<uint32_t>>(640 * 256);
+      for (uint32_t y = 0; y < 256; ++y)
+        for (uint32_t x = 0; x < 320; ++x) {
+          uint32_t p = CRY16ToRGB32[traps::Read16(c.src + (y * 320 + x) * 2)] | 0xFF000000u;
+          (*v)[y * 640 + x] = p;
+          (*v)[y * 640 + 639 - x] = p;
+        }
+      cache = v;
+      cache_src = c.src;
+      cache_sum = sum;
+    }
+    c.px = cache;
+    g_m7s[scr].push_back(c);
+    return g_enabled && PlayBuffer(scr);
+  }
   if (mod == kOx && mode == 0) {
     CaptureFline();
     return g_enabled && PlayBuffer(scr);
@@ -608,6 +645,7 @@ bool OnGpurun() {
     g_planes[scr].clear();
     g_ripples[scr].clear();
     g_polys[scr].clear();
+    g_m7s[scr].clear();
     g_taken[scr] = uint64_t(-1);
   }
   else if (mode == 2) {
@@ -935,6 +973,7 @@ void BuildPlane(const PlaneCall& c, std::vector<Dot>& out) {
 }
 
 std::vector<RippleCall> g_ripple_shown;   // the displayed frame's (drawn first, own texture)
+std::vector<M7Call> g_m7_shown;           // the displayed frame's mode7 (after the stars)
 std::vector<Tri> g_poly_tris;             // the displayed frame's pretty_poly triangles
 
 void BuildPoly(const PolyCall& c, std::vector<Tri>& out) {
@@ -1003,6 +1042,7 @@ struct Scene {
   std::vector<PlaneCall> plane;
   std::vector<RippleCall> ripple;
   std::vector<PolyCall> poly;
+  std::vector<M7Call> m7;
 };
 Scene g_scene_a, g_scene_b;   // older, newer
 bool g_interp = true;
@@ -1092,6 +1132,19 @@ bool LerpPlane(const PlaneCall& a, PlaneCall& c, double t) {
   return true;
 }
 
+bool LerpM7(const M7Call& a, M7Call& c, double t) {
+  if (a.src != c.src || (a.in[3] < 0) != (c.in[3] < 0)) return false;
+  // row offset: grnd wraps at 512 lines
+  int32_t d = c.in[2] - a.in[2];
+  const int32_t wrap = 512 << 16;
+  if (d > wrap / 2) d -= wrap;
+  if (d < -wrap / 2) d += wrap;
+  c.in[2] = int32_t(a.in[2] + int32_t(std::lround(d * t)));
+  c.in[3] = LerpI(a.in[3], c.in[3], t);
+  c.in[5] = LerpI(a.in[5], c.in[5], t);
+  return true;
+}
+
 bool LerpRipple(const RippleCall& a, RippleCall& c, double t) {
   if (a.src != c.src) return false;
   for (int i : {1, 3}) {
@@ -1147,6 +1200,7 @@ struct CaptureState {
   decltype(g_scars) scars;
   decltype(g_planes) planes;
   decltype(g_ripples) ripples;
+  decltype(g_m7s) m7s;
   decltype(g_polys) polys;
   decltype(g_taken) taken;
   int since_scar;
@@ -1154,7 +1208,7 @@ struct CaptureState {
   int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_ripples, g_polys, g_taken, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_ripples, g_m7s, g_polys, g_taken, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -1168,6 +1222,7 @@ void Rewind() {
   g_scars = g_mark.scars;
   g_planes = g_mark.planes;
   g_ripples = g_mark.ripples;
+  g_m7s = g_mark.m7s;
   g_polys = g_mark.polys;
   g_taken = g_mark.taken;
   g_since_scar = g_mark.since_scar;
@@ -1190,7 +1245,7 @@ void AfterFrame(bool publish) {
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
   Scene now;
-  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars), get(g_planes), get(g_ripples), get(g_polys)};
+  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars), get(g_planes), get(g_ripples), get(g_polys), get(g_m7s)};
   ++g_since_clear;
   if (g_since_scar < 1000) ++g_since_scar;
   if (publish) {
@@ -1238,6 +1293,8 @@ void Interpolate(float tf) {
   const Scene &a = g_scene_a, &b = g_scene_b;
   Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
   Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
+  g_m7_shown.clear();
+  Each(a.m7, b.m7, t, LerpM7, [](const M7Call& c) { g_m7_shown.push_back(c); });
   g_ripple_shown.clear();
   Each(a.ripple, b.ripple, t, LerpRipple, [](const RippleCall& c) { g_ripple_shown.push_back(c); });
   g_poly_tris.clear();
@@ -1535,12 +1592,93 @@ void DrawRipple(SDL_Renderer* ren, const RippleCall& r, const SDL_FRect& dst, fl
   SDL_RenderGeometry(ren, tex, v.data(), int(v.size()), idx.data(), int(idx.size()));
 }
 
+// mode7, per scanline k = 128 .. 1 (from line 0 down when yfront < 0, else from 239 up): z = |yfront| / k (16:16)
+// (stop at z_max); scale = ($4000 - sine[(z >> 11) + phase] * 8) * z; source row = |((offset + $FF000 z) & $FFFFFF)
+// - $7FFFFF| & $7FFFFF (a ping-pong); source x = xcentre - $300000 z + i * scale for dest pixel i; dimmed by
+// 128 z / z_max intensity steps. The original clips at the image's 320 columns; ours runs on into the image's mirror
+// (wrap addressing on a 640-wide image + mirror) across the whole view, so the ceiling fills wide windows.
+void DrawM7(SDL_Renderer* ren, const M7Call& m, const SDL_FRect& dst, float sx, float sy) {
+  // Horizontal mip levels (640, 320, 160, 80, 40 wide; each the one above with pixel pairs averaged; the image +
+  // its mirror stays seamless): a far line squeezes many texels into a pixel and takes the level that matches.
+  constexpr int kLevels = 5;
+  static SDL_Texture* tex[kLevels] = {};
+  static const std::vector<uint32_t>* shown = nullptr;
+  if (!m.px) return;
+  if (shown != m.px.get()) {
+    std::vector<uint32_t> cur = *m.px;
+    int w = 640;
+    for (int l = 0; l < kLevels; ++l) {
+      if (!tex[l]) {
+        tex[l] = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 640 >> l, 256);
+        SDL_SetTextureScaleMode(tex[l], SDL_SCALEMODE_LINEAR);
+        SDL_SetTextureBlendMode(tex[l], SDL_BLENDMODE_NONE);
+      }
+      SDL_UpdateTexture(tex[l], nullptr, cur.data(), w * 4);
+      std::vector<uint32_t> next(size_t(w / 2) * 256);
+      for (int y = 0; y < 256; ++y)
+        for (int x = 0; x < w / 2; ++x) {
+          uint32_t a = cur[size_t(y) * w + 2 * x], b = cur[size_t(y) * w + 2 * x + 1], o = 0xFF000000u;
+          for (int sh = 0; sh < 24; sh += 8) o |= ((((a >> sh) & 255) + ((b >> sh) & 255)) / 2) << sh;
+          next[size_t(y) * (w / 2) + x] = o;
+        }
+      cur.swap(next);
+      w /= 2;
+    }
+    shown = m.px.get();
+  }
+  const double yabs = std::fabs(double(m.in[3])), zmax = double(m.in[1]);
+  if (zmax <= 0 || yabs <= 0) return;
+  const bool top = m.in[3] < 0;
+  const double gx0 = g_view.set ? g_view.x0 : 0, gx1 = g_view.set ? g_view.x1 : 384;
+  std::vector<SDL_Vertex> v[kLevels];
+  std::vector<int> idx[kLevels];
+  for (int j = 0; j < 128; ++j) {
+    int k = 128 - j;
+    double z = yabs / k;                     // 16:16
+    if (z >= zmax) continue;
+    int line = top ? j : 239 - j;
+    int sine = g_sines[((int(z) >> 11) + (m.in[6] & 0xFF)) & 0xFF] + 128;
+    double scale = (0x4000 - sine * 8) * z / 65536.0;            // 16:16 source pixels a dest pixel
+    double offs = 0xFF000 * z / 65536.0, xs = 0x300000 * z / 65536.0;
+    double sx0 = double(m.in[5]) - xs;
+    int64_t r1 = (int64_t(m.in[2]) + int64_t(offs)) & 0xFFFFFF;
+    r1 -= 0x7FFFFF;
+    if (r1 < 0) r1 = (-r1) & 0x7FFFFF;
+    float vrow = float((r1 / 65536.0 + 0.5) / 256.0);
+    float shade = float(std::clamp(1.0 - (128.0 * z / zmax) / 255.0, 0.0, 1.0));   // 1 - the drop (shader)
+    // Far lines: each samples a very different row from its neighbour (speckled stripes once they run past the
+    // original's clipped 320 columns): fade them into the horizon over the last 30% of the depth.
+    shade *= float(std::clamp((1.0 - z / zmax) / 0.3, 0.0, 1.0));
+    // texels (of the full image) a window pixel -> the level
+    double texels = std::fabs(scale / 65536.0) / std::max(0.001f, sx);
+    int lv = std::clamp(int(std::floor(std::log2(std::max(1.0, texels)))), 0, kLevels - 1);
+    float u0 = float((sx0 + gx0 * scale) / 65536.0 / 640.0), u1 = float((sx0 + gx1 * scale) / 65536.0 / 640.0);
+    float x0 = dst.x + float(gx0 + g_ox) * sx, x1 = dst.x + float(gx1 + g_ox) * sx;
+    float y0 = dst.y + (line + g_oy) * sy, y1 = y0 + sy;
+    SDL_FColor c{shade, shade, shade, 1};
+    auto& vv = v[lv];
+    int b = int(vv.size());
+    vv.push_back({{x0, y0}, c, {u0, vrow}});
+    vv.push_back({{x1, y0}, c, {u1, vrow}});
+    vv.push_back({{x0, y1}, c, {u0, vrow}});
+    vv.push_back({{x1, y1}, c, {u1, vrow}});
+    idx[lv].insert(idx[lv].end(), {b, b + 1, b + 2, b + 1, b + 3, b + 2});
+  }
+  SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_WRAP, SDL_TEXTURE_ADDRESS_CLAMP);
+  if (SDL_GPURenderState* st = crt::M7State()) SDL_SetGPURenderState(ren, st);
+  for (int l = 0; l < kLevels; ++l)
+    if (!v[l].empty()) SDL_RenderGeometry(ren, tex[l], v[l].data(), int(v[l].size()), idx[l].data(), int(idx[l].size()));
+  SDL_SetGPURenderState(ren, nullptr);
+  SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
+}
+
 void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   if (!fw || !fh) return;
   float sx = dst.w / fw, sy = dst.h / fh;
   for (const RippleCall& r : g_ripple_shown) DrawRipple(ren, r, dst, sx, sy);
   DrawTris(ren, g_poly_tris, dst, sx, sy);
   DrawDots(ren, g_dots, dst, sx, sy);
+  for (const M7Call& m : g_m7_shown) DrawM7(ren, m, dst, sx, sy);
   if (!g_streaks.empty()) {
     std::swap(g_lines, g_streaks);   // draw the streaks with the line code (thin), then put things back
     float w = g_width;
