@@ -265,6 +265,11 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   over only there (over an uncaptured background they would vanish under the picture), and FeedbackLately (the core
   skips the play buffers) uses it too. Ours shows the buffer's full 384 px width.
 
+- Meltier melt (owner: "the original blobs out and distorts, ours just zooms" - the original's nearest-pixel
+  resampling at ~0.977 a step duplicates every ~43rd row / column, smearing the letters blockily). For the melt only
+  (caller $806114) scar.frag adds a per-step noise warp (melt_wobble, uv), an uneven downward drip (melt_drip) and a
+  soft dilation of bright parts (melt_blob). Menu DISPLAY: native screen effects on / off + the three sliders.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

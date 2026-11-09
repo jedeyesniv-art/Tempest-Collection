@@ -87,6 +87,10 @@ std::vector<Item> Items() {
   choice("Original mode (all improvements off)", "native", {"0", "1"}, {"Off", "On"});
   button("Fullscreen on / off", Action::ToggleFullscreen);
   choice("Smooth motion (remaster)", "remaster_interpolate", {"1", "0"}, {"On", "Off (60 fps steps)"});
+  choice("Native screen effects (melts, title, menus)", "remaster_feedback", {"1", "0"}, {"On", "Off"});
+  num("  Melt wobble", "melt_wobble", 0, 0.04, 0.002, "%.3f", 0.010);
+  num("  Melt drip", "melt_drip", 0, 0.03, 0.001, "%.3f", 0.006);
+  num("  Melt blob", "melt_blob", 0, 1, 0.05, "%.2f", 0.35);
   choice("Pixel art (text, HUD, menus)", "picture_filter", {"sharp", "xbr", "smooth"},
          {"Sharp pixels", "Smoothed (xBR)", "Soft (bilinear)"});
   num("Particle size (x original)", "remaster_particle_size", 0.5, 3.0, 0.1, "%.1f", 1.5);

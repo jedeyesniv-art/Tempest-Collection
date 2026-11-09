@@ -381,7 +381,8 @@ void Shutdown() {
 
 bool Available() { return g_state != nullptr; }
 
-void DrawScar(SDL_Renderer* r, SDL_Texture* src, const float corners[4][2], int ww, int wh, float dim) {
+void DrawScar(SDL_Renderer* r, SDL_Texture* src, const float corners[4][2], int ww, int wh, float dim,
+              const Melt* melt) {
   SDL_Vertex v[4];
   const float px[4] = {0, float(ww), 0, float(ww)}, py[4] = {0, 0, float(wh), float(wh)};
   for (int k = 0; k < 4; ++k) v[k] = SDL_Vertex{{px[k], py[k]}, {1, 1, 1, 1}, {corners[k][0] / ww, corners[k][1] / wh}};
@@ -389,7 +390,8 @@ void DrawScar(SDL_Renderer* r, SDL_Texture* src, const float corners[4][2], int 
   SDL_SetTextureBlendMode(src, SDL_BLENDMODE_NONE);
   SDL_SetTextureScaleMode(src, SDL_SCALEMODE_LINEAR);
   if (g_scar_state) {
-    float u[4] = {dim, 0, 0, 0};
+    float u[8] = {dim, 0, 0, 0, 1.0f / ww, 1.0f / wh, 0, float(ww) / float(wh)};
+    if (melt) u[1] = melt->wobble, u[2] = melt->blob, u[3] = float(melt->step % 997), u[6] = melt->drip;
     SDL_SetGPURenderStateFragmentUniforms(g_scar_state, 0, u, sizeof(u));
     SDL_SetGPURenderState(r, g_scar_state);
   }

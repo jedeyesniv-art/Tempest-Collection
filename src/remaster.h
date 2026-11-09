@@ -39,8 +39,9 @@ void SetFeedback(bool on);
 bool FeedbackLately();
 // The shown scene's scar step: for the window corners (0,0) (w,0) (0,h) (w,h), where they sample the last frame (window
 // pixels); dim = the intensity drop (0..1); serial = the scar call (a new step when it changes).
+// melt: the step is the melt between screens (not the title / Game Over feedback).
 bool ScarMap(const SDL_FRect& dst, unsigned fw, unsigned fh, int ww, int wh, float corners[4][2], float* dim,
-             uint64_t* serial);
+             uint64_t* serial, bool* melt = nullptr);
 // After each emulated frame: picks the item list of the displayed buffer. publish = make it the newest scene shown
 // (false for a frame whose picture isn't shown: a real frame followed by run-ahead frames).
 void AfterFrame(bool publish = true);

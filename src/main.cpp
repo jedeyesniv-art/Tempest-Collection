@@ -786,14 +786,18 @@ int main(int argc, char** argv) {
         remaster::Interpolate(float(t));
         float corners[4][2], dim = 0;
         uint64_t serial = 0;
-        if (remaster::ScarMap(dst, fr.width, fr.height, ww, wh, corners, &dim, &serial)) {
+        bool melt = false;
+        if (remaster::ScarMap(dst, fr.width, fr.height, ww, wh, corners, &dim, &serial, &melt)) {
           // A scar scene: the feedback steps once per published scene (the last frame through the map, dimmed, then
           // the scene's own draws on top), and the latest step is shown under the overlays.
           if (serial != fb_serial) {
             SDL_SetRenderTarget(ren, fb_next);
             SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
             SDL_RenderClear(ren);
-            crt::DrawScar(ren, fb_last, corners, ww, wh, dim);
+            // The melt: wobble / drip / blob (settings melt_*; owner: the original blobs and distorts).
+            crt::Melt m{float(settings::Num("melt_wobble", 0.010)), float(settings::Num("melt_drip", 0.006)),
+                        float(settings::Num("melt_blob", 0.35)), serial};
+            crt::DrawScar(ren, fb_last, corners, ww, wh, dim, melt ? &m : nullptr);
             remaster::Interpolate(1.f);
             remaster::Draw(ren, dst, fr.width, fr.height);
             std::swap(fb_last, fb_next);

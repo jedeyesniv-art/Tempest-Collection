@@ -1387,7 +1387,7 @@ bool FeedbackLately() {
 // dest row; start = centre - (x1 + x2, y1 + y2) / 2. Dest pixel (u, v) (less the dest offset) reads start + u inc +
 // v row. Returns false when the shown scene has no scar.
 bool ScarMap(const SDL_FRect& dst, unsigned fw, unsigned fh, int ww, int wh, float corners[4][2], float* dim,
-             uint64_t* serial) {
+             uint64_t* serial, bool* melt) {
   if (!g_enabled || g_scene_b.scar.empty() || !fw || !fh) return false;
   const ScarCall& c = g_scene_b.scar.front();
   int32_t w = c.in[1] & 0xFFFF, h = c.in[2] & 0xFFFF;
@@ -1410,6 +1410,7 @@ bool ScarMap(const SDL_FRect& dst, unsigned fw, unsigned fh, int ww, int wh, flo
   int32_t di = int32_t(uint32_t(c.in[9]) << 8) >> 8;   // 24-bit signed
   *dim = di < 0 ? float(-di / 65536.0 / 255.0) : 0.f;
   *serial = c.id;
+  if (melt) *melt = c.caller == 0x806114;   // failfade: the melt between screens
   return true;
 }
 
