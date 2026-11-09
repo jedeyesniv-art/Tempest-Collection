@@ -32,6 +32,10 @@ struct Dot {
 
 bool Install();                       // after t2k::Install
 void AfterFrame();                    // picks the item list of the displayed buffer
+// Window: rebuild what Draw shows, blended between the previous and the latest displayed frame (t = 0..1; 1 = the
+// latest, as AfterFrame leaves it). Setting remaster_interpolate (default on).
+void Interpolate(float t);
+void SetInterpolate(bool on);
 const std::vector<Line>& Lines();     // the displayed frame's lines
 
 // Where the GPU screen's (0, 0) falls in the emulated picture (pixels); set from the alignment check.

@@ -360,6 +360,7 @@ int main(int argc, char** argv) {
       remaster::AfterFrame();
       for (auto& s : rmshots)
         if (s.frame == f) {
+          if (const char* t = std::getenv("RM_T")) remaster::Interpolate(float(std::atof(t)));   // debug: blend
           WriteBmp(s.path, remaster::Overlay(host::LastFrame(), rm_scale));
           remaster::DumpLines(s.path + ".lines");
           WriteBmp(s.path + ".orig.bmp", host::LastFrame());
@@ -565,6 +566,11 @@ int main(int argc, char** argv) {
       SDL_FRect dst{(ww - sw) / 2, (wh - sh) / 2, sw, sh};
       if (remaster::Enabled()) {
         remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
+        // Blend between the last two frames by how far real time is into the current frame's slot (the frame
+        // due at next - frame_ns was just emulated). Paused / menu: the latest frame.
+        remaster::SetInterpolate(settings::Num("remaster_interpolate", 1) != 0);
+        double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(SDL_GetTicksNS())) / frame_ns;
+        remaster::Interpolate(float(t));
         remaster::Draw(ren, dst, fr.width, fr.height);
       }
       SDL_RenderTexture(ren, tex, nullptr, &dst);   // the emulated picture over ours (text, HUD, not-yet-ours)

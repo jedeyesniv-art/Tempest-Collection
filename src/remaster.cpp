@@ -19,6 +19,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <tuple>
+#include <type_traits>
 
 #include "traps.h"
 
@@ -47,7 +49,8 @@ struct Vec3i { int32_t x, y, z; };
 struct VecCall {
   uint32_t caller, obj;
   int32_t pos[3];
-  int32_t rmode, hscale, centre[3], ang[3], col;
+  int32_t rmode, hscale, centre[3], col;
+  double ang[3];   // 0-255 (fractional when interpolated)
   int32_t scaler, zmax, ztop, sysflags;
   std::vector<Vec3i> verts;
   std::vector<uint16_t> conns;
@@ -56,7 +59,9 @@ struct VecCall {
 // donky.gas web3d (the solid web): one quad per lane between the near and far rims (see BuildWeb).
 struct WebFace { int32_t x0, y0, x1, y1; int colour, phase; };
 struct WebCall {
-  int32_t pos[3], glint, rot, angl, ycent;
+  uint32_t caller = 0, obj = 0;
+  int32_t pos[3], glint, angl, ycent;
+  double rot;
   std::vector<WebFace> faces;
 };
 
@@ -67,6 +72,7 @@ std::map<uint32_t, std::vector<WebCall>> g_webs;    // solid webs, per gpu_scree
 // colour word), +20 warp count (extra points a star, streaks), +24 warp separation (z step between them).
 struct Star { int32_t x, y, z; int colour; };
 struct StarCall {
+  uint32_t caller = 0, obj = 0;
   int32_t vp[3], warp_count, warp_add, sysflags;
   std::vector<Star> stars;
 };
@@ -77,7 +83,9 @@ std::map<uint32_t, std::vector<StarCall>> g_stars;  // per gpu_screen
 // +16/20 shape centre, +24 rotation. Vertex: v - centre, rotate, << 8, + position, / (z >> 14), >> 7, + xcent / ycent.
 struct SolidFace { int colour; int16_t x[3], y[3]; int inten[3]; };
 struct SolidCall {
-  int32_t pos[3], xcen, ycen, rot, xcent, ycent;
+  uint32_t caller = 0, obj = 0;
+  int32_t pos[3], xcen, ycen, xcent, ycent;
+  double rot;
   std::vector<SolidFace> faces;
 };
 std::map<uint32_t, std::vector<SolidCall>> g_solids;  // per gpu_screen
@@ -86,16 +94,17 @@ std::vector<Tri> g_solid_tris;                         // the displayed frame's 
 // xcamel.gas pixels: mode 5 snglpix (in_buf x, y, z, colour: one 2x2 depth-shaded pixel), mode 6 pring (count,
 // x, y, z, colour, radius, phase: count+1 2x2 pixels on a ring, depth-shaded), mode 7 pring2 (same, 1x1, intensity
 // 255 - (radius >> 16)). Captured as their inputs plus z_max / z_top / sysflags.
-struct PixCall { int mode; int32_t in[7]; int32_t zmax, ztop, sysflags; };
+struct PixCall { uint32_t caller = 0, obj = 0; int mode; int32_t in[7]; int32_t zmax, ztop, sysflags; double phase; };
 std::map<uint32_t, std::vector<PixCall>> g_pix;        // per gpu_screen
 std::vector<Dot> g_pix_dots;                           // the displayed frame's (drawn last of ours)
 // camel.gas rex (mode 4): a source rectangle of a sprite sheet (pic / pic2, 320 wide, CRY words), each pixel put as
 // ONE destination pixel at start + i * (scalex, sheary) + j * (shearx, scaley); black is see-through (DCOMPEN).
 // in_buf: 0 source base, 1 start pixel (y << 16 | x), 2 size (h << 16 | w), 3/4 scale x/y, 5/6 shear x/y, 7 mode
-// (unused: always centred), 8/9/10 dest x, y, z. Captured as the GPU's start / steps plus a copy of the pixels.
+// (unused: always centred), 8/9/10 dest x, y, z. Captured as in_buf plus a copy of the source pixels.
 struct RexCall {
-  double x0, y0, ix, iy, jx, jy;   // start, per-pixel and per-row steps (game pixels)
-  double sx, sy;                   // scale (destination pixel spacing)
+  uint32_t caller = 0, obj = 0;
+  int32_t in[11];
+  int32_t cy;      // centre y (PAL: 140)
   int w = 0, h = 0;
   std::vector<uint16_t> px;
 };
@@ -108,12 +117,21 @@ std::vector<Line> g_streaks;                        // warp streaks of the stars
 int g_web_colour = 0;                               // donky's colour register carries over between calls
 std::vector<Line> g_lines;                          // the displayed frame
 float g_ox = -23.75f, g_oy = 5.25f;   // GPU screen -> emulated picture (fit_origin.py, 2026-11-08)
-int g_sines[256];
 uint64_t g_calls = 0, g_frames = 0;
+
+int g_sines[256];
 
 int32_t S32(uint32_t a) { return int32_t(traps::Read32(a)); }
 int32_t In(int i) { return S32(kInBuf + 4 * i); }
 int32_t Low16(int32_t v) { return int16_t(uint16_t(v)); }
+uint32_t Caller() { return traps::Read32(traps::Reg(15)) - 6; }
+
+// The signed sine table at a fractional angle (0-255 a turn), linear between entries.
+double SinT(double a) {
+  double f = std::floor(a);
+  int i = int(int64_t(f) & 0xFF);
+  return g_sines[i] + (g_sines[(i + 1) & 0xFF] - g_sines[i]) * (a - f);
+}
 
 VecCall g_pending;            // the last captured call (RM_CHECK)
 bool g_has_pending = false;
@@ -193,6 +211,8 @@ void CheckPending() {
 // (+2 if connected) further on, the lane colour words; the connect flag is the word before the phase table.
 void CaptureWeb() {
   WebCall w;
+  w.caller = Caller();
+  w.obj = traps::Reg(14);
   uint32_t p = traps::Read32(kInBuf) & 0xFFFFFF;
   for (int i = 0; i < 3; ++i) w.pos[i] = In(1 + i);
   w.glint = In(4);
@@ -226,6 +246,8 @@ void CaptureWeb() {
 
 void CaptureSolid() {
   SolidCall c;
+  c.caller = Caller();
+  c.obj = traps::Reg(14);
   uint32_t p = traps::Read32(kInBuf) & 0xFFFFFF;
   for (int i = 0; i < 3; ++i) c.pos[i] = In(1 + i);
   c.xcen = In(4);
@@ -252,8 +274,11 @@ void CaptureSolid() {
 
 void CapturePix(int mode) {
   PixCall c;
+  c.caller = Caller();
+  c.obj = traps::Reg(14);
   c.mode = mode;
   for (int i = 0; i < 7; ++i) c.in[i] = In(i);
+  c.phase = c.in[6];
   c.zmax = S32(0xF03FD8);
   c.ztop = S32(0xF03FDC);
   c.sysflags = S32(0xF03FD0);
@@ -277,52 +302,29 @@ bool RexCaller(uint32_t c) {
 }
 
 bool CaptureRex() {
-  if (!RexCaller(traps::Read32(traps::Reg(15)) - 6)) return false;
-  uint32_t base = uint32_t(In(0)) & 0xFFFFFF;
-  int sxp = In(1) & 0xFFFF, syp = (In(1) >> 16) & 0xFFFF;
-  int w = In(2) & 0xFFFF, h = (In(2) >> 16) & 0xFFFF;
-  int32_t scalex = In(3), scaley = In(4), shearx = In(5), sheary = In(6);
-  int32_t dstx = In(8), dsty = In(9);
-  uint32_t dstz = uint32_t(In(10)) >> 14;
   RexCall r;
-  if (dstz == 0 || w <= 0 || h <= 0 || w > 384 || h > 280) return true;   // (nothing sensible: just skip it)
-  int32_t cx = 0xC00000, cy = (S32(0xF03FD0) >> 5) & 1 ? 0x8C0000 : 0x780000;
-  dstx = int32_t(uint32_t(SDiv(dstx, dstz)) << 9) + cx;
-  dsty = int32_t(uint32_t(SDiv(dsty, dstz)) << 9) + cy;
-  scalex = int32_t(uint32_t(SDiv(scalex, dstz)) << 9);
-  scaley = int32_t(uint32_t(SDiv(scaley, dstz)) << 9);
-  int32_t wsx = FMult(scalex, w << 16), hsy = FMult(scaley, h << 16);
-  int32_t axs = FMult(shearx, h << 16), ays = FMult(sheary, w << 16);
-  int32_t x = dstx - ((wsx + axs) >> 1), y = dsty - ((hsy + ays) >> 1);
-  // The GPU's clipping hack: while the left edge is off screen, drop source columns from the left.
-  int guard = 0;
-  while (x < 0 && guard++ < 4096) {
-    if (scalex <= 0) return true;
-    --w;
-    ++sxp;
-    x += scalex;
-    if (w <= 0) return true;
-  }
-  r.x0 = x / 65536.0;
-  r.y0 = y / 65536.0;
-  r.ix = scalex / 65536.0;
-  r.iy = sheary / 65536.0;
-  r.jx = shearx / 65536.0;
-  r.jy = scaley / 65536.0;
-  r.sx = std::fabs(r.ix);
-  r.sy = std::fabs(r.jy);
-  r.w = w;
-  r.h = h;
-  r.px.resize(size_t(w) * h);
-  for (int j = 0; j < h; ++j)
-    for (int i = 0; i < w; ++i)
-      r.px[size_t(j) * w + i] = traps::Read16(base + uint32_t(((syp + j) * 320 + sxp + i) * 2));
+  r.caller = Caller();
+  if (!RexCaller(r.caller)) return false;
+  r.obj = traps::Reg(14);
+  for (int i = 0; i < 11; ++i) r.in[i] = In(i);
+  r.cy = (S32(0xF03FD0) >> 5) & 1 ? 0x8C0000 : 0x780000;
+  uint32_t base = uint32_t(r.in[0]) & 0xFFFFFF;
+  int sxp = r.in[1] & 0xFFFF, syp = (r.in[1] >> 16) & 0xFFFF;
+  r.w = r.in[2] & 0xFFFF;
+  r.h = (r.in[2] >> 16) & 0xFFFF;
+  if (r.w <= 0 || r.h <= 0 || r.w > 384 || r.h > 280) return true;   // (nothing sensible: just skip it)
+  r.px.resize(size_t(r.w) * r.h);
+  for (int j = 0; j < r.h; ++j)
+    for (int i = 0; i < r.w; ++i)
+      r.px[size_t(j) * r.w + i] = traps::Read16(base + uint32_t(((syp + j) * 320 + sxp + i) * 2));
   g_rex[traps::Read32(kGpuScreen)].push_back(std::move(r));
   return true;
 }
 
 void CaptureStars() {
   StarCall c;
+  c.caller = Caller();
+  c.obj = traps::Reg(14);
   for (int i = 0; i < 3; ++i) c.vp[i] = In(1 + i);
   uint32_t p = traps::Read32(kInBuf + 16) & 0xFFFFFF;
   c.warp_count = std::clamp(In(5), 0, 64);
@@ -387,14 +389,15 @@ bool OnGpurun() {
 
 
 Pt Transform(const VecCall& c, const Vec3i& v) {
-  int32_t x = v.x - c.centre[0], y = v.y - c.centre[1], z = v.z - c.centre[2];
-  x = Low16(x) * Low16(c.hscale);
-  x <<= 8; y <<= 8; z <<= 8;
-  auto rot = [&](int32_t& a, int32_t& b, int ang) {
-    int32_t s = g_sines[ang & 0xFF], co = g_sines[(ang + 0x40) & 0xFF];
-    int32_t na = ((co * Low16(a)) >> 7) - ((s * Low16(b)) >> 7);
-    int32_t nb = ((s * Low16(a)) >> 7) + ((co * Low16(b)) >> 7);
-    a = na; b = nb;
+  int32_t xi = v.x - c.centre[0], yi = v.y - c.centre[1], zi = v.z - c.centre[2];
+  xi = Low16(xi) * Low16(c.hscale);
+  double x = int32_t(uint32_t(xi) << 8), y = int32_t(uint32_t(yi) << 8), z = int32_t(uint32_t(zi) << 8);
+  // imult takes the low 16 bits of each operand (the GPU's wrap); the products / 128 are kept in float.
+  auto rot = [&](double& a, double& b, double ang) {
+    double s = SinT(ang), co = SinT(ang + 0x40);
+    double la = Low16(int32_t(std::floor(a))), lb = Low16(int32_t(std::floor(b)));
+    a = (co * la - s * lb) / 128.0;
+    b = (s * la + co * lb) / 128.0;
   };
   rot(x, y, c.ang[0]);
   if (c.rmode != 0) {
@@ -431,7 +434,7 @@ void BuildWeb(const WebCall& w, std::vector<Tri>& out) {
   int64_t znear = int64_t(w.pos[2]) - 0x500000 + 1;
   if (znear < 1) znear = 0;
   double zf = double(uint32_t(zfar) >> 14), zn = double(uint32_t(znear) >> 14) + 1;
-  int s = g_sines[w.rot & 0xFF], c = g_sines[(w.rot + 0x40) & 0xFF];
+  double s = SinT(w.rot), c = SinT(w.rot + 0x40);
   auto proj = [&](int32_t px, int32_t py, double z, float* sx, float* sy) {
     px -= 64;
     py -= 64;
@@ -484,7 +487,7 @@ void BuildStars(const StarCall& c, std::vector<Dot>& dots, std::vector<Line>& st
 void BuildSolid(const SolidCall& c, std::vector<Tri>& out) {
   double z = double(uint32_t(c.pos[2]) >> 14);
   if (z <= 0) return;
-  int s = g_sines[c.rot & 0xFF], co = g_sines[(c.rot + 0x40) & 0xFF];
+  double s = SinT(c.rot), co = SinT(c.rot + 0x40);
   for (auto& f : c.faces) {
     Tri t;
     for (int k = 0; k < 3; ++k) {
@@ -523,10 +526,10 @@ void BuildPix(const PixCall& c, std::vector<Dot>& out) {
   uint32_t col = CRY16ToRGB32[((c.in[4] & 0xFF) << 8) | i] & 0xFFFFFF;
   double x0 = cx + c.in[1] / z / 128.0, y0 = cy + c.in[2] / z / 128.0, r = c.in[5] / z / 128.0;
   int step = count ? 256 / count : 0;
-  int phase = c.in[6];
+  double phase = c.phase;
   float size = c.mode == 6 ? 2.f : 1.f;
   for (int k = 0; k <= count; ++k, phase += step) {
-    double sn = g_sines[phase & 0xFF], cs = g_sines[(phase + 0x40) & 0xFF];
+    double sn = SinT(phase), cs = SinT(phase + 0x40);
     double x = x0 + sn * r / 256.0, y = y0 + cs * r / 256.0;
     if (x < 0 || y < 0 || x >= 382 || y >= (pal ? 278 : 238)) continue;
     out.push_back({float(x + size * 0.5f), float(y + size * 0.5f), col, size});
@@ -535,13 +538,26 @@ void BuildPix(const PixCall& c, std::vector<Dot>& out) {
 
 // Each source pixel is a square of the scale (at most one game pixel, the original's single pixel): below scale 1 a
 // sharp small image (the original overwrites pixels), above it the spread dot matrix of the original.
+// The GPU's set-up: dest and scales / (z >> 14) << 9, + centre; start = dest - (w * sx + h * shx, h * sy + w * shy) / 2.
+// (Its left-edge hack drops the columns left of x = 0: the same as the clip below, without shear.)
 void BuildRex(const RexCall& r, std::vector<Rect>& out) {
-  float w = float(std::min(r.sx, 1.0)), h = float(std::min(r.sy, 1.0));
+  uint32_t dstz = uint32_t(r.in[10]) >> 14;
+  if (dstz == 0 || r.px.empty()) return;
+  int32_t shearx = r.in[5], sheary = r.in[6];
+  int32_t dstx = int32_t(uint32_t(SDiv(r.in[8], dstz)) << 9) + 0xC00000;
+  int32_t dsty = int32_t(uint32_t(SDiv(r.in[9], dstz)) << 9) + r.cy;
+  int32_t scalex = int32_t(uint32_t(SDiv(r.in[3], dstz)) << 9);
+  int32_t scaley = int32_t(uint32_t(SDiv(r.in[4], dstz)) << 9);
+  int32_t wsx = FMult(scalex, r.w << 16), hsy = FMult(scaley, r.h << 16);
+  int32_t axs = FMult(shearx, r.h << 16), ays = FMult(sheary, r.w << 16);
+  double x0 = (dstx - ((wsx + axs) >> 1)) / 65536.0, y0 = (dsty - ((hsy + ays) >> 1)) / 65536.0;
+  double ix = scalex / 65536.0, iy = sheary / 65536.0, jx = shearx / 65536.0, jy = scaley / 65536.0;
+  float w = float(std::min(std::fabs(ix), 1.0)), h = float(std::min(std::fabs(jy), 1.0));
   for (int j = 0; j < r.h; ++j)
     for (int i = 0; i < r.w; ++i) {
       uint16_t p = r.px[size_t(j) * r.w + i];
       if (!p) continue;
-      double x = r.x0 + i * r.ix + j * r.jx, y = r.y0 + i * r.iy + j * r.jy;
+      double x = x0 + i * ix + j * jx, y = y0 + i * iy + j * jy;
       if (x < 0 || y < 0 || x >= 384 || y >= 280) continue;   // the GPU's a1 clip
       out.push_back({float(x), float(y), w, h, CRY16ToRGB32[p] & 0xFFFFFF});
     }
@@ -587,6 +603,103 @@ void BuildLines(const VecCall& c, std::vector<Line>& out) {
   }
 }
 
+// Interpolation between the last two displayed scenes. A call in the newer scene is matched with the older one's by
+// (caller, object a6, occurrence); its camera-relative inputs (positions, angles, scales) are blended before the
+// usual projection. A move too big for one tick (a reused object slot, a camera cut) is not blended.
+struct Scene {
+  std::vector<VecCall> vec;
+  std::vector<WebCall> webs;
+  std::vector<StarCall> stars;
+  std::vector<SolidCall> solids;
+  std::vector<PixCall> pix;
+  std::vector<RexCall> rex;
+};
+Scene g_scene_a, g_scene_b;   // older, newer
+bool g_interp = true;
+
+int32_t LerpI(int32_t a, int32_t b, double t) {
+  return int32_t(uint32_t(a) + uint32_t(int32_t(std::lround(double(int32_t(uint32_t(b) - uint32_t(a))) * t))));
+}
+double LerpAng(double a, double b, double t) {   // the short way round, 256 a turn
+  double d = std::fmod(b - a, 256.0);
+  if (d >= 128) d -= 256;
+  if (d < -128) d += 256;
+  return a + d * t;
+}
+// Positions (16.16): a tick's move must stay under 32 units plus a quarter of the distance.
+bool Near(const int32_t* a, const int32_t* b, int n = 3) {
+  int64_t lim = 0x200000 + std::llabs(int64_t(b[n - 1])) / 4;
+  for (int i = 0; i < n; ++i)
+    if (std::llabs(int64_t(b[i]) - a[i]) > lim) return false;
+  return true;
+}
+bool LerpVec(const VecCall& a, VecCall& c, double t) {
+  if (!Near(a.pos, c.pos) || a.verts.size() != c.verts.size()) return false;
+  for (int i = 0; i < 3; ++i) c.pos[i] = LerpI(a.pos[i], c.pos[i], t), c.ang[i] = LerpAng(a.ang[i], c.ang[i], t);
+  return true;
+}
+bool LerpWeb(const WebCall& a, WebCall& c, double t) {
+  if (!Near(a.pos, c.pos)) return false;
+  for (int i = 0; i < 3; ++i) c.pos[i] = LerpI(a.pos[i], c.pos[i], t);
+  c.rot = LerpAng(a.rot, c.rot, t);
+  c.glint = LerpI(a.glint, c.glint, t);
+  c.ycent = LerpI(a.ycent, c.ycent, t);
+  return true;
+}
+bool LerpStars(const StarCall& a, StarCall& c, double t) {
+  for (int i = 0; i < 3; ++i)
+    if (std::abs(int32_t(uint32_t(c.vp[i]) - uint32_t(a.vp[i]))) > 0x1000000) return false;
+  for (int i = 0; i < 3; ++i) c.vp[i] = LerpI(a.vp[i], c.vp[i], t);   // (wrapping difference: z is mod $2000000)
+  return true;
+}
+bool LerpSolid(const SolidCall& a, SolidCall& c, double t) {
+  if (!Near(a.pos, c.pos)) return false;
+  for (int i = 0; i < 3; ++i) c.pos[i] = LerpI(a.pos[i], c.pos[i], t);
+  c.rot = LerpAng(a.rot, c.rot, t);
+  c.xcent = LerpI(a.xcent, c.xcent, t);
+  c.ycent = LerpI(a.ycent, c.ycent, t);
+  return true;
+}
+bool LerpPix(const PixCall& a, PixCall& c, double t) {
+  if (a.mode != c.mode) return false;
+  int p0 = c.mode == 5 ? 0 : 1;   // x, y, z at in[0..2] (snglpix) or in[1..3] (rings)
+  if (!Near(a.in + p0, c.in + p0)) return false;
+  for (int i = p0; i < p0 + 3; ++i) c.in[i] = LerpI(a.in[i], c.in[i], t);
+  if (c.mode != 5) {
+    c.in[5] = LerpI(a.in[5], c.in[5], t);
+    c.phase = LerpAng(a.phase, c.phase, t);
+  }
+  return true;
+}
+bool LerpRex(const RexCall& a, RexCall& c, double t) {
+  if (a.in[1] != c.in[1] || a.in[2] != c.in[2] || !Near(a.in + 8, c.in + 8)) return false;
+  for (int i : {3, 4, 5, 6, 8, 9, 10}) c.in[i] = LerpI(a.in[i], c.in[i], t);
+  return true;
+}
+
+template <class T, class L, class B>
+void Each(const std::vector<T>& a, const std::vector<T>& b, double t, L lerp, B build) {
+  if (t >= 1.0) {
+    for (auto& c : b) build(c);
+    return;
+  }
+  using K = std::pair<uint32_t, uint32_t>;
+  std::map<std::tuple<uint32_t, uint32_t, int>, const T*> idx;
+  std::map<K, int> occ;
+  for (auto& c : a) idx[{c.caller, c.obj, occ[K{c.caller, c.obj}]++}] = &c;
+  occ.clear();
+  for (auto& c : b) {
+    auto it = idx.find({c.caller, c.obj, occ[K{c.caller, c.obj}]++});
+    if (it == idx.end()) {
+      build(c);
+      continue;
+    }
+    T m = c;
+    if (lerp(*it->second, m, t)) build(m);
+    else build(c);
+  }
+}
+
 }  // namespace
 
 bool Install() {
@@ -599,14 +712,24 @@ void AfterFrame() {
   if (g_sines[0x40] <= 0)
     for (int i = 0; i < 256; ++i) g_sines[i] = int(traps::Read8(kSines + i)) - 0x80;
   // The picture the core hands us for a frame is scanned out during that frame, so it shows the buffer that was
-  // displayed when the frame began: build from the list captured for cscreen at the end of the frame before.
-  static std::vector<VecCall> prev;
-  static std::vector<WebCall> prev_webs;
-  static std::vector<StarCall> prev_stars;
-  static std::vector<SolidCall> prev_solids;
-  static std::vector<PixCall> prev_pix;
-  static std::vector<RexCall> prev_rex;
+  // displayed when the frame began: the scene is the lists captured for cscreen at the end of the frame before.
+  static Scene prev;
   static const bool same = std::getenv("RM_SAME") != nullptr;   // debug: the end-of-frame cscreen instead
+  uint32_t cs = traps::Read32(kCscreen);
+  auto get = [&](auto& m) {
+    auto it = m.find(cs);
+    return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
+  };
+  Scene now{get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex)};
+  g_scene_a = std::move(g_scene_b);
+  g_scene_b = same ? now : prev;
+  prev = std::move(now);
+  ++g_frames;
+  Interpolate(1.f);
+}
+
+void Interpolate(float tf) {
+  double t = g_interp ? std::clamp(double(tf), 0.0, 1.0) : 1.0;
   g_lines.clear();
   g_tris.clear();
   g_dots.clear();
@@ -614,33 +737,16 @@ void AfterFrame() {
   g_solid_tris.clear();
   g_pix_dots.clear();
   g_rex_rects.clear();
-  uint32_t cs = traps::Read32(kCscreen);
-  auto it = g_lists.find(cs);
-  std::vector<VecCall> now = it != g_lists.end() ? it->second : std::vector<VecCall>{};
-  auto wt = g_webs.find(cs);
-  std::vector<WebCall> now_webs = wt != g_webs.end() ? wt->second : std::vector<WebCall>{};
-  auto st = g_stars.find(cs);
-  std::vector<StarCall> now_stars = st != g_stars.end() ? st->second : std::vector<StarCall>{};
-  for (auto& c : same ? now_stars : prev_stars) BuildStars(c, g_dots, g_streaks);
-  for (auto& w : same ? now_webs : prev_webs) BuildWeb(w, g_tris);
-  auto so = g_solids.find(cs);
-  std::vector<SolidCall> now_solids = so != g_solids.end() ? so->second : std::vector<SolidCall>{};
-  for (auto& c : same ? now_solids : prev_solids) BuildSolid(c, g_solid_tris);
-  auto px = g_pix.find(cs);
-  std::vector<PixCall> now_pix = px != g_pix.end() ? px->second : std::vector<PixCall>{};
-  for (auto& c : same ? now_pix : prev_pix) BuildPix(c, g_pix_dots);
-  auto rx = g_rex.find(cs);
-  std::vector<RexCall> now_rex = rx != g_rex.end() ? rx->second : std::vector<RexCall>{};
-  for (auto& c : same ? now_rex : prev_rex) BuildRex(c, g_rex_rects);
-  for (auto& c : same ? now : prev) BuildLines(c, g_lines);
-  prev = std::move(now);
-  prev_webs = std::move(now_webs);
-  prev_stars = std::move(now_stars);
-  prev_solids = std::move(now_solids);
-  prev_pix = std::move(now_pix);
-  prev_rex = std::move(now_rex);
-  ++g_frames;
+  const Scene &a = g_scene_a, &b = g_scene_b;
+  Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
+  Each(a.webs, b.webs, t, LerpWeb, [](const WebCall& c) { BuildWeb(c, g_tris); });
+  Each(a.solids, b.solids, t, LerpSolid, [](const SolidCall& c) { BuildSolid(c, g_solid_tris); });
+  Each(a.pix, b.pix, t, LerpPix, [](const PixCall& c) { BuildPix(c, g_pix_dots); });
+  Each(a.rex, b.rex, t, LerpRex, [](const RexCall& c) { BuildRex(c, g_rex_rects); });
+  Each(a.vec, b.vec, t, LerpVec, [](const VecCall& c) { BuildLines(c, g_lines); });
 }
+
+void SetInterpolate(bool on) { g_interp = on; }
 
 const std::vector<Line>& Lines() { return g_lines; }
 void SetOrigin(float x, float y) { g_ox = x; g_oy = y; }

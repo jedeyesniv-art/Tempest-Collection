@@ -77,6 +77,7 @@ std::vector<Item> Items() {
   button("Reset buttons to defaults", Action::None)->reset_binds = true;
   header("DISPLAY");
   button("Fullscreen on / off", Action::ToggleFullscreen);
+  choice("Smooth motion (remaster)", "remaster_interpolate", {"1", "0"}, {"On", "Off (60 fps steps)"});
   header("");
   button("Quit", Action::Quit);
   return v;
