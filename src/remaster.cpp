@@ -768,8 +768,9 @@ void AfterFrame(bool publish) {
     g_scene_b = same ? now : prev;
     static const bool trace = std::getenv("RM_TRACE") != nullptr;   // debug: the published scene's calls
     if (trace) {
-      std::fprintf(stderr, "rmtrace f%llu cs %06X ml %06X vec %zu webs %zu\n", (unsigned long long)g_frames, cs, traps::Read32(0xE374),
-                  g_scene_b.vec.size(), g_scene_b.webs.size());
+      std::fprintf(stderr, "rmtrace f%llu cs %06X ml %06X vec %zu webs %zu hud %04X %04X\n", (unsigned long long)g_frames, cs, traps::Read32(0xE374),
+                  g_scene_b.vec.size(), g_scene_b.webs.size(), traps::Read16(0xDB7A + 64 + 12),
+                   traps::Read16(0xDB7A + 64 + 14));
       for (auto& c : g_scene_b.vec)
         std::fprintf(stderr, "  vec %06X %06X pos %d %d %d ang %.0f %.0f %.0f n %zu\n", c.caller, c.obj, c.pos[0] >> 16,
                     c.pos[1] >> 16, c.pos[2] >> 16, c.ang[0], c.ang[1], c.ang[2], c.verts.size());

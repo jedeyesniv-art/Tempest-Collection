@@ -629,7 +629,7 @@ int main(int argc, char** argv) {
       }
       // The emulated picture over ours (text, HUD, not-yet-ours). In the game on a window that isn't 4:3, the HUD
       // corners (score / lives top left, the icon top right) go to the window's corners (setting hud_corners).
-      bool corners = remaster::Enabled() && settings::Num("hud_corners", 1) != 0 && t2k::PlayScreen() &&
+      bool corners = remaster::Enabled() && settings::Num("hud_corners", 1) != 0 && t2k::HudShown() &&
                      !t2k::Demo() && (dst.x > 1 || dst.y > 1);
       if (!corners) {
         SDL_RenderTexture(ren, tex, nullptr, &dst);

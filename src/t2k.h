@@ -22,8 +22,10 @@ void Rewind();
 bool InPlay();
 // The attract-mode demo is running.
 bool Demo();
-// The game screen proper: the main loop draws with draw_objects (not level select, title or menu screens).
-bool PlayScreen();
+// The play HUD is up: the overlay object beasties+64 is the score strip (ObType 8, or 7 head to head; stdinit /
+// h2hin) and the main loop draws with draw_objects (level select uses draw_oo with the same strip; the title and
+// menu screens set other types; mainloop_routine is never reset after a game, so it can't decide alone).
+bool HudShown();
 std::string Status();   // one line for the log / overlay
 // The game's own pause screen is up (Start in play).
 bool Paused();

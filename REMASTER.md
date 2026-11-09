@@ -140,8 +140,11 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Fixed 2026-11-09 (owner's screenshots): the title / option / game select screens never clear with the GPU, so the
   last two yak-screen web captures stayed in the lists and were shown alternately (a juddering web in the side bars /
   black transitions) and turned the HUD split on over the menus. Now: no llama mode 0 clear for 8 frames -> empty
-  scene (counter in the run-ahead mark), and the HUD split needs mainloop_routine ($E374) == draw_objects ($80F05E)
-  (level select uses draw_oo). Debug: RM_TRACE=1 prints each published scene (frame, cscreen, mainloop_routine, calls).
+  scene (counter in the run-ahead mark), and the HUD split needs t2k::HudShown(): the overlay object beasties+64 ($DBBA) is
+  the score strip (ObType 8, 7 head to head; screen3 = $50000 holds the HUD) AND mainloop_routine ($E374) ==
+  draw_objects ($80F05E). Type 8 is also set in level select (draw_oo); after a game mainloop_routine stays
+  draw_objects on the title / Top Guns screens (they set other ObTypes), so neither test works alone. The score is
+  not a GPU call (blitted into screen3 when it changes). Top Guns' tumbling wire web is the game's own (vect3d). Debug: RM_TRACE=1 prints each published scene (frame, cscreen, mainloop_routine, calls).
 - Still 4:3: everything not ours (title / menu screens, the dash lattice, superzapper bolts). Untested: 2-player /
   duel HUD (player 2's score may reach left of x 260).
 

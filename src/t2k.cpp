@@ -33,6 +33,7 @@ constexpr uint32_t kWebMax = 0xC990;
 constexpr uint32_t kConnect = 0xDB3E;
 constexpr uint32_t kMainloopRoutine = 0xE374;
 constexpr uint32_t kDrawObjects = 0x80F05E;
+constexpr uint32_t kHudObject = 0xDB7A + 64;   // beasties+64: 14(a0) ObType, 16(a0) screen3
 constexpr uint32_t kView = 0xE350;      // camera view 0..2 (keypad 1/4/7, 2/5/8, 3/6/9)
 
 constexpr uint32_t kZ = 0xE9B0;         // "stop whatever you are doing and reset" (checkpause)
@@ -257,7 +258,11 @@ void Rewind() {
 }
 
 bool Demo() { return g_installed && R16(kAuto) != 0; }
-bool PlayScreen() { return g_installed && R32(kMainloopRoutine) == kDrawObjects; }
+bool HudShown() {
+  if (!g_installed || R32(kMainloopRoutine) != kDrawObjects) return false;
+  uint16_t type = R16(kHudObject + 14);
+  return type == 7 || type == 8;
+}
 
 bool InPlay() { return g_installed && g_frames_since_tick < 4; }
 

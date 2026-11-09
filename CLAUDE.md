@@ -111,8 +111,9 @@ classifier (downloaded code) - ask the owner before trying again.
 
 ## Lessons (2026-11-09)
 - Capture lists only refresh when the game clears with the GPU: screens drawn another way (blitter menus) leave
-  stale lists, so anything keyed off "what we captured" needs a staleness check. Use game state ($E374
-  mainloop_routine) to tell play from level select / menus.
+  stale lists, so anything keyed off "what we captured" needs a staleness check. Tell play from menus by the HUD
+  overlay object (beasties+64 ObType 8/7) plus mainloop_routine == draw_objects; test the path play -> quit to
+  title too (mainloop_routine is not reset), not just boot -> play.
 - Run-ahead needs ALL host-side state rewound, not just the core's: our hooks keep state (t2k stick ramp, the
   $DFFC00 port area in jagMemSpace, which the core's state does not include; remaster capture lists). Test it as:
   run-ahead picture at f == plain run at f + N, audio and --trace byte-identical.
