@@ -38,6 +38,7 @@ constexpr uint32_t kXcamel = 0x81D0DA;
 constexpr uint32_t kCamel = 0x81CA4A;
 constexpr uint32_t kOx = 0x81E10E;
 constexpr uint32_t kStoat = 0x81DE12;
+constexpr uint32_t kGoat = 0x81AFAE;
 constexpr uint32_t kXcent = 0xF03EFC;     // xcent (G_RAM + $EFC)
 constexpr uint32_t kYcent = 0xF03EF8;     // ycent (G_RAM + $EF8)
 constexpr uint32_t kInBuf = 0xF03F60;
@@ -57,6 +58,12 @@ struct VecCall {
   int32_t scaler, zmax, ztop, sysflags;
   std::vector<Vec3i> verts;
   std::vector<uint16_t> conns;
+  // goat.gas vect3d (the Duel webs): the same in_buf, transformed through the viewer's matrix (otm_2, built by goat
+  // mode 4 view_otm) about the viewer offset vpo, projected about xcent / ycent.
+  bool goat = false;
+  double otm2[9] = {};
+  double vpo[3] = {};
+  int32_t xcent = 192, ycent = 120;
 };
 
 // donky.gas web3d (the solid web): one quad per lane between the near and far rims (see BuildWeb).
@@ -165,8 +172,15 @@ double SinT(double a) {
 VecCall g_pending;            // the last captured call (RM_CHECK)
 bool g_has_pending = false;
 
-void Capture() {
+void Capture(bool goat = false) {
   VecCall c;
+  if (goat) {
+    c.goat = true;
+    for (int k = 0; k < 9; ++k) c.otm2[k] = S32(0xF03F18 + 4 * k);
+    for (int k = 0; k < 3; ++k) c.vpo[k] = S32(0xF03F0C + 4 * k);
+    c.xcent = S32(kXcent);
+    c.ycent = S32(kYcent);
+  }
   c.caller = traps::Read32(traps::Reg(15)) - 6;
   c.obj = traps::Reg(14);   // a6
   for (int i = 0; i < 3; ++i) c.pos[i] = In(1 + i);
@@ -454,6 +468,10 @@ bool OnGpurun() {
     CapturePix(int(mode));
     return g_enabled && PlayBuffer(scr);
   }
+  if (mod == kGoat && mode == 2) {
+    Capture(true);
+    return g_enabled && PlayBuffer(scr);
+  }
   if (mod == kStoat) {
     if (!CaptureText()) return false;
     return g_enabled && PlayBuffer(scr);
@@ -489,7 +507,39 @@ bool OnGpurun() {
 }
 
 
+// goat vect3d with the matrix unit (mmult: a row of 16-bit elements . the vector packed as 16-bit x, y, z):
+// object matrix from the angles (in_buf+40 a, +44 b, +48 c; laid out as view_otm), then R = (otm_2 . R) >> 7 by
+// columns; position P' = otm_2 . ((P - vpo) >> 8) << 1 + vpo. Vertex: (v - centre), x * hscale (imult), << 8 as
+// 16-bit, R . v >> 7, shifted by scaler - 8, + P'.
+Pt TransformGoat(const VecCall& c, const Vec3i& v) {
+  auto sn = [](double a) { return SinT(a); };
+  auto cs = [](double a) { return SinT(a + 0x40); };
+  double sa = sn(c.ang[0]), ca = cs(c.ang[0]), sb = sn(c.ang[1]), cb = cs(c.ang[1]), sc = sn(c.ang[2]), cc = cs(c.ang[2]);
+  double M[9];
+  M[0] = cc * ca / 128; M[1] = -sa; M[2] = -ca * sc / 128;
+  double m4 = cc * sa / 128, m5 = ca, m6 = -sc * sa / 128, m7 = sc, m9 = cc;
+  M[3] = (cb * m4 - sb * m7) / 128; M[4] = cb * m5 / 128; M[5] = (cb * m6 - sb * m9) / 128;
+  M[6] = (cb * m7 + sb * m4) / 128; M[7] = sb * m5 / 128; M[8] = (cb * m9 + sb * m6) / 128;
+  double R[9];
+  for (int col = 0; col < 3; ++col)
+    for (int row = 0; row < 3; ++row)
+      R[row * 3 + col] = (c.otm2[row * 3] * M[col] + c.otm2[row * 3 + 1] * M[3 + col] + c.otm2[row * 3 + 2] * M[6 + col]) / 128;
+  double p[3], q[3];
+  for (int k = 0; k < 3; ++k) p[k] = (c.pos[k] - c.vpo[k]) / 256.0;
+  for (int k = 0; k < 3; ++k) q[k] = (c.otm2[k * 3] * p[0] + c.otm2[k * 3 + 1] * p[1] + c.otm2[k * 3 + 2] * p[2]) * 2 + c.vpo[k];
+  double x = double(Low16(v.x - c.centre[0])) * Low16(c.hscale) * 256.0;
+  double y = double(v.y - c.centre[1]) * 256.0, z = double(v.z - c.centre[2]) * 256.0;
+  double scale = std::ldexp(1.0, -(c.scaler - 8));
+  Pt o;
+  o.x = (R[0] * x + R[1] * y + R[2] * z) / 128 * scale + q[0];
+  o.y = (R[3] * x + R[4] * y + R[5] * z) / 128 * scale + q[1];
+  o.z = (R[6] * x + R[7] * y + R[8] * z) / 128 * scale + q[2];
+  o.ok = std::floor(o.z / 16384.0) > 0;
+  return o;
+}
+
 Pt Transform(const VecCall& c, const Vec3i& v) {
+  if (c.goat) return TransformGoat(c, v);
   int32_t xi = v.x - c.centre[0], yi = v.y - c.centre[1], zi = v.z - c.centre[2];
   xi = Low16(xi) * Low16(c.hscale);
   double x = int32_t(uint32_t(xi) << 8), y = int32_t(uint32_t(yi) << 8), z = int32_t(uint32_t(zi) << 8);
@@ -522,8 +572,8 @@ uint32_t Rgb(int col, double inten) {
 
 void Project(const VecCall& c, const Pt& p, float* sx, float* sy, double* inten) {
   double zi = p.z / 16384.0;
-  *sx = float(192.0 + p.x / zi / 128.0);
-  *sy = float(((c.sysflags >> 5) & 1 ? 140.0 : 120.0) + p.y / zi / 128.0);
+  *sx = float((c.goat ? c.xcent : 192.0) + p.x / zi / 128.0);
+  *sy = float((c.goat ? double(c.ycent) : (c.sysflags >> 5) & 1 ? 140.0 : 120.0) + p.y / zi / 128.0);
   double zr = c.zmax - zi;
   // ((zmax - z) * ztop / zmax) << 8 gives the blitter's 8.16 intensity: the pixel byte is that >> 16.
   *inten = zr <= 0 || c.zmax == 0 ? 0 : (zr * c.ztop / c.zmax) * 256.0 / 65536.0;
@@ -825,6 +875,10 @@ bool Near(const int32_t* a, const int32_t* b, int n = 3) {
 bool LerpVec(const VecCall& a, VecCall& c, double t) {
   if (!Near(a.pos, c.pos) || a.verts.size() != c.verts.size()) return false;
   for (int i = 0; i < 3; ++i) c.pos[i] = LerpI(a.pos[i], c.pos[i], t), c.ang[i] = LerpAng(a.ang[i], c.ang[i], t);
+  if (c.goat && a.goat) {
+    for (int k = 0; k < 9; ++k) c.otm2[k] = a.otm2[k] + (c.otm2[k] - a.otm2[k]) * t;
+    for (int k = 0; k < 3; ++k) c.vpo[k] = a.vpo[k] + (c.vpo[k] - a.vpo[k]) * t;
+  }
   return true;
 }
 bool LerpWeb(const WebCall& a, WebCall& c, double t) {

@@ -231,7 +231,11 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - The HUD layer no longer masks the picture: masking left holes where the HUD covered things in the picture (the Duel
   web tops). Core hook (op.c vjOPSkipLo / Hi): the OP skips fixed bitmaps reading screen3's HUD rows while our HUD
   layer is up (set before each emulated batch), so the picture is the play area alone.
-- Open: port goat vect3d so the Duel webs are native too.
+- Goat vect3d ported (2026-11-09): same in_buf as llama vect3d; captured with otm_2 (GPU RAM $F03F18, 9 longs, built
+  by goat mode 4 view_otm, which still runs on the GPU), vpo ($F03F0C) and xcent / ycent. TransformGoat: object
+  matrix from the angles (a +40, b +44, c +48, view_otm's layout), R = otm_2 . R / 128; P' = otm_2 . ((P - vpo) / 256)
+  * 2 + vpo; vertex x * hscale, * 256, R . v / 128, >> (scaler - 8), + P'; projected about xcent / ycent. Same-run
+  overlay with the GPU: within 1-2 px. Duel play and the Duel level select webs are ours; run-ahead consistent.
 
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
