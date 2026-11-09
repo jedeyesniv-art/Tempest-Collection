@@ -846,7 +846,9 @@ int main(int argc, char** argv) {
                         float(settings::Num("melt_mosaic_size", 12) / 240.0)};   // (game pixels of the 240-line height)
             crt::DrawScar(ren, fb_last, corners, ww, wh, dim, melt ? &m : nullptr);
             remaster::Interpolate(1.f);
+            remaster::SetHardPixels(true);
             remaster::Draw(ren, dst, fr.width, fr.height);
+            remaster::SetHardPixels(false);
             std::swap(fb_last, fb_next);
             fb_serial = serial;
             SDL_SetRenderTarget(ren, frame_target);

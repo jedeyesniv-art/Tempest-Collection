@@ -296,6 +296,11 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - ox 4 psphere ported (BuildSphere; note the xy phase steps twice a pixel): drawsphere in play, the psycho bonus,
   firework explosions. The psycho bonus (scar with delta_i $FF0000 = -1 a pass: the dim sphere builds a glowing trail)
   only checks in the window (headless RM_NOSKIP leaves the scar to the GPU and the scene goes stale).
+- psphere verified same run in the attract demo (drawsphere $807488: identical globe). The psycho bonus's call
+  ($806276, colour from the pulser, intensity $10-$40) never shows on the original (its frames hold only blues
+  and the crosshair) for a reason not found; ours made a pulsing purple halo through the feedback, so that caller is
+  left to the GPU (it draws into the hidden stale buffer). Particles drawn INTO the feedback use the original's square
+  pixels (SetHardPixels) - soft, enlarged ones smear. OPEN: why the psycho sphere is invisible on the original.
   Psycho: antelope scar $8061B8 (ours), ox 4 psphere, xcamel 6. No UI ghost found in any of the three (ours or
   the original); the ceiling bonus sets mfudj, which merges screen3 8 lines low at its fade (a possible source).
 

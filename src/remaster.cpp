@@ -611,7 +611,10 @@ bool OnGpurun() {
     if (!CaptureText()) return false;
     return g_enabled && PlayBuffer(scr);
   }
-  if (mod == kOx && mode == 4) {
+  if (mod == kOx && mode == 4 && Caller() != 0x806276) {
+    // ($806276, the psycho bonus round: on the original its sphere never shows - no such pixels in its frames - for a
+    // reason not found yet; drawn by us it made a pulsing purple halo through the feedback. Left to the GPU there,
+    // which draws into the hidden stale buffer: the original's look.)
     SphereCall c;
     c.caller = Caller();
     c.obj = traps::Reg(14);
@@ -1070,7 +1073,8 @@ void BuildStarseg(const SegCall& c, std::vector<Dot>& out) {
 // xy phase * radius; x = s * cos(yz), z = -s * sin(yz), y = c << 7; + position; projected (z >> 14 + 1, / z >> 7,
 // + 191 / 119); intensity (255 - ((z >> 4) & 255)) * i >> 8. The xy phase steps twice a pixel (the original adds the
 // step at the top of the loop and again at its end).
-void BuildSphere(const SphereCall& c, std::vector<Dot>& out) {
+// (Hard single pixels, as the original: soft particles smeared into a halo through the psycho bonus's feedback.)
+void BuildSphere(const SphereCall& c, std::vector<Rect>& out) {
   int xyc = std::clamp(c.in[6], 0, 1024), yzc = std::clamp(c.in[7], 0, 256);
   double yzp = c.in[5] & 0xFF;
   for (int b = 0; b < yzc; ++b, yzp += c.in[9]) {
@@ -1084,7 +1088,7 @@ void BuildSphere(const SphereCall& c, std::vector<Dot>& out) {
       double px = x / zi / 128.0 + 191, py = y / zi / 128.0 + 119;
       if (!InView(px, py, 383, 239)) continue;
       int i = ((255 - ((int(zi) >> 4) & 255)) * (c.in[11] & 0xFFFF)) >> 8;
-      out.push_back({float(px + 0.5), float(py + 0.5), CRY16ToRGB32[((c.in[10] & 0xFF) << 8) | std::clamp(i, 0, 255)] & 0xFFFFFF, 1.f});
+      out.push_back({float(px), float(py), 1.f, 1.f, CRY16ToRGB32[((c.in[10] & 0xFF) << 8) | std::clamp(i, 0, 255)] & 0xFFFFFF, false});
     }
   }
 }
@@ -1449,7 +1453,7 @@ void Interpolate(float tf) {
   Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
   Each(a.voo, b.voo, t, LerpVoo, [](const VooCall& c) { BuildVoo(c, g_pix_dots); });
   Each(a.seg, b.seg, t, LerpSeg, [](const SegCall& c) { BuildStarseg(c, g_pix_dots); });
-  Each(a.sphere, b.sphere, t, LerpSphere, [](const SphereCall& c) { BuildSphere(c, g_pix_dots); });
+  Each(a.sphere, b.sphere, t, LerpSphere, [](const SphereCall& c) { BuildSphere(c, g_rex_rects); });
   g_m7_shown.clear();
   Each(a.m7, b.m7, t, LerpM7, [](const M7Call& c) { g_m7_shown.push_back(c); });
   g_ripple_shown.clear();
@@ -1472,6 +1476,9 @@ void SetOrigin(float x, float y) { g_ox = x; g_oy = y; }
 void SetEnabled(bool on) { g_enabled = on; }
 void SetFeedback(bool on) { g_feedback = on; }
 void SetLineWidth(float w) { g_width = w; }
+bool g_hard_pixels = false;   // SetHardPixels: particles as the original's square pixels (inside the feedback)
+void SetHardPixels(bool on) { g_hard_pixels = on; }
+
 void SetEffects(float bw, bool glow, float particle) {
   g_bolt_width = std::clamp(bw, 0.f, 8.f);
   g_bolt_glow = glow;
@@ -1637,6 +1644,7 @@ std::string Stats() {
 }
 
 void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy);
+void DrawRects(SDL_Renderer* ren, const std::vector<Rect>& rects, const SDL_FRect& dst, float sx, float sy);
 void DrawLineList(SDL_Renderer* ren, const std::vector<Line>& lines, const SDL_FRect& dst, float sx, float sy,
                   float width = 0, float feather = 1.0f, float alpha = 1.0f,
                   SDL_BlendMode mode = SDL_BLENDMODE_BLEND, float whiten = 0);
@@ -1857,7 +1865,14 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
                                      g_bolt_glow ? 0.35f : 0.f);
   else DrawLineList(ren, g_bolt_lines, dst, sx, sy);
   DrawRects(ren, g_rex_rects, dst, sx, sy);
-  DrawDots(ren, g_pix_dots, dst, sx, sy, g_particle);
+  if (!g_hard_pixels) {
+    DrawDots(ren, g_pix_dots, dst, sx, sy, g_particle);
+  } else {   // the original's square pixels: soft, enlarged particles smear into a halo through a feedback
+    std::vector<Rect> px;
+    px.reserve(g_pix_dots.size());
+    for (auto& d : g_pix_dots) px.push_back({d.x - d.size * 0.5f, d.y - d.size * 0.5f, d.size, d.size, d.c, false});
+    DrawRects(ren, px, dst, sx, sy);
+  }
 }
 
 // Lines as quads: a solid core `width` game pixels wide (0 = the vector rule: remaster_line_width, thinner for the

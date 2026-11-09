@@ -35,6 +35,8 @@ bool Install();                       // after t2k::Install
 const host::Frame& Hud();
 // Native scar feedback (the melts, the title, Game Over; setting remaster_feedback, default on).
 void SetFeedback(bool on);
+// Particles drawn as the original's square pixels (while drawing into the native feedback).
+void SetHardPixels(bool on);
 // The buffer about to be shown came from a skipped scar: the game's play buffers are stale (the core skips them).
 bool FeedbackLately();
 // The shown scene's scar step: for the window corners (0,0) (w,0) (0,h) (w,h), where they sample the last frame (window
