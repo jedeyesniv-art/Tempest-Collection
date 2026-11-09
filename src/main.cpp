@@ -31,6 +31,7 @@
 #include "gpulog.h"
 #include "host.h"
 #include "remaster.h"
+#include "xbr.h"
 #include "menu.h"
 #include "settings.h"
 #include "t2k.h"
@@ -447,7 +448,8 @@ int main(int argc, char** argv) {
   unsigned tw = 0, th = 0;
   // Sharp bilinear: the picture scaled up k times with nearest into `big`, then fitted with linear filtering, so
   // the game's pixel art (text, HUD, menus) is crisp without uneven pixels (setting picture_filter sharp | smooth).
-  struct Sharp { SDL_Texture* big = nullptr; int k = 0, w = 0, h = 0; };
+  // x4: the xBR 4x version (premultiplied alpha), when picture_filter = xbr.
+  struct Sharp { SDL_Texture* big = nullptr; int k = 0, w = 0, h = 0; SDL_Texture* x4 = nullptr; };
   Sharp pic_sharp, hud_sharp;
   SDL_Texture* hudtex = nullptr;   // the HUD strip (screen3), 384 x 48
 
@@ -569,7 +571,12 @@ int main(int argc, char** argv) {
       while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
       if (now > next + uint64_t(frame_ns * 8)) next = now;  // stalled: resync
     }
-    const int run_ahead = t2k::LatencyMatters() ? std::clamp(int(settings::Num("run_ahead", 2)), 0, 4) : 0;
+    // Original mode (setting native): every improvement off - the emulator's own picture, no remaster, no
+    // run-ahead, no HUD layer, plain bilinear 4:3, no menu pacing. Controls (stick, remapping) stay.
+    const bool native = settings::Num("native", 0) != 0;
+    remaster::SetEnabled(!native && settings::Num("remaster", 1) != 0);
+    const int run_ahead =
+        !native && t2k::LatencyMatters() ? std::clamp(int(settings::Num("run_ahead", 2)), 0, 4) : 0;
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
       host::Input in = ReadPad(pad, held, keys, &tp);
@@ -621,9 +628,25 @@ int main(int argc, char** argv) {
                              !t2k::Demo() && (dst.x > 1 || dst.y > 1);
       const host::Frame& hud = remaster::Hud();
       const int hud_h = hud.pixels.empty() ? 0 : std::min(t2k::HudRows(), int(hud.height));
+      const std::string filter = native ? "smooth" : settings::Str("picture_filter", "sharp");
+      const bool use_xbr = filter == "xbr";
+      const bool sharp = filter == "sharp";
       static bool hud_was = false;
-      const bool dirty = todo > 0 || hud_layer != hud_was;
+      static std::string filter_was;
+      const bool dirty = todo > 0 || hud_layer != hud_was || filter != filter_was;
+      filter_was = filter;
       hud_was = hud_layer;
+      auto upload_x4 = [&](Sharp& sh, const std::vector<uint32_t>& px, int w, int h) {
+        if (!sh.x4 || sh.w != w || sh.h != h || sh.k != -4) {
+          if (sh.x4) SDL_DestroyTexture(sh.x4);
+          sh.x4 = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w * 4, h * 4);
+          SDL_SetTextureBlendMode(sh.x4, SDL_BLENDMODE_BLEND_PREMULTIPLIED);
+          SDL_SetTextureScaleMode(sh.x4, SDL_SCALEMODE_LINEAR);
+          sh.w = w; sh.h = h; sh.k = -4;
+        }
+        SDL_UpdateTexture(sh.x4, nullptr, px.data(), w * 4 * 4);
+      };
+      static std::vector<uint32_t> hud_px(384 * 48);
       if (dirty) {
         // Black is see-through (alpha 0) so the remaster's layer, drawn first, shows where the game drew nothing.
         static std::vector<uint32_t> argb;
@@ -643,20 +666,29 @@ int main(int argc, char** argv) {
             hudtex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 384, 48);
             SDL_SetTextureBlendMode(hudtex, SDL_BLENDMODE_BLEND);
           }
-          static std::vector<uint32_t> hp(384 * 48);
+          auto& hp = hud_px;
           std::fill(hp.begin(), hp.end(), 0u);
           for (int hy = 0; hy < hud_h && hy < 48; ++hy)
             for (int hx = 0; hx < 384 && hx < int(hud.width); ++hx) hp[size_t(hy) * 384 + hx] = hud.pixels[size_t(hy) * hud.width + hx];
           SDL_UpdateTexture(hudtex, nullptr, hp.data(), 384 * 4);
         }
         SDL_UpdateTexture(tex, nullptr, argb.data(), int(fr.width * 4));
+        if (use_xbr) {
+          static std::vector<uint32_t> up;
+          xbr::Scale4x(argb.data(), int(fr.width), int(fr.height), up);
+          upload_x4(pic_sharp, up, int(fr.width), int(fr.height));
+          if (hud_layer && hudtex) {
+            xbr::Scale4x(hud_px.data(), 384, 48, up);
+            upload_x4(hud_sharp, up, 384, 48);
+          }
+        }
       }
-      const bool sharp = settings::Str("picture_filter", "sharp") != "smooth";
       const int k = std::clamp(int(std::ceil(dst.h / float(fr.height))), 1, 12);
       // Sharp bilinear: the source scaled up k times with nearest into a target, then fitted with linear filtering.
       bool cleared = false;
       auto prep = [&](Sharp& sh, SDL_Texture* src, int w, int h, bool changed) {
         if (!sharp) { SDL_SetTextureScaleMode(src, SDL_SCALEMODE_LINEAR); return; }
+        if (sh.k < 0) sh.k = 0;   // was the xBR texture's: rebuild the sharp target
         bool fresh = false;
         if (!sh.big || sh.k != k || sh.w != w || sh.h != h) {
           if (sh.big) SDL_DestroyTexture(sh.big);
@@ -679,6 +711,12 @@ int main(int argc, char** argv) {
       };
       // A part of a source (in its pixels; null = all) to a window rectangle.
       auto blit = [&](const Sharp& sh, SDL_Texture* src, const SDL_FRect* s, const SDL_FRect* d) {
+        if (use_xbr && sh.x4) {
+          if (!s) { SDL_RenderTexture(ren, sh.x4, nullptr, d); return; }
+          SDL_FRect s4{s->x * 4, s->y * 4, s->w * 4, s->h * 4};
+          SDL_RenderTexture(ren, sh.x4, &s4, d);
+          return;
+        }
         if (!sharp || !sh.big) { SDL_RenderTexture(ren, src, s, d); return; }
         if (!s) { SDL_RenderTexture(ren, sh.big, nullptr, d); return; }
         SDL_FRect sk{s->x * sh.k, s->y * sh.k, s->w * sh.k, s->h * sh.k};

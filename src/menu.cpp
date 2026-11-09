@@ -78,8 +78,11 @@ std::vector<Item> Items() {
   }
   button("Reset buttons to defaults", Action::None)->reset_binds = true;
   header("DISPLAY");
+  choice("Original mode (all improvements off)", "native", {"0", "1"}, {"Off", "On"});
   button("Fullscreen on / off", Action::ToggleFullscreen);
   choice("Smooth motion (remaster)", "remaster_interpolate", {"1", "0"}, {"On", "Off (60 fps steps)"});
+  choice("Pixel art (text, HUD, menus)", "picture_filter", {"sharp", "xbr", "smooth"},
+         {"Sharp pixels", "Smoothed (xBR)", "Soft (bilinear)"});
   num("Particle size (x original)", "remaster_particle_size", 0.5, 3.0, 0.1, "%.1f", 1.5);
   num("Lightning width (0 = original)", "remaster_bolt_width", 0.0, 5.0, 0.25, "%.2f", 2.0);
   choice("Lightning glow", "remaster_bolt_glow", {"1", "0"}, {"On", "Off"});

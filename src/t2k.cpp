@@ -339,7 +339,7 @@ void BeforeFrame(const Pad& pad) {
 }
 
 void OnGpurun(uint32_t caller, uint32_t module, uint32_t mode) {
-  if (!g_installed || module != kAntelope) return;
+  if (!g_installed || module != kAntelope || settings::Num("native", 0) != 0) return;
   int frames = 0;
   if (caller == kScarCaller && mode == 2) frames = int(settings::Num("pace_melt", 4));
   else if (caller == kRippleCaller && mode == 1) frames = int(settings::Num("pace_ripple", 2));

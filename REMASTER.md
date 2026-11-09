@@ -204,6 +204,13 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Sharp bilinear for the picture and the HUD (setting picture_filter sharp | smooth): nearest to an integer multiple
   in a render target, then a linear fit. All remaining pixel art (menus, PRESS FIRE, DEMO, pause) is crisp.
 
+- xBR option (picture_filter = xbr, menu "Pixel art"): src/xbr.cpp, 2xBR as FFmpeg vf_xbr (|dY|+|dU|+|dV| distance,
+  eq < 155, 2x blend set) applied twice = 4x, on premultiplied ARGB (alpha blended like colour, + |dA| in the
+  distance) so edges against see-through black fade out; drawn with SDL_BLENDMODE_BLEND_PREMULTIPLIED. Picture and HUD
+  strip, recomputed only on a new frame (or a filter change); real time at 1440p.
+- Original mode (setting native, menu DISPLAY): remaster off, run-ahead 0, no HUD layer, bilinear 4:3, no menu
+  pacing. Controls (stick hook, remapping) stay.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.
