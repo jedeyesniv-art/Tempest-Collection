@@ -1,9 +1,11 @@
-// menu.cpp - see menu.h. Drawn with SDL's built-in 8x8 debug font for now.
+// menu.cpp - see menu.h. A panel sliding in from the left (half the window, semi-transparent, solid text), drawn
+// with SDL's built-in 8x8 debug font at a whole-number scale; sections fold ([+] / [-]), all folded at start.
 #include "menu.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 #include "controls.h"
@@ -27,7 +29,10 @@ struct Item {
   controls::Fn fn = controls::kNone;    // Bind
   bool crt_only = false, crtpp_only = false;   // shown with a CRT look / with CRT++ only
   bool lr_only = false, aim_only = false, slot_info = false, reset_binds = false;
+  int section = -1;                     // the header it belongs to (index into the item list; -1 = none)
 };
+
+std::vector<bool> g_open_sections;      // per header index; folded at start
 
 std::vector<Item> Items() {
   std::vector<Item> v;
@@ -52,8 +57,8 @@ std::vector<Item> Items() {
     return &v.back();
   };
 
-  header("GAME");
   button("Resume", Action::Close);
+  header("GAME");
   button("Return to title", Action::ReturnToTitle);
   choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
   button("  Save state", Action::SaveState)->slot_info = true;
@@ -124,11 +129,20 @@ std::vector<Item> Items() {
   pp("  CRT++ keep colours", "crt_psy_keep", 0, 1, 0.05, "%.2f", 1);
   header("");
   button("Quit", Action::Quit);
+  int sec = -1;
+  for (size_t k = 0; k < v.size(); ++k) {
+    if (v[k].kind == Kind::Header) sec = v[k].label.empty() ? -1 : int(k);
+    else v[k].section = sec;
+  }
+  if (g_open_sections.size() != v.size()) g_open_sections.assign(v.size(), false);
   return v;
 }
 
 bool g_open = false;
-int g_sel = 1;
+int g_sel = 0;
+uint64_t g_changed_at = 0;           // when it last opened / closed (the slide)
+constexpr uint64_t kSlideNs = 180000000ull;
+float g_scroll = 0;                   // first shown line (in lines)
 Nav g_prev;
 int g_repeat_dir = 0;      // -1 left / +1 right / -2 up / +2 down
 uint64_t g_repeat_at = 0;
@@ -143,7 +157,12 @@ bool Visible(const Item& i) {
   return !(i.lr_only && aim) && !(i.aim_only && !aim) && !(i.crt_only && crt < 1) && !(i.crtpp_only && crt != 2);
 }
 
-bool Selectable(const Item& i) { return i.kind != Kind::Header && Visible(i); }
+bool Open(int section) { return section < 0 || (section < int(g_open_sections.size()) && g_open_sections[section]); }
+bool Shown(const Item& i) {
+  if (i.kind == Kind::Header) return !i.label.empty();
+  return Visible(i) && Open(i.section);
+}
+bool Selectable(const Item& i) { return Shown(i); }
 
 std::string ValueText(const Item& i) {
   if (i.kind == Kind::Choice) {
@@ -190,13 +209,26 @@ void Move(const std::vector<Item>& items, int dir) {
 }  // namespace
 
 bool IsOpen() { return g_open; }
-void Open() {
+bool Shown() {
+  if (g_open) return true;
+  return SDL_GetTicksNS() < g_changed_at + kSlideNs;   // sliding out
+}
+void Open(bool expand_all) {
+  if (expand_all) {
+    Items();
+    std::fill(g_open_sections.begin(), g_open_sections.end(), true);
+  }
+  if (!g_open) g_changed_at = SDL_GetTicksNS();
   g_open = true;
   g_prev = Nav{true, true, true, true, true, true, true};  // ignore buttons already held
   g_repeat_dir = 0;
   g_capture = controls::kNone;
 }
-void Close() { g_open = false; g_capture = controls::kNone; }
+void Close() {
+  if (g_open) g_changed_at = SDL_GetTicksNS();
+  g_open = false;
+  g_capture = controls::kNone;
+}
 void SetSlotInfo(std::function<std::string()> f) { g_slot_info = std::move(f); }
 
 Action Update(const Nav& nav, uint64_t now) {
@@ -214,15 +246,16 @@ Action Update(const Nav& nav, uint64_t now) {
     return Action::None;
   }
 
-  if (nav.back && !p.back) { g_open = false; return Action::Close; }
+  if (nav.back && !p.back) { Close(); return Action::Close; }
   if (nav.ok && !p.ok) {
     const Item& it = items[g_sel];
+    if (it.kind == Kind::Header) { g_open_sections[g_sel] = !g_open_sections[g_sel]; return Action::None; }
     if (it.kind == Kind::Bind) { g_capture = it.fn; return Action::None; }
     if (it.kind == Kind::Button) {
       if (it.reset_binds) { controls::ResetDefaults(); return Action::None; }
       if (it.action == Action::Close || it.action == Action::Quit || it.action == Action::ReturnToTitle ||
           it.action == Action::LoadState)
-        g_open = false;
+        Close();
       return it.action;
     }
     Change(it, 1);
@@ -241,60 +274,137 @@ Action Update(const Nav& nav, uint64_t now) {
   }
   if (fire) {
     if (dir == -2 || dir == 2) Move(items, dir / 2);
+    else if (items[g_sel].kind == Kind::Header) g_open_sections[g_sel] = dir > 0;   // right opens, left folds
     else Change(items[g_sel], dir);
   }
   return Action::None;
 }
 
+// Word-wraps text to lines of at most `cols` characters (long words are cut).
+std::vector<std::string> Wrap(const std::string& text, int cols) {
+  std::vector<std::string> out;
+  if (cols < 1) cols = 1;
+  std::string line, word;
+  auto flush_word = [&]() {
+    while (int(word.size()) > cols) {
+      if (!line.empty()) out.push_back(line), line.clear();
+      out.push_back(word.substr(0, size_t(cols)));
+      word.erase(0, size_t(cols));
+    }
+    if (word.empty()) return;
+    if (line.empty()) line = word;
+    else if (int(line.size() + 1 + word.size()) <= cols) line += " " + word;
+    else out.push_back(line), line = word;
+    word.clear();
+  };
+  for (char c : text) {
+    if (c == ' ') flush_word();
+    else word.push_back(c);
+  }
+  flush_word();
+  if (!line.empty() || out.empty()) out.push_back(line);
+  return out;
+}
+
 void Draw(SDL_Renderer* ren, int w, int h) {
   auto items = Items();
-  int rows = 0;
-  for (auto& i : items) rows += Visible(i);
-  float cw = 8, lh = 11;
-  float bw = 66 * cw, bh = (rows + 4) * lh;
-  float scale = std::max(1.f, std::floor(std::min(h / (bh + 40), w / (bw + 40))));
-  float x0 = (w / scale - bw) / 2, y0 = (h / scale - bh) / 2;
+  // Slide: eased in over kSlideNs when opening, out when closing.
+  uint64_t now = SDL_GetTicksNS();
+  float t = std::clamp(float(double(now - g_changed_at) / double(kSlideNs)), 0.f, 1.f);
+  float shown = g_open ? t : 1 - t;
+  shown = 1 - (1 - shown) * (1 - shown);   // ease out
+  if (shown <= 0) return;
+
+  const float s = std::max(1.f, std::floor(h / 360.f));   // text scale: whole pixels
+  const float cw = 8, lh = 12;                             // character / line size (unscaled)
+  const float pw = std::floor(w * 0.5f / s);               // panel width, unscaled
+  const float ph = h / s;
+  const float pad = 10;
+  const float ox = -pw * (1 - shown);                      // the slide
+  const int cols = std::max(10, int((pw - 2 * pad) / cw));
 
   SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-  SDL_SetRenderScale(ren, scale, scale);
-  SDL_SetRenderDrawColor(ren, 0, 0, 0, 210);
-  SDL_FRect bg{x0 - 12, y0 - 12, bw + 24, bh + 24};
+  SDL_SetRenderScale(ren, s, s);
+  SDL_SetRenderDrawColor(ren, 0, 0, 16, 200);
+  SDL_FRect bg{ox, 0, pw, ph};
   SDL_RenderFillRect(ren, &bg);
   SDL_SetRenderDrawColor(ren, 60, 90, 255, 255);
-  SDL_RenderRect(ren, &bg);
+  SDL_FRect edge{ox + pw - 1, 0, 1, ph};
+  SDL_RenderFillRect(ren, &edge);
 
+  // Title (fixed) and help (fixed, wrapped, at the bottom).
+  float x0 = ox + pad;
   SDL_SetRenderDrawColor(ren, 255, 220, 0, 255);
-  SDL_RenderDebugText(ren, x0, y0, "TEMPEST 2000 - SETTINGS (game paused)");
-  float y = y0 + 2 * lh;
-  for (size_t k = 0; k < items.size(); ++k) {
-    const Item& i = items[k];
-    if (!Visible(i)) continue;
-    bool sel = int(k) == g_sel;
-    if (i.kind == Kind::Header) {
-      SDL_SetRenderDrawColor(ren, 90, 140, 255, 255);
-      SDL_RenderDebugText(ren, x0, y, i.label.c_str());
-    } else {
-      if (sel) {
-        SDL_SetRenderDrawColor(ren, 60, 60, 160, 255);
-        SDL_FRect r{x0 - 4, y - 2, bw + 8, lh};
-        SDL_RenderFillRect(ren, &r);
-      }
-      SDL_SetRenderDrawColor(ren, sel ? 255 : 200, sel ? 255 : 200, sel ? 255 : 200, 255);
-      SDL_RenderDebugText(ren, x0 + 8, y, i.label.c_str());
-      std::string v = ValueText(i);
-      if (!v.empty()) {
-        if (sel && (i.kind == Kind::Choice || i.kind == Kind::Number)) v = "< " + v + " >";
-        SDL_SetRenderDrawColor(ren, 255, 220, 0, 255);
-        SDL_RenderDebugText(ren, x0 + bw - v.size() * cw, y, v.c_str());
-      }
-    }
-    y += lh;
-  }
+  SDL_RenderDebugText(ren, x0, pad, "TEMPEST 2000 - SETTINGS");
   SDL_SetRenderDrawColor(ren, 140, 140, 140, 255);
-  const char* help = g_capture != controls::kNone
-                         ? "Press the button to bind (Back cancels). A bound button pressed again is removed."
-                         : "Up/Down choose   Left/Right change   A select   B/Back close";
-  SDL_RenderDebugText(ren, x0, y + lh, help);
+  SDL_RenderDebugText(ren, x0, pad + lh, "(game paused)");
+  const std::string help = g_capture != controls::kNone
+      ? "Press the button to bind (Back cancels). A bound button pressed again is removed."
+      : "Up / Down choose. Left / Right change, or fold / open a section. A selects. B / Back closes.";
+  auto help_lines = Wrap(help, cols);
+  const float list_top = pad + 3 * lh, list_bottom = ph - pad - (help_lines.size() + 1) * lh;
+  for (size_t k = 0; k < help_lines.size(); ++k)
+    SDL_RenderDebugText(ren, x0, ph - pad - float(help_lines.size() - k) * lh, help_lines[k].c_str());
+
+  // Lay out the shown items: label wrapped beside a right-aligned value; a long value gets its own line.
+  struct Row { int item; std::vector<std::string> label; std::string value; bool value_below; };
+  std::vector<Row> rows;
+  int sel_line0 = 0, sel_lines = 1, total = 0;
+  for (size_t k = 0; k < items.size(); ++k) {
+    const Item& it = items[k];
+    if (!Shown(it)) continue;
+    Row r{int(k), {}, "", false};
+    bool sel = int(k) == g_sel;
+    if (it.kind == Kind::Header) {
+      bool open = g_open_sections[k];
+      r.label = Wrap(std::string(open ? "[-] " : "[+] ") + it.label, cols);
+    } else {
+      r.value = ValueText(it);
+      if (sel && !r.value.empty() && (it.kind == Kind::Choice || it.kind == Kind::Number)) r.value = "< " + r.value + " >";
+      int vcols = int(r.value.size());
+      int lcols = cols - 2 - (vcols ? vcols + 2 : 0);   // (2: the indent)
+      if (vcols && lcols < cols / 2) { r.value_below = true; lcols = cols - 2; }
+      r.label = Wrap(it.label, lcols);
+    }
+    int n = int(r.label.size()) + (r.value_below ? 1 : 0);
+    if (sel) sel_line0 = total, sel_lines = n;
+    total += n;
+    rows.push_back(std::move(r));
+  }
+  // Scroll so the selection is in view.
+  const int view_lines = std::max(1, int((list_bottom - list_top) / lh));
+  if (sel_line0 < g_scroll) g_scroll = float(sel_line0);
+  if (sel_line0 + sel_lines > g_scroll + view_lines) g_scroll = float(sel_line0 + sel_lines - view_lines);
+  g_scroll = std::clamp(g_scroll, 0.f, float(std::max(0, total - view_lines)));
+
+  float y = list_top - g_scroll * lh;
+  for (const Row& r : rows) {
+    const Item& it = items[r.item];
+    int n = int(r.label.size()) + (r.value_below ? 1 : 0);
+    bool sel = r.item == g_sel;
+    auto in_view = [&](float ly) { return ly >= list_top - 0.5f && ly + lh <= list_bottom + 0.5f; };
+    if (sel) {
+      SDL_SetRenderDrawColor(ren, 60, 60, 160, 255);
+      float y0 = std::max(y - 2, list_top - 2), y1 = std::min(y - 2 + n * lh, list_bottom);
+      SDL_FRect hl{ox + 2, y0, pw - 4, y1 - y0};
+      if (y1 > y0) SDL_RenderFillRect(ren, &hl);
+    }
+    float lx = x0 + (it.kind == Kind::Header || it.section < 0 ? 0 : 2 * cw);
+    if (it.kind == Kind::Header) SDL_SetRenderDrawColor(ren, 110, 160, 255, 255);
+    else SDL_SetRenderDrawColor(ren, sel ? 255 : 210, sel ? 255 : 210, sel ? 255 : 210, 255);
+    for (size_t k = 0; k < r.label.size(); ++k)
+      if (in_view(y + k * lh)) SDL_RenderDebugText(ren, lx, y + k * lh, r.label[k].c_str());
+    if (!r.value.empty()) {
+      SDL_SetRenderDrawColor(ren, 255, 220, 0, 255);
+      float vy = r.value_below ? y + r.label.size() * lh : y;
+      if (in_view(vy)) SDL_RenderDebugText(ren, ox + pw - pad - r.value.size() * cw, vy, r.value.c_str());
+    }
+    y += n * lh;
+  }
+  // Scroll hints.
+  SDL_SetRenderDrawColor(ren, 110, 160, 255, 255);
+  if (g_scroll > 0) SDL_RenderDebugText(ren, ox + pw - pad - cw, list_top - lh, "^");
+  if (g_scroll + view_lines < total) SDL_RenderDebugText(ren, ox + pw - pad - cw, list_bottom, "v");
   SDL_SetRenderScale(ren, 1, 1);
 }
 

@@ -264,6 +264,7 @@ int main(int argc, char** argv) {
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
   std::string save_file, load_file, gpulog_spec, start_state, winshot_file;
   int winshot_at = -1;
+  int menu_test = 0;   // --menu (1) / --menu=all (2): open the menu at start (tests; winshot counts presents)
   std::vector<Shot> rmshots;
   int runahead = 0;
   int win_w = 1280, win_h = 960;   // --winsize=WxH
@@ -318,6 +319,8 @@ int main(int argc, char** argv) {
       rm_scale = std::atoi(val("--rmscale=").c_str());
     } else if (a.rfind("--state=", 0) == 0) {
       start_state = val("--state=");
+    } else if (a == "--menu" || a == "--menu=all") {
+      menu_test = a == "--menu" ? 1 : 2;
     } else if (a.rfind("--winshot=", 0) == 0) {
       auto v = val("--winshot="); auto c = v.find(':');
       winshot_at = std::atoi(v.substr(0, c).c_str());
@@ -787,9 +790,11 @@ int main(int argc, char** argv) {
       SDL_RenderClear(ren);
       crt::DrawPicture(ren, scene, SDL_FRect{0, 0, float(ww), float(wh)}, crt_src_w, crt_src_h);
     }
-    if (menu::IsOpen()) menu::Draw(ren, ww, wh);
+    if (menu::Shown()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, now);
-    if (winshot_at >= 0 && int(frame_count) >= winshot_at) {   // --winshot=N:<bmp>: the window after N frames
+    static int presents = 0;
+    if (menu_test && presents++ == 0) menu::Open(menu_test == 2);
+    if (winshot_at >= 0 && (menu_test ? presents : int(frame_count)) >= winshot_at) {   // --winshot=N:<bmp>: the window after N frames
       if (SDL_Surface* shot = SDL_RenderReadPixels(ren, nullptr)) {
         SDL_SaveBMP(shot, winshot_file.c_str());
         SDL_DestroySurface(shot);

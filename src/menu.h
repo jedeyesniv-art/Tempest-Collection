@@ -18,7 +18,9 @@ enum class Action {
 };
 
 bool IsOpen();
-void Open();
+// Drawn: open, or still sliding out after closing.
+bool Shown();
+void Open(bool expand_all = false);   // expand_all: every section open (tests)
 void Close();
 Action Update(const Nav& nav, uint64_t now_ns);
 void Draw(SDL_Renderer* ren, int out_w, int out_h);

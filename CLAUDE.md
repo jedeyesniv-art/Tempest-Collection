@@ -111,6 +111,9 @@ classifier (downloaded code) - ask the owner before trying again.
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).
 
 ## Lessons (2026-11-09)
+- From bash, give the exe forward-slash paths (logs/x.bmp): a quoted backslash scratchpad path silently failed to
+  write AND to delete, so I re-read stale screenshots for three rounds. Check file times when a fix shows no change.
+- Menu tests: --menu / --menu=all open the Back menu at start (all sections), --winshot then counts presents.
 - Emulated GPU / blitter work is near free: screens paced on render completion (melt, ripple) run too fast. Measure
   with a timeline contact sheet (--shot every N frames) and a brightness curve, fix with host pacing (gpuwait hold).
 - Heavy (menu) screens can't afford run-ahead: check real-time cost per screen (headless fps with --runahead).
