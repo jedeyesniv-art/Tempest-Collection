@@ -118,6 +118,10 @@ int g_web_colour = 0;                               // donky's colour register c
 std::vector<Line> g_lines;                          // the displayed frame
 float g_ox = -23.75f, g_oy = 5.25f;   // GPU screen -> emulated picture (fit_origin.py, 2026-11-08)
 uint64_t g_calls = 0, g_frames = 0;
+// Frames since the game last cleared a buffer with the GPU (llama mode 0). The title / option / game select screens
+// are drawn without it, so the lists left from the last GPU-drawn screen go stale: after kStale frames, show nothing.
+int g_since_clear = 1000;
+constexpr int kStale = 8;
 
 int g_sines[256];
 
@@ -378,6 +382,7 @@ bool OnGpurun() {
   }
   if (mod != kLlama) return false;
   if (mode == 0) {                       // clearscreen: a new frame in this buffer
+    g_since_clear = 0;
     g_lists[scr].clear();
     g_webs[scr].clear();
     g_stars[scr].clear();
@@ -725,10 +730,10 @@ struct CaptureState {
   decltype(g_pix) pix;
   decltype(g_rex) rex;
   Scene prev;
-  int web_colour;
+  int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_prev_scene, g_web_colour}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -739,6 +744,7 @@ void Rewind() {
   g_rex = g_mark.rex;
   g_prev_scene = g_mark.prev;
   g_web_colour = g_mark.web_colour;
+  g_since_clear = g_mark.since_clear;
 }
 
 void AfterFrame(bool publish) {
@@ -754,10 +760,20 @@ void AfterFrame(bool publish) {
     auto it = m.find(cs);
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
-  Scene now{get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex)};
+  Scene now;
+  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex)};
+  ++g_since_clear;
   if (publish) {
     g_scene_a = std::move(g_scene_b);
     g_scene_b = same ? now : prev;
+    static const bool trace = std::getenv("RM_TRACE") != nullptr;   // debug: the published scene's calls
+    if (trace) {
+      std::fprintf(stderr, "rmtrace f%llu cs %06X ml %06X vec %zu webs %zu\n", (unsigned long long)g_frames, cs, traps::Read32(0xE374),
+                  g_scene_b.vec.size(), g_scene_b.webs.size());
+      for (auto& c : g_scene_b.vec)
+        std::fprintf(stderr, "  vec %06X %06X pos %d %d %d ang %.0f %.0f %.0f n %zu\n", c.caller, c.obj, c.pos[0] >> 16,
+                    c.pos[1] >> 16, c.pos[2] >> 16, c.ang[0], c.ang[1], c.ang[2], c.verts.size());
+    }
   }
   prev = std::move(now);
   ++g_frames;
@@ -783,8 +799,6 @@ void Interpolate(float tf) {
 }
 
 void SetInterpolate(bool on) { g_interp = on; }
-
-bool InGame() { return !g_scene_b.vec.empty() || !g_scene_b.webs.empty(); }
 
 const std::vector<Line>& Lines() { return g_lines; }
 void SetOrigin(float x, float y) { g_ox = x; g_oy = y; }

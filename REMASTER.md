@@ -137,6 +137,11 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - HUD: in the game (scene has vector objects or a solid web, not the demo) the picture's top band (rows 0-64) is
   split: x 0-160 (score, lives) to the window's top left, 260-326 (icon) to the top right, the middle stays
   (setting hud_corners, default on). A stopgap until the HUD text is ours.
+- Fixed 2026-11-09 (owner's screenshots): the title / option / game select screens never clear with the GPU, so the
+  last two yak-screen web captures stayed in the lists and were shown alternately (a juddering web in the side bars /
+  black transitions) and turned the HUD split on over the menus. Now: no llama mode 0 clear for 8 frames -> empty
+  scene (counter in the run-ahead mark), and the HUD split needs mainloop_routine ($E374) == draw_objects ($80F05E)
+  (level select uses draw_oo). Debug: RM_TRACE=1 prints each published scene (frame, cscreen, mainloop_routine, calls).
 - Still 4:3: everything not ours (title / menu screens, the dash lattice, superzapper bolts). Untested: 2-player /
   duel HUD (player 2's score may reach left of x 260).
 

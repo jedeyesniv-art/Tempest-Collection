@@ -22,6 +22,8 @@ void Rewind();
 bool InPlay();
 // The attract-mode demo is running.
 bool Demo();
+// The game screen proper: the main loop draws with draw_objects (not level select, title or menu screens).
+bool PlayScreen();
 std::string Status();   // one line for the log / overlay
 // The game's own pause screen is up (Start in play).
 bool Paused();

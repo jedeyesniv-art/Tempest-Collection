@@ -49,8 +49,6 @@ void SetOrigin(float x, float y);
 void SetEnabled(bool on);
 void SetLineWidth(float game_pixels);   // setting remaster_line_width (default 1.5)
 bool Enabled();
-// The shown scene is the game screen (vector objects or a solid web: not the title / menu screens).
-bool InGame();
 
 // Headless check: the emulated frame scaled up `scale` times with our lines drawn over it.
 // aspect > 0: a picture of that shape (W / H), the emulated 4:3 frame centred and our layer filling the rest
