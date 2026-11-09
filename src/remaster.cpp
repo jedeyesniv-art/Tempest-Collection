@@ -909,6 +909,7 @@ bool Install() {
 }
 
 Scene g_prev_scene;   // the lists captured for the then-cscreen at the end of the frame before
+host::Frame g_hud;    // screen3 (the HUD overlay strip) as of the published frame, 0 = see-through
 
 struct CaptureState {
   decltype(g_lists) lists;
@@ -956,6 +957,14 @@ void AfterFrame(bool publish) {
   if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts)};
   ++g_since_clear;
   if (publish) {
+    // screen3: 384 x 48 CRY words at $50000, shown by the Object Processor over the play area.
+    g_hud.width = 384;
+    g_hud.height = 48;
+    g_hud.pixels.resize(384 * 48);
+    for (uint32_t i = 0; i < 384 * 48; ++i) {
+      uint16_t p = traps::Read16(0x50000 + i * 2);
+      g_hud.pixels[i] = p ? (CRY16ToRGB32[p] & 0xFFFFFF) | 0xFF000000u : 0;
+    }
     g_scene_a = std::move(g_scene_b);
     g_scene_b = same ? now : prev;
     static const bool trace = std::getenv("RM_TRACE") != nullptr;   // debug: the published scene's calls
@@ -1118,6 +1127,8 @@ void DumpLines(const std::string& path) {
     std::fprintf(f, "%.3f %.3f %.3f %.3f %06X %06X\n", l.x0, l.y0, l.x1, l.y1, unsigned(l.c0), unsigned(l.c1));
   std::fclose(f);
 }
+
+const host::Frame& Hud() { return g_hud; }
 
 std::string Stats() {
   char b[256];

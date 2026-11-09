@@ -98,7 +98,8 @@ classifier (downloaded code) - ask the owner before trying again.
 1. DONE 2026-11-09: dash lattice = drawmsg zoom text (REMASTER.md step 9); yellow warp lane lines fixed (vect3d list end).
 2. DONE 2026-11-09: Superzapper lightning (ox fline, REMASTER.md step 7). Left: ox / horse psphere, ox starseg; survey
    with --gpulog over a game with zaps, deaths and power-ups.
-3. HUD / text native and sharp (stoat text $80DC2E: score, messages; lives icons): replaces the hud_corners split.
+3. DONE 2026-11-09: HUD layer from screen3 + sharp-bilinear picture (REMASTER.md step 10). Option: a pixel-art
+   upscaler (xBR-style) for the HUD / text if the owner wants smoother than crisp pixels.
 4. Check 2-player / Duel and Traditional / Plus modes: HUD corners (player 2 score may cross x 260), vector webs,
    anything uncaptured. All modes are first-class.
 5. Unseen in tests: the "Excellent" and one-up rex graphics (code covers them) - ask the owner for a save state.

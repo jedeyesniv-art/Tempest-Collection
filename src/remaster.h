@@ -31,6 +31,8 @@ struct Dot {
 };
 
 bool Install();                       // after t2k::Install
+// The HUD overlay strip (screen3, 384 x 48) as of the shown frame: 0xFFRRGGBB, 0 where see-through.
+const host::Frame& Hud();
 // After each emulated frame: picks the item list of the displayed buffer. publish = make it the newest scene shown
 // (false for a frame whose picture isn't shown: a real frame followed by run-ahead frames).
 void AfterFrame(bool publish = true);

@@ -193,6 +193,17 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   (after applying its colour byte: $0200 = colour 2, end); we ended only on a 0 word, so the web's second, colourless
   section (after $0200 0000) was drawn too and repainted the yellow lane blue. Same-run checks: warp, play, demo.
 
+## Step 10 (2026-11-09): sharp picture, HUD layer
+- The HUD is not a GPU draw: score digits / lives (CopyBlock from pic2, ashowscore / setlives) and the warp pyramid
+  (makepyr / ppyr) go into screen3 ($50000, 384 x 48 CRY; 32 rows head to head), an Object Processor overlay
+  (beasties+64). screen3 (0, 0) = picture (-24, 14) (exact match on play.state).
+- remaster::Hud() copies screen3 when a frame is published (run-ahead: the shown frame's). In the game on a non-4:3
+  window (hud_corners): picture pixels under a non-zero screen3 pixel are made see-through, and screen3 is drawn as
+  our own layer: x 0-184 to the window's top left, 184-284 in place, 284-384 to the top right. Replaces the band
+  split of the picture (no more chopping the top 64 rows).
+- Sharp bilinear for the picture and the HUD (setting picture_filter sharp | smooth): nearest to an integer multiple
+  in a render target, then a linear fit. All remaining pixel art (menus, PRESS FIRE, DEMO, pause) is crisp.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

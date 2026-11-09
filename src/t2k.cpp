@@ -299,6 +299,8 @@ void Rewind() {
 bool Demo() { return g_installed && R16(kAuto) != 0; }
 bool LatencyMatters() { return HudShown() || (g_installed && R32(kMainloopRoutine) == kDrawOo); }
 
+int HudRows() { return g_installed && R16(kHudObject + 14) == 7 ? 32 : 48; }
+
 bool HudShown() {
   if (!g_installed || R32(kMainloopRoutine) != kDrawObjects) return false;
   uint16_t type = R16(kHudObject + 14);

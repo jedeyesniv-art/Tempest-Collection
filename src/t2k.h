@@ -29,6 +29,8 @@ bool Demo();
 // h2hin) and the main loop draws with draw_objects (level select uses draw_oo with the same strip; the title and
 // menu screens set other types; mainloop_routine is never reset after a game, so it can't decide alone).
 bool HudShown();
+// Rows of the HUD strip in use: 48 (one player), 32 (head to head).
+int HudRows();
 // Screens where input latency matters (play, the demo, level select): run-ahead is used only there. The menu
 // screens' GPU effects are heavy to emulate, and N extra frames each shown frame dropped them below 60 fps.
 bool LatencyMatters();

@@ -410,6 +410,7 @@ int main(int argc, char** argv) {
           WriteBmp(s.path, remaster::Overlay(host::LastFrame(), rm_scale, aspect));
           remaster::DumpLines(s.path + ".lines");
           WriteBmp(s.path + ".orig.bmp", host::LastFrame());
+          if (std::getenv("RM_HUDDUMP")) WriteBmp(s.path + ".hud.bmp", remaster::Hud());   // debug: screen3
           std::fprintf(stderr, "rmshot %d -> %s (%s)\n", f, s.path.c_str(), remaster::Stats().c_str());
         }
       if (f == save_at) {
@@ -444,6 +445,11 @@ int main(int argc, char** argv) {
   SDL_SetRenderVSync(ren, 1);
   SDL_Texture* tex = nullptr;
   unsigned tw = 0, th = 0;
+  // Sharp bilinear: the picture scaled up k times with nearest into `big`, then fitted with linear filtering, so
+  // the game's pixel art (text, HUD, menus) is crisp without uneven pixels (setting picture_filter sharp | smooth).
+  struct Sharp { SDL_Texture* big = nullptr; int k = 0, w = 0, h = 0; };
+  Sharp pic_sharp, hud_sharp;
+  SDL_Texture* hudtex = nullptr;   // the HUD strip (screen3), 384 x 48
 
   SDL_AudioSpec spec{SDL_AUDIO_S16, 2, int(host::SampleRate())};
   SDL_AudioStream* audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
@@ -604,7 +610,21 @@ int main(int argc, char** argv) {
         tw = fr.width; th = fr.height;
         todo = 1;
       }
-      if (todo) {
+      float sw = float(wh) * 4.f / 3.f, sh = float(wh);
+      if (sw > ww) { sw = float(ww); sh = sw * 3.f / 4.f; }
+      SDL_FRect dst{(ww - sw) / 2, (wh - sh) / 2, sw, sh};
+      // HUD layer: in the game on a window that isn't 4:3 we draw the HUD strip (screen3) ourselves, the score / lives
+      // part at the window's top left and the icon part at the top right (setting hud_corners), and its pixels are
+      // see-through in the picture. screen3 (0, 0) is picture (-24, 14) (measured: exact match).
+      constexpr int kHudX = -24, kHudY = 14;
+      const bool hud_layer = remaster::Enabled() && settings::Num("hud_corners", 1) != 0 && t2k::HudShown() &&
+                             !t2k::Demo() && (dst.x > 1 || dst.y > 1);
+      const host::Frame& hud = remaster::Hud();
+      const int hud_h = hud.pixels.empty() ? 0 : std::min(t2k::HudRows(), int(hud.height));
+      static bool hud_was = false;
+      const bool dirty = todo > 0 || hud_layer != hud_was;
+      hud_was = hud_layer;
+      if (dirty) {
         // Black is see-through (alpha 0) so the remaster's layer, drawn first, shows where the game drew nothing.
         static std::vector<uint32_t> argb;
         argb.resize(fr.pixels.size());
@@ -612,11 +632,64 @@ int main(int argc, char** argv) {
           uint32_t p = fr.pixels[i] & 0xFFFFFF;
           argb[i] = p ? (p | 0xFF000000u) : 0;
         }
+        if (hud_layer) {
+          for (int hy = 0; hy < hud_h; ++hy)
+            for (int hx = 0; hx < int(hud.width); ++hx) {
+              int px = hx + kHudX, py = hy + kHudY;
+              if (px < 0 || py < 0 || px >= int(fr.width) || py >= int(fr.height)) continue;
+              if (hud.pixels[size_t(hy) * hud.width + hx]) argb[size_t(py) * fr.width + px] = 0;
+            }
+          if (!hudtex) {
+            hudtex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 384, 48);
+            SDL_SetTextureBlendMode(hudtex, SDL_BLENDMODE_BLEND);
+          }
+          static std::vector<uint32_t> hp(384 * 48);
+          std::fill(hp.begin(), hp.end(), 0u);
+          for (int hy = 0; hy < hud_h && hy < 48; ++hy)
+            for (int hx = 0; hx < 384 && hx < int(hud.width); ++hx) hp[size_t(hy) * 384 + hx] = hud.pixels[size_t(hy) * hud.width + hx];
+          SDL_UpdateTexture(hudtex, nullptr, hp.data(), 384 * 4);
+        }
         SDL_UpdateTexture(tex, nullptr, argb.data(), int(fr.width * 4));
       }
-      float sw = float(wh) * 4.f / 3.f, sh = float(wh);
-      if (sw > ww) { sw = float(ww); sh = sw * 3.f / 4.f; }
-      SDL_FRect dst{(ww - sw) / 2, (wh - sh) / 2, sw, sh};
+      const bool sharp = settings::Str("picture_filter", "sharp") != "smooth";
+      const int k = std::clamp(int(std::ceil(dst.h / float(fr.height))), 1, 12);
+      // Sharp bilinear: the source scaled up k times with nearest into a target, then fitted with linear filtering.
+      bool cleared = false;
+      auto prep = [&](Sharp& sh, SDL_Texture* src, int w, int h, bool changed) {
+        if (!sharp) { SDL_SetTextureScaleMode(src, SDL_SCALEMODE_LINEAR); return; }
+        bool fresh = false;
+        if (!sh.big || sh.k != k || sh.w != w || sh.h != h) {
+          if (sh.big) SDL_DestroyTexture(sh.big);
+          sh.big = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w * k, h * k);
+          SDL_SetTextureBlendMode(sh.big, SDL_BLENDMODE_BLEND);
+          SDL_SetTextureScaleMode(sh.big, SDL_SCALEMODE_LINEAR);
+          sh.k = k; sh.w = w; sh.h = h;
+          fresh = true;
+        }
+        if (!sh.big || !(changed || fresh)) return;
+        SDL_SetRenderTarget(ren, sh.big);
+        SDL_SetRenderDrawColor(ren, 0, 0, 0, 0);
+        SDL_RenderClear(ren);
+        SDL_SetTextureScaleMode(src, SDL_SCALEMODE_NEAREST);
+        SDL_SetTextureBlendMode(src, SDL_BLENDMODE_NONE);
+        SDL_RenderTexture(ren, src, nullptr, nullptr);
+        SDL_SetTextureBlendMode(src, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderTarget(ren, nullptr);
+        cleared = true;
+      };
+      // A part of a source (in its pixels; null = all) to a window rectangle.
+      auto blit = [&](const Sharp& sh, SDL_Texture* src, const SDL_FRect* s, const SDL_FRect* d) {
+        if (!sharp || !sh.big) { SDL_RenderTexture(ren, src, s, d); return; }
+        if (!s) { SDL_RenderTexture(ren, sh.big, nullptr, d); return; }
+        SDL_FRect sk{s->x * sh.k, s->y * sh.k, s->w * sh.k, s->h * sh.k};
+        SDL_RenderTexture(ren, sh.big, &sk, d);
+      };
+      prep(pic_sharp, tex, int(fr.width), int(fr.height), dirty);
+      if (hud_layer && hudtex) prep(hud_sharp, hudtex, 384, 48, dirty);
+      if (cleared) {
+        SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+        SDL_RenderClear(ren);
+      }
       if (remaster::Enabled()) {
         remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
         remaster::SetEffects(float(settings::Num("remaster_bolt_width", 2.0)), settings::Num("remaster_bolt_glow", 1) != 0,
@@ -629,24 +702,19 @@ int main(int argc, char** argv) {
         remaster::Interpolate(float(t));
         remaster::Draw(ren, dst, fr.width, fr.height);
       }
-      // The emulated picture over ours (text, HUD, not-yet-ours). In the game on a window that isn't 4:3, the HUD
-      // corners (score / lives top left, the icon top right) go to the window's corners (setting hud_corners).
-      bool corners = remaster::Enabled() && settings::Num("hud_corners", 1) != 0 && t2k::HudShown() &&
-                     !t2k::Demo() && (dst.x > 1 || dst.y > 1);
-      if (!corners) {
-        SDL_RenderTexture(ren, tex, nullptr, &dst);
-      } else {
-        const float fw = float(fr.width), fh = float(fr.height), sx = dst.w / fw, sy = dst.h / fh;
-        const float band = 64, left = 160, right = 260;   // picture pixels: HUD rows; left / right zone edges
-        auto part = [&](float x0, float y0, float x1, float y1, float dx, float dy) {
-          SDL_FRect s{x0, y0, x1 - x0, y1 - y0};
-          SDL_FRect d{dst.x + x0 * sx + dx, dst.y + y0 * sy + dy, (x1 - x0) * sx, (y1 - y0) * sy};
-          SDL_RenderTexture(ren, tex, &s, &d);
+      // The emulated picture over ours (text, not-yet-ours), then the HUD layer.
+      blit(pic_sharp, tex, nullptr, &dst);
+      if (hud_layer && hudtex) {
+        const float sx = dst.w / float(fr.width), sy = dst.h / float(fr.height);
+        const float left = 184, right = 284;   // screen3 x: score / lives | centre | icon
+        auto part = [&](float x0, float x1, float dx, float dy) {
+          SDL_FRect s{x0, 0, x1 - x0, float(hud_h)};
+          SDL_FRect d{dst.x + (x0 + kHudX) * sx + dx, dst.y + kHudY * sy + dy, (x1 - x0) * sx, hud_h * sy};
+          blit(hud_sharp, hudtex, &s, &d);
         };
-        part(0, band, fw, fh, 0, 0);                    // the play area: centred as ever
-        part(left, 0, right, band, 0, 0);               // the top middle (centred messages)
-        part(0, 0, left, band, -dst.x, -dst.y);         // score / lives -> top left of the window
-        part(right, 0, fw, band, dst.x, -dst.y);        // icon -> top right
+        part(0, left, -dst.x, -dst.y);
+        part(left, right, 0, 0);
+        part(right, 384, dst.x, -dst.y);
       }
     }
     if (menu::IsOpen()) menu::Draw(ren, ww, wh);
