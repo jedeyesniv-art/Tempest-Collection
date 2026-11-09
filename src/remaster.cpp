@@ -154,6 +154,11 @@ struct ScarCall {
 };
 std::map<uint32_t, std::vector<ScarCall>> g_scars;    // per gpu_screen (0 or 1: a scar overwrites the buffer)
 int g_since_scar = 1000;                              // frames since a scar was captured
+// donky.gas starplane (mode 1; Top Guns, bonus rounds): in_buf 0 count, 1 colour (CRY word), 2 / 3 x / y
+// displacement, 4 / 5 x / y seeds. Per star: x = shift register (odd: >> 1 ^ $110, even: >> 1), y likewise with $B8;
+// (+ displacement) & $1FF; plotted where x < 384, y < 280 (a plane that repeats every 512 pixels).
+struct PlaneCall { uint32_t caller = 0, obj = 0; int32_t in[6]; };
+std::map<uint32_t, std::vector<PlaneCall>> g_planes;  // per gpu_screen
 uint64_t g_scar_ids = 0;                              // scar calls captured (each one feedback step)
 std::vector<Rect> g_rex_rects;                         // the displayed frame's
 std::vector<Dot> g_dots;                            // the displayed frame's stars
@@ -356,7 +361,7 @@ int32_t SDiv(int32_t n, uint32_t d) {
 // The draw_vex object routines that use rex (shots, pixel explosions, Excellent, one-up). Others (the title's
 // rexfb, the level-select text) draw over backgrounds we don't capture and stay with the GPU.
 bool RexCaller(uint32_t c) {
-  if (c == 0x807294 || c == 0x803CAA) return true;   // title rexfb, Game Over (over a native scar)
+  if (c == 0x807294 || c == 0x803CAA || c == 0x807104) return true;   // title rexfb, Game Over, credits yak
   return (c >= 0x8072CA && c < 0x8073DA) || (c >= 0x8074D4 && c < 0x807544) || (c >= 0x807806 && c < 0x80791C);
 }
 
@@ -472,6 +477,14 @@ bool OnGpurun() {
   uint32_t mode = traps::Read32(kGpuMode);
   uint32_t scr = traps::Read32(kGpuScreen);
   t2k::OnGpurun(Caller(), mod, mode);
+  if (mod == kDonky && mode == 1) {
+    PlaneCall c;
+    c.caller = Caller();
+    c.obj = traps::Reg(14);
+    for (int i = 0; i < 6; ++i) c.in[i] = In(i);
+    g_planes[scr].push_back(c);
+    return g_enabled && PlayBuffer(scr);
+  }
   if (mod == kDonky && mode == 0) {
     CaptureWeb();
     return g_enabled && PlayBuffer(scr);
@@ -487,7 +500,7 @@ bool OnGpurun() {
   if (mod == kAntelope && mode == 2 && PlayBuffer(scr) && g_enabled && settings_feedback()) {
     // The whole buffer is overwritten: what was captured for it is gone.
     g_lists[scr].clear(); g_webs[scr].clear(); g_stars[scr].clear(); g_solids[scr].clear(); g_pix[scr].clear();
-    g_rex[scr].clear(); g_flines[scr].clear(); g_texts[scr].clear();
+    g_rex[scr].clear(); g_flines[scr].clear(); g_texts[scr].clear(); g_planes[scr].clear();
     ScarCall c;
     c.caller = Caller();
     c.obj = traps::Reg(14);
@@ -527,6 +540,7 @@ bool OnGpurun() {
     g_flines[scr].clear();
     g_texts[scr].clear();
     g_scars[scr].clear();
+    g_planes[scr].clear();
   }
   else if (mode == 2) {
     Capture();
@@ -832,6 +846,26 @@ void BuildText(const TextCall& t, std::vector<Rect>& out) {
   }
 }
 
+// Wide windows: the plane's repeats left and right of the original screen too.
+void BuildPlane(const PlaneCall& c, std::vector<Dot>& out) {
+  int n = std::clamp(c.in[0], 0, 4096);
+  uint32_t xs = uint32_t(c.in[4]), ys = uint32_t(c.in[5]);
+  uint32_t col = CRY16ToRGB32[uint16_t(c.in[1])] & 0xFFFFFF;
+  double dx = c.in[2], dy = c.in[3];
+  for (int k = 0; k < n; ++k) {
+    xs = (xs & 1) ? (xs >> 1) ^ 0x110 : xs >> 1;
+    ys = (ys & 1) ? (ys >> 1) ^ 0xB8 : ys >> 1;
+    double px = std::fmod(double(xs) + dx, 512.0), py = std::fmod(double(ys) + dy, 512.0);
+    if (px < 0) px += 512;
+    if (py < 0) py += 512;
+    if (py >= 280) continue;
+    for (double tx : {px - 512, px, px + 512}) {
+      bool inside = tx >= 0 && tx < 384;
+      if (!g_view.set ? inside : InView(tx, py, 384, 280)) out.push_back({float(tx), float(py), col, 1.f});
+    }
+  }
+}
+
 void BuildLines(const VecCall& c, std::vector<Line>& out) {
   int n = int(c.verts.size());
   std::vector<Pt> pts(n);
@@ -885,6 +919,7 @@ struct Scene {
   std::vector<FlineCall> fl;
   std::vector<TextCall> text;
   std::vector<ScarCall> scar;
+  std::vector<PlaneCall> plane;
 };
 Scene g_scene_a, g_scene_b;   // older, newer
 bool g_interp = true;
@@ -965,6 +1000,15 @@ bool LerpText(const TextCall& a, TextCall& c, double t) {
   return true;
 }
 
+bool LerpPlane(const PlaneCall& a, PlaneCall& c, double t) {
+  if (a.in[4] != c.in[4] || a.in[5] != c.in[5] || std::abs(c.in[2] - a.in[2]) > 64 || std::abs(c.in[3] - a.in[3]) > 64)
+    return false;
+  // (fractional displacement: BuildPlane takes doubles via in[] as fixed 8.8 would; keep it simple: round)
+  c.in[2] = int32_t(std::lround(a.in[2] + (c.in[2] - a.in[2]) * t));
+  c.in[3] = int32_t(std::lround(a.in[3] + (c.in[3] - a.in[3]) * t));
+  return true;
+}
+
 template <class T, class L, class B>
 void Each(const std::vector<T>& a, const std::vector<T>& b, double t, L lerp, B build) {
   if (t >= 1.0) {
@@ -1008,12 +1052,13 @@ struct CaptureState {
   decltype(g_flines) flines;
   decltype(g_texts) texts;
   decltype(g_scars) scars;
+  decltype(g_planes) planes;
   int since_scar;
   Scene prev;
   int web_colour, since_clear;
 } g_mark;
 
-void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_flines, g_texts, g_scars, g_planes, g_since_scar, g_prev_scene, g_web_colour, g_since_clear}; }
 
 void Rewind() {
   g_lists = g_mark.lists;
@@ -1025,6 +1070,7 @@ void Rewind() {
   g_flines = g_mark.flines;
   g_texts = g_mark.texts;
   g_scars = g_mark.scars;
+  g_planes = g_mark.planes;
   g_since_scar = g_mark.since_scar;
   g_prev_scene = g_mark.prev;
   g_web_colour = g_mark.web_colour;
@@ -1045,7 +1091,7 @@ void AfterFrame(bool publish) {
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
   Scene now;
-  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars)};
+  if (g_since_clear <= kStale) now = {get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex), get(g_flines), get(g_texts), get(g_scars), get(g_planes)};
   ++g_since_clear;
   if (g_since_scar < 1000) ++g_since_scar;
   if (publish) {
@@ -1092,6 +1138,7 @@ void Interpolate(float tf) {
   g_bolt_lines.clear();
   const Scene &a = g_scene_a, &b = g_scene_b;
   Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
+  Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
   Each(a.webs, b.webs, t, LerpWeb, [](const WebCall& c) { BuildWeb(c, g_tris); });
   Each(a.solids, b.solids, t, LerpSolid, [](const SolidCall& c) { BuildSolid(c, g_solid_tris); });
   Each(a.pix, b.pix, t, LerpPix, [](const PixCall& c) { BuildPix(c, g_pix_dots); });

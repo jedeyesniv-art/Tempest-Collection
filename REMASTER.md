@@ -253,6 +253,11 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Effects fill wide windows (the feedback samples our whole window). Tests need a state from BEFORE a melt (the chain
   starts from the last normal frame): logs/melt.state. Setting remaster_feedback (default 1).
 
+- Credits: rex $807104 (yak head / ring) taken over (its background is our starfield). Top Guns: donky 1 starplane
+  ported (BuildPlane: shift registers $110 / $B8 + displacement, & $1FF, clip 384 x 280; the 512-px tiles repeated
+  left / right on wide windows; displacement interpolated). Same run: 86% of the GPU's isolated star pixels within
+  1 px of ours (the rest under text / other colours).
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.
