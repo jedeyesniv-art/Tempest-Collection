@@ -15,6 +15,10 @@ bool Install(std::string* err);
 void BeforeFrame(const Pad& pad);
 // After each emulated frame: bookkeeping (claw ticks seen).
 void AfterFrame();
+// Run-ahead: keep / restore the host-side state (stick ramp, tick count, the port area at $DFFC00) around frames
+// that are emulated and then rewound.
+void Mark();
+void Rewind();
 bool InPlay();
 std::string Status();   // one line for the log / overlay
 // The game's own pause screen is up (Start in play).

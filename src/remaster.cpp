@@ -707,13 +707,39 @@ bool Install() {
   return traps::Install(kGpurun, 0x6100, OnGpurun);
 }
 
-void AfterFrame() {
+Scene g_prev_scene;   // the lists captured for the then-cscreen at the end of the frame before
+
+struct CaptureState {
+  decltype(g_lists) lists;
+  decltype(g_webs) webs;
+  decltype(g_stars) stars;
+  decltype(g_solids) solids;
+  decltype(g_pix) pix;
+  decltype(g_rex) rex;
+  Scene prev;
+  int web_colour;
+} g_mark;
+
+void Mark() { g_mark = {g_lists, g_webs, g_stars, g_solids, g_pix, g_rex, g_prev_scene, g_web_colour}; }
+
+void Rewind() {
+  g_lists = g_mark.lists;
+  g_webs = g_mark.webs;
+  g_stars = g_mark.stars;
+  g_solids = g_mark.solids;
+  g_pix = g_mark.pix;
+  g_rex = g_mark.rex;
+  g_prev_scene = g_mark.prev;
+  g_web_colour = g_mark.web_colour;
+}
+
+void AfterFrame(bool publish) {
   // The sine table is built by the game at boot: refresh it until it looks set.
   if (g_sines[0x40] <= 0)
     for (int i = 0; i < 256; ++i) g_sines[i] = int(traps::Read8(kSines + i)) - 0x80;
   // The picture the core hands us for a frame is scanned out during that frame, so it shows the buffer that was
   // displayed when the frame began: the scene is the lists captured for cscreen at the end of the frame before.
-  static Scene prev;
+  Scene& prev = g_prev_scene;
   static const bool same = std::getenv("RM_SAME") != nullptr;   // debug: the end-of-frame cscreen instead
   uint32_t cs = traps::Read32(kCscreen);
   auto get = [&](auto& m) {
@@ -721,11 +747,13 @@ void AfterFrame() {
     return it != m.end() ? it->second : std::decay_t<decltype(it->second)>{};
   };
   Scene now{get(g_lists), get(g_webs), get(g_stars), get(g_solids), get(g_pix), get(g_rex)};
-  g_scene_a = std::move(g_scene_b);
-  g_scene_b = same ? now : prev;
+  if (publish) {
+    g_scene_a = std::move(g_scene_b);
+    g_scene_b = same ? now : prev;
+  }
   prev = std::move(now);
   ++g_frames;
-  Interpolate(1.f);
+  if (publish) Interpolate(1.f);
 }
 
 void Interpolate(float tf) {

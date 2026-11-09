@@ -31,7 +31,12 @@ struct Dot {
 };
 
 bool Install();                       // after t2k::Install
-void AfterFrame();                    // picks the item list of the displayed buffer
+// After each emulated frame: picks the item list of the displayed buffer. publish = make it the newest scene shown
+// (false for a frame whose picture isn't shown: a real frame followed by run-ahead frames).
+void AfterFrame(bool publish = true);
+// Run-ahead: keep / restore the capture state (not the shown scenes) around frames that are rewound.
+void Mark();
+void Rewind();
 // Window: rebuild what Draw shows, blended between the previous and the latest displayed frame (t = 0..1; 1 = the
 // latest, as AfterFrame leaves it). Setting remaster_interpolate (default on).
 void Interpolate(float t);

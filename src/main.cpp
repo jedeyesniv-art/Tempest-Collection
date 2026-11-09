@@ -5,6 +5,7 @@
 //     --shot=F:<file.bmp>                 save the frame after frame F (repeatable)
 //     --press=F:<btn>[:len]               hold a RetroPad button from frame F (default 6 frames)
 //     --wav=<file.wav>                    dump the audio
+//     --runahead=N                        run-ahead N frames (shots / rmshots show frame f + N)
 //     --opt=key=value                     set a core option
 //     --userdata=<dir>                    save folder (default userdata)
 //     --stick=F:x,y[:len]                 hold the left stick at x,y (-1..1) from frame F (default 6 frames)
@@ -223,6 +224,32 @@ std::string SlotInfo(const fs::path& dir) {
 
 }  // namespace
 
+// Run-ahead: after a real frame, emulate n more with the same input, show the last one's picture and remaster
+// scene, then rewind the core and our hooks to the real frame. Hides the game's own input lag (and the frame of
+// delay interpolation adds). The real frame's audio is kept; the hidden frames' is dropped.
+void RunAhead(int n, const host::Input& in, const t2k::Pad& tp) {
+  static std::vector<uint8_t> st;
+  st = host::SaveState();
+  if (st.empty()) return;   // (can't rewind: show the real frame's picture, keep the last scene)
+  t2k::Mark();
+  remaster::Mark();
+  std::vector<int16_t> keep;
+  keep.swap(host::Audio());
+  for (int k = 1; k <= n; ++k) {
+    host::SetInput(0, in);
+    t2k::BeforeFrame(tp);
+    host::RunFrame();
+    t2k::AfterFrame();
+    remaster::AfterFrame(k == n);
+    host::Audio().clear();
+  }
+  host::Audio().swap(keep);
+  host::LoadState(st);
+  t2k::Rewind();
+  remaster::Rewind();
+  host::SetInput(0, in);
+}
+
 int main(int argc, char** argv) {
   std::string rom, wav, userdata = "userdata";
   bool headless = false;
@@ -235,6 +262,7 @@ int main(int argc, char** argv) {
   std::string save_file, load_file, gpulog_spec, start_state, winshot_file;
   int winshot_at = -1;
   std::vector<Shot> rmshots;
+  int runahead = 0;   // --runahead=N (headless; the window uses setting run_ahead)
   int rm_scale = 4;
   std::string pause_line = "press y to quit to title";
   std::vector<std::pair<std::string, std::string>> opts;
@@ -243,6 +271,7 @@ int main(int argc, char** argv) {
     auto val = [&](const char* p) { return a.substr(std::strlen(p)); };
     if (a == "--headless") headless = true;
     else if (a.rfind("--frames=", 0) == 0) frames = std::atoi(val("--frames=").c_str());
+    else if (a.rfind("--runahead=", 0) == 0) runahead = std::atoi(val("--runahead=").c_str());
     else if (a.rfind("--wav=", 0) == 0) wav = val("--wav=");
     else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
     else if (a.rfind("--shot=", 0) == 0) {
@@ -357,7 +386,12 @@ int main(int argc, char** argv) {
       }
       host::RunFrame();
       t2k::AfterFrame();
-      remaster::AfterFrame();
+      if (runahead > 0) {
+        remaster::AfterFrame(false);
+        RunAhead(runahead, in, tp);
+      } else {
+        remaster::AfterFrame();
+      }
       for (auto& s : rmshots)
         if (s.frame == f) {
           if (const char* t = std::getenv("RM_T")) remaster::Interpolate(float(std::atof(t)));   // debug: blend
@@ -517,6 +551,7 @@ int main(int argc, char** argv) {
       while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
       if (now > next + uint64_t(frame_ns * 8)) next = now;  // stalled: resync
     }
+    const int run_ahead = std::clamp(int(settings::Num("run_ahead", 2)), 0, 4);
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
       host::Input in = ReadPad(pad, held, keys, &tp);
@@ -526,7 +561,13 @@ int main(int argc, char** argv) {
       t2k::BeforeFrame(tp);
       host::RunFrame();
       t2k::AfterFrame();
-      remaster::AfterFrame();
+      // Run-ahead after the last real frame of this batch only (its picture is the one shown).
+      if (run_ahead > 0 && i == todo - 1) {
+        remaster::AfterFrame(false);
+        RunAhead(run_ahead, in, tp);
+      } else {
+        remaster::AfterFrame(i == todo - 1 || run_ahead == 0);
+      }
       if (++frame_count % 60 == 0) eeprom.SaveIfChanged();
       auto& a = host::Audio();
       if (audio && !a.empty()) {

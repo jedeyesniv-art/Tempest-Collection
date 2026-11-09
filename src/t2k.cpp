@@ -67,6 +67,14 @@ double g_release_v0 = 0, g_v = 0;
 int g_target = -1;
 uint32_t g_target_web = 0;
 
+struct Saved {
+  uint16_t last_ticks;
+  int ticks_this_frame, frames_since_tick, dir, held, release_left, target;
+  double release_v0, v;
+  uint32_t target_web;
+  uint8_t port[0x400];   // $DFFC00-$DFFFFF: pause text, stubs, the port (not in the core's save state)
+} g_saved;
+
 double Smoothstep(double x) {
   x = std::clamp(x, 0.0, 1.0);
   return x * x * (3 - 2 * x);
@@ -223,6 +231,27 @@ bool Install(std::string* err) {
   W16(kClawcon + 6, 0x4E71);
   g_installed = true;
   return true;
+}
+
+void Mark() {
+  g_saved = {g_last_ticks, g_ticks_this_frame, g_frames_since_tick, g_dir, g_held, g_release_left, g_target,
+             g_release_v0, g_v, g_target_web, {}};
+  std::copy(jagMemSpace + 0xDFFC00, jagMemSpace + 0xE00000, g_saved.port);
+}
+
+void Rewind() {
+  const Saved& s = g_saved;
+  g_last_ticks = s.last_ticks;
+  g_ticks_this_frame = s.ticks_this_frame;
+  g_frames_since_tick = s.frames_since_tick;
+  g_dir = s.dir;
+  g_held = s.held;
+  g_release_left = s.release_left;
+  g_target = s.target;
+  g_release_v0 = s.release_v0;
+  g_v = s.v;
+  g_target_web = s.target_web;
+  std::copy(s.port, s.port + 0x400, jagMemSpace + 0xDFFC00);
 }
 
 bool InPlay() { return g_installed && g_frames_since_tick < 4; }

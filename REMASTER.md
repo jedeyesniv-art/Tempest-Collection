@@ -116,6 +116,19 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   show their sprite), above it the original's dot matrix. Verified same-run (RM_NOSKIP) on play.state shots and an
   attract-demo explosion (logs/demo6400.state, frames +104..+170). tools/side_by_side.py <rmshot> <png> [crop].
 
+## Step 5 (2026-11-09): interpolation + run-ahead - DONE
+- Scenes: the last two displayed frames' captured inputs (camera-relative). remaster::Interpolate(t) matches calls by
+  (caller, a6, occurrence) and blends positions, angles (fractional sine table), the star viewpoint, rex position /
+  scale; a move over 32 units + 1/4 of the distance in a tick is not blended (reused slots, camera cuts). Headless
+  stays t = 1; RM_T=<t> renders --rmshot blended (tools/check_interp.py: t = 0 equals frame N-1, t = 0.5 halfway,
+  0.001 px on a sideways-moving web). Window: t = how far real time is into the current frame's slot.
+- Run-ahead (main.cpp RunAhead, setting run_ahead default 2, headless --runahead=N): after the real frame, save the
+  core state + t2k::Mark (stick state, $DFFC00 port area: not in the core's state) + remaster::Mark (capture
+  lists), emulate N frames with the same input (remaster::AfterFrame(publish) only on the last), rewind. Verified:
+  picture and remaster at f == plain run at f + 2, audio byte-identical, claw trace identical. Cost ~4 ms a frame.
+- Not covered: hidden frames can write the EEPROM save buffer early (the same write the real frame makes 2 frames
+  later unless the input changes). The emulated HUD / text shows frame f + N while our layer blends f + N - 1 -> f + N.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.
