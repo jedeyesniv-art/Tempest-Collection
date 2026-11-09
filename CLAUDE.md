@@ -85,17 +85,42 @@ Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
 
-## Where we are (end of 2026-11-08; start here next time)
+## Where we are (end of 2026-11-09 morning; start here next time)
 - Done: stage 1 host, stick controls (owner's lr tuning 0.41, aim as alternate), owner's button layout + remapping,
   Back menu (settings, save states, return to title), quit to title on the pause screen in the game font, EEPROM
-  saves, cursor hidden. Remaster (F8, default on): native vect3d lines, solid web, starfield, solid claw / enemies,
-  pixels / rings, all verified against the original in one run (RM_NOSKIP=1 RM_OURS=1 --rmshot). Details: REMASTER.md.
-- 2026-11-09: camel rex (shots, pixel explosions, Excellent) native - REMASTER.md step 4.
-- 2026-11-09: interpolation (menu: Smooth motion, remaster_interpolate) + run-ahead (run_ahead = 2) - REMASTER.md step 5.
-- 2026-11-09: any aspect ratio (Hor+ / Vert+, HUD corners: hud_corners) - REMASTER.md step 6. Owner: smooth motion +
-  run-ahead "look and feel incredible".
-- Next: ask the owner. Candidates: the dash-lattice layer, superzapper bolts (ox fline), text / HUD upscale (not a GPU call), text / HUD upscale, title and menu screens, Defender 2000.
-- Owner's test states: logs/owner_star.state (warp starfield between levels). logs/play.state = in play, level 1.
+  saves, cursor hidden. Remaster (F8, default on), every primitive verified against the GPU in one run
+  (RM_NOSKIP=1 RM_OURS=1 --rmshot): vect3d lines, solid web, starfield, solid claw / enemies, pixels / rings,
+  camel rex sprites (shots, pixel explosions). Smooth motion (interpolation, menu toggle) + run-ahead 2, any
+  aspect ratio (Hor+ / Vert+, HUD to the window corners). Details: REMASTER.md steps 2-6.
+- Owner 2026-11-09: smooth motion + run-ahead "look and feel incredible"; asked for any aspect ratio (done).
+
+## To do next (owner to pick the order tonight)
+1. Dash-lattice layer (death / between levels; not a GPU call: find what draws it) - so it fills wide screens too.
+2. Superzapper lightning (ox fline) and the other uncaptured play draws (ox / horse psphere, ox starseg); survey
+   with --gpulog over a game with zaps, deaths and power-ups.
+3. HUD / text native and sharp (stoat text $80DC2E: score, messages; lives icons): replaces the hud_corners split.
+4. Check 2-player / Duel and Traditional / Plus modes: HUD corners (player 2 score may cross x 260), vector webs,
+   anything uncaptured. All modes are first-class.
+5. Unseen in tests: the "Excellent" and one-up rex graphics (code covers them) - ask the owner for a save state.
+6. Menu items for run_ahead (0-4) and hud_corners; remember the window size / position.
+7. Interpolation polish: a scene that didn't change (game slowdown, no buffer swap) still steps; objects drawn with
+   several calls per a6 match by occurrence only.
+8. Later: title / menu / options screens (antelope backgrounds, stoat text), glow / CRT option, Defender 2000.
+- Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
+  logs/demo6400.state (attract demo, pixel explosion at +104..+170).
+
+## Lessons (2026-11-09)
+- Run-ahead needs ALL host-side state rewound, not just the core's: our hooks keep state (t2k stick ramp, the
+  $DFFC00 port area in jagMemSpace, which the core's state does not include; remaster capture lists). Test it as:
+  run-ahead picture at f == plain run at f + N, audio and --trace byte-identical.
+- Interpolate the captured INPUTS (camera-relative positions, angles), not projected output; keep headless at t = 1
+  so the GPU-vs-ours checks stay exact. Angles need a fractional sine (SinT).
+- Only take over rex calls from the draw_vex object routines (by caller range): the title / yak / level-select
+  rex calls draw over backgrounds we don't capture, and skipping them there would hide them.
+- The game's world exists beyond the 4:3 frame (web, enemies, stars): wide screens only needed the culls widened.
+- Image previews may be scaled (e.g. 1.02x): measure offsets with tools (fit_origin.py), not by eye.
+- Tools: tools/side_by_side.py (original | ours, crop), tools/check_interp.py, RM_T=<t>, --runahead=N,
+  --aspect=W:H, --winsize=WxH.
 
 ## Lessons (2026-11-08)
 - Verify each native primitive against the GPU in the SAME run: skipping GPU work shifts main-loop timing, so
