@@ -319,6 +319,11 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Pause and game options screens were already all ours (play scene / ripple + text). High-score entry: xcamel 4 =
   a 2D rex (the texter's maths for one sprite, in_buf 8 / 9 = screen x / y): captured as a one-glyph TextCall where
   the background is ours (the scrolling stretched letters). State: logs/hiscore.state.
+- Feedback steps crossfade (melt, title, Game Over, psycho): the previous step (fb_next after the swap) under the
+  latest with alpha = time since the step / the time between the last two steps (clamped 1-8 frames).
+- Not done (low value now): a repeated game frame (slowdown) still steps the interpolation - the GPU work we skip
+  removed nearly all slowdown; objects drawn with several calls per a6 match by occurrence (only wrong if the count
+  changes).
 
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),

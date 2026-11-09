@@ -686,6 +686,10 @@ int main(int argc, char** argv) {
     static SDL_Texture* fb_last = nullptr;
     static SDL_Texture* fb_next = nullptr;
     static uint64_t fb_serial = 0;
+    // Steps come every few frames (paced): the shown image crossfades from the step before (fb_next keeps it after
+    // the swap) to the latest over the time between the last two steps.
+    static uint64_t fb_step_at = 0, fb_step_gap = 0;
+    static bool fb_have_prev = false;
     if (!scene || scene_w != ww || scene_h != wh) {
       for (SDL_Texture** t : {&fb_last, &fb_next}) {
         if (*t) SDL_DestroyTexture(*t);
@@ -850,10 +854,26 @@ int main(int argc, char** argv) {
             remaster::Draw(ren, dst, fr.width, fr.height);
             remaster::SetHardPixels(false);
             std::swap(fb_last, fb_next);
+            const uint64_t tnow = SDL_GetTicksNS();
+            fb_have_prev = fb_serial != 0 && fb_step_at != 0;
+            fb_step_gap = fb_step_at ? std::clamp<uint64_t>(tnow - fb_step_at, uint64_t(frame_ns), uint64_t(frame_ns * 8)) : 0;
+            fb_step_at = tnow;
             fb_serial = serial;
             SDL_SetRenderTarget(ren, frame_target);
           }
-          SDL_RenderTexture(ren, fb_last, nullptr, nullptr);
+          double a = 1.0;
+          if (fb_have_prev && fb_step_gap && !menu::IsOpen() && settings::Num("remaster_interpolate", 1) != 0)
+            a = std::clamp(double(SDL_GetTicksNS() - fb_step_at) / double(fb_step_gap), 0.0, 1.0);
+          if (a < 1.0) {
+            SDL_RenderTexture(ren, fb_next, nullptr, nullptr);
+            SDL_SetTextureBlendMode(fb_last, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureAlphaModFloat(fb_last, float(a));
+            SDL_RenderTexture(ren, fb_last, nullptr, nullptr);
+            SDL_SetTextureAlphaModFloat(fb_last, 1.f);
+            SDL_SetTextureBlendMode(fb_last, SDL_BLENDMODE_NONE);
+          } else {
+            SDL_RenderTexture(ren, fb_last, nullptr, nullptr);
+          }
           scar_scene = true;
         } else {
           remaster::Draw(ren, dst, fr.width, fr.height);

@@ -95,11 +95,9 @@ classifier (downloaded code) - ask the owner before trying again.
 - Owner 2026-11-09: smooth motion + run-ahead "look and feel incredible"; asked for any aspect ratio (done).
 
 ## To do (refreshed 2026-11-09 evening; done items are in REMASTER.md steps 7-14)
-1. Text over our own backgrounds: texter (centext $8040EA etc.) is only taken over after a scar / ripple; treating
-   a llama clear as "our background" would make PRESS FIRE, level-select messages, pause text native.
-2. Remaining static screens: game options (Option on game select), high-score name entry, pause screen.
-3. Interpolation polish: feedback steps (melt / title / Game Over / psycho) not blended between steps; a scene that
-   didn't change (slowdown) still steps; objects drawn with several calls per a6 match by occurrence only.
+1. DONE: text over our own backgrounds (REMASTER.md step 15).
+2. DONE: pause / game options / high-score entry (step 15).
+3. DONE: feedback steps crossfade. Left (low value): slowdown repeats, multi-call objects by occurrence.
 4. Unseen in tests: "Excellent" / one-up graphics, the AI droid's zap, Beastly mode (cheat_beastly unlocks it now).
 5. QoL: remember the window size / position; menu items for run_ahead (0-4) and hud_corners.
 6. Performance: 4K with CRT++; a low-end GPU (Steam Deck class) if that's a target.
