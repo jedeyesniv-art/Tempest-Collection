@@ -21,6 +21,7 @@ struct Item {
   std::vector<std::string> values;      // Choice: stored values
   std::vector<std::string> names;       // Choice: shown names
   double lo = 0, hi = 0, step = 0;      // Number
+  double def = -1e30;                   // Number: the value when the setting is missing (unset: lo)
   const char* fmt = "%.2f";
   Action action = Action::None;         // Button
   controls::Fn fn = controls::kNone;    // Bind
@@ -30,9 +31,10 @@ struct Item {
 std::vector<Item> Items() {
   std::vector<Item> v;
   auto header = [&](const char* t) { v.push_back({Kind::Header, t}); };
-  auto num = [&](const char* label, const char* key, double lo, double hi, double step, const char* fmt) {
+  auto num = [&](const char* label, const char* key, double lo, double hi, double step, const char* fmt,
+                 double def = -1e30) {
     Item i{Kind::Number, label, key};
-    i.lo = lo; i.hi = hi; i.step = step; i.fmt = fmt;
+    i.lo = lo; i.hi = hi; i.step = step; i.fmt = fmt; i.def = def > -1e29 ? def : lo;
     v.push_back(i);
     return &v.back();
   };
@@ -78,6 +80,9 @@ std::vector<Item> Items() {
   header("DISPLAY");
   button("Fullscreen on / off", Action::ToggleFullscreen);
   choice("Smooth motion (remaster)", "remaster_interpolate", {"1", "0"}, {"On", "Off (60 fps steps)"});
+  num("Particle size (x original)", "remaster_particle_size", 0.5, 3.0, 0.1, "%.1f", 1.5);
+  num("Lightning width (0 = original)", "remaster_bolt_width", 0.0, 5.0, 0.25, "%.2f", 2.0);
+  choice("Lightning glow", "remaster_bolt_glow", {"1", "0"}, {"On", "Off"});
   header("");
   button("Quit", Action::Quit);
   return v;
@@ -109,7 +114,7 @@ std::string ValueText(const Item& i) {
   }
   if (i.kind == Kind::Number) {
     char buf[32];
-    std::snprintf(buf, sizeof buf, i.fmt, settings::Num(i.key, i.lo));
+    std::snprintf(buf, sizeof buf, i.fmt, settings::Num(i.key, i.def));
     return buf;
   }
   if (i.kind == Kind::Bind) return g_capture == i.fn ? "press a button..." : controls::ButtonsFor(i.fn);
@@ -126,7 +131,7 @@ void Change(const Item& i, int dir) {
     k = (k + dir + int(i.values.size())) % int(i.values.size());
     settings::Save(i.key, i.values[k]);
   } else if (i.kind == Kind::Number) {
-    double v = settings::Num(i.key, i.lo) + dir * i.step;
+    double v = settings::Num(i.key, i.def) + dir * i.step;
     v = std::clamp(std::round(v / i.step) * i.step, i.lo, i.hi);
     char buf[32];
     std::snprintf(buf, sizeof buf, i.fmt, v);

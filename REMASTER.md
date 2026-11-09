@@ -172,6 +172,9 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   Host pacing instead: gpuwait ($81A50E) -> jmp stub $DFFDC0 that spins while port $DFFE30 != 0; the gpurun trap
   sets it for scar (pace_melt, default 4 frames a step: the fade now lasts ~126 of the 150 frames) and optiondraw's
   ripple ($804980 antelope 1; pace_ripple, default 2: 30 fps). The Top Guns background shares scar's caller.
+- Spawn markers (draw_pel, xcamel 5 snglpix, red $F0, camera z ~600 -> ~200): size x clamp(200 / z, 0.3, 1),
+  2/3 of a particle at the far rim (owner: grow in, smaller than the other particles). Menu DISPLAY: particle size,
+  lightning width, lightning glow (number items have a default now, not their minimum).
 - Run-ahead only where latency matters (t2k::LatencyMatters: play HUD up or level select's draw_oo): on the menu
   screens N extra frames a shown frame dropped emulation below real time (~40 fps in the window).
 

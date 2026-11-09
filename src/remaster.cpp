@@ -564,7 +564,12 @@ void BuildPix(const PixCall& c, std::vector<Dot>& out) {
     int i = depth_i(z, c.zmax * 2);
     double x = cx + c.in[0] / z / 128.0, y = (pal ? 140 : 120) + c.in[1] / z / 128.0;
     if (!InView(x, y, 382, 278)) return;
-    out.push_back({float(x + 0.5), float(y + 0.5), CRY16ToRGB32[((c.in[3] & 0xFF) << 8) | i] & 0xFFFFFF, 2.f});
+    // draw_pel: an enemy still far off (the spawn markers), one 2x2 pixel at any depth in the original. Ours grow
+    // with perspective as it comes in: 200 / z (z ~ 600 when it appears, ~ 200 at the far rim where the enemy
+    // appears), up to 2/3 of a particle there (owner 2026-11-09: full size read as too big from far away).
+    float grow = float(std::clamp(200.0 / z, 0.3, 1.0));
+    out.push_back({float(x + 0.5), float(y + 0.5), CRY16ToRGB32[((c.in[3] & 0xFF) << 8) | i] & 0xFFFFFF,
+                   2.f * (2.f / 3.f) * grow});
     return;
   }
   int count = c.in[0];
