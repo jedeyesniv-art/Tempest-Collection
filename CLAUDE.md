@@ -20,7 +20,7 @@ Plan and open items: PLAN.md.
 
 ## Build / test
 Test build: powershell -ExecutionPolicy Bypass -File tools\package.ps1 -> dist\Tempest2000\ (Tempest2000.exe, the
-owner's .jag, userdata\settings.txt fullscreen = 1, README with Steam Deck steps) + dist\Tempest2000-test.zip. distis not in git (the ROM is in it: never publish). Icon: tools/make_icon.py (an original claw ship) -> res/t2k.ico
+owner's .jag, userdata\settings.txt fullscreen = 1, README with Steam Deck steps) + dist\Tempest2000-test.zip. dist\ is not in git (the ROM is in it: never publish). Icon: tools/make_icon.py (an original claw ship) -> res/t2k.ico
 (exe, res/t2k.rc) + res/icon_rgba.h (window). userdata defaults to the exe's folder.
 Performance (2026-11-09): T2K_PERF=1 logs emulate / compose / present per shown frame every 5 s (--novsync is ignored
 by the compositor here). 4K fullscreen CRT++: 120 fps locked, emulate ~1.7 ms, compose < 0.7 ms. Headless in play:
