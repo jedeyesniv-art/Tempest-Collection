@@ -111,6 +111,13 @@ int16_t InputStateCb(unsigned port, unsigned device, unsigned index, unsigned id
     if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return int16_t(in.buttons);
     return (in.buttons >> id) & 1;
   }
+  if (base == RETRO_DEVICE_KEYBOARD && port == 0) {   // the Jaguar keypad: the core's keyboard keys 0-9, - (*), = (#)
+    static const unsigned kKeys[12] = {RETROK_0, RETROK_1, RETROK_2, RETROK_3, RETROK_4, RETROK_5,
+                                       RETROK_6, RETROK_7, RETROK_8, RETROK_9, RETROK_MINUS, RETROK_EQUALS};
+    for (int k = 0; k < 12; ++k)
+      if (id == kKeys[k]) return (g_input[0].keypad >> k) & 1;
+    return 0;
+  }
   if (base == RETRO_DEVICE_ANALOG) {
     if (index == RETRO_DEVICE_INDEX_ANALOG_LEFT)
       return id == RETRO_DEVICE_ID_ANALOG_X ? in.lx : in.ly;

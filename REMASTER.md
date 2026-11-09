@@ -273,6 +273,18 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   melt) turns about the centre; melt_mosaic (0.15) / melt_mosaic_size (12 game px) snap broad, slowly drifting patches
   to square cells, blended 60% (a patch field changing every step squared the whole screen within ~15 steps).
 
+## Step 14 (2026-11-09, started): bonus rounds
+- Getting there: Jaguar keypad now works (host answers the core's keyboard keys 0-9, - = *, = = #; headless
+  --press=F:kp1 / kpstar / kphash; window: PC numpad). Cheat a147 (keypad 1+4+7+A on game select; chenable $EAA4 = 1),
+  then in play keypad 6 = warp enabled, Option = skip level -> sweb0 plays bonies[(cweb >> 2) & 12]: m7scr (levels
+  0-15), _tunn, m7test2 (psycho), _tunn. States: logs/cheatplay.state (in play, cheats on), logs/prebonus2.state,
+  logs/bonus.state (inside the m7scr bonus). --peek=F0:F1:hexaddr prints a RAM long each frame.
+- m7scr frame: llama 0 clear $8062AC, llama 3 starfield $806306 (the green ground grid: ours already), horse 0
+  rings / crosshair (ours), ox mode 1 mode7 $806366 = the ceiling texture, NOT captured (hence 4:3 only).
+  in_buf: source, z_max, offset, yfront, yback, xcentr, sc (see ox.gas mode7: per scanline z = yfront / line,
+  scale rippled by the sine table, SRCSHADE intensity by z). TODO: port mode7 natively (extend past 4:3), then look
+  at the owner's "offset ghost image of the UI" there; then _tunn and m7test2 (psycho: scar + psphere).
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

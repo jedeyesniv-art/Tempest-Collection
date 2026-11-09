@@ -110,6 +110,9 @@ classifier (downloaded code) - ask the owner before trying again.
 - Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).
 
+NEXT SESSION: finish the bonus round (REMASTER.md step 14): port ox mode7 (ceiling), check the UI ghost, then the
+tunnel / psycho bonus types.
+
 ## Lessons (2026-11-09)
 - From bash, give the exe forward-slash paths (logs/x.bmp): a quoted backslash scratchpad path silently failed to
   write AND to delete, so I re-read stale screenshots for three rounds. Check file times when a fix shows no change.

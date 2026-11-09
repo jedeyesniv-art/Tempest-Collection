@@ -20,6 +20,7 @@ enum Btn : int {
 
 struct Input {
   uint16_t buttons = 0;      // bit per Btn
+  uint16_t keypad = 0;       // Jaguar keypad: bit 0-9 = digits, 10 = *, 11 = # (to the core as numpad keys)
   int16_t lx = 0, ly = 0, rx = 0, ry = 0;
 };
 

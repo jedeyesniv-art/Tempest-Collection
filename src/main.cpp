@@ -33,6 +33,7 @@
 #include "remaster.h"
 #include "xbr.h"
 #include "crt.h"
+extern "C" uint8_t jagMemSpace[];
 extern "C" uint32_t vjOPSkipLo, vjOPSkipHi, vjOPSkip2Lo, vjOPSkip2Hi;   // core hook: an OP overlay range not drawn
 #include "menu.h"
 #include "settings.h"
@@ -46,7 +47,16 @@ struct Shot { int frame; std::string path; };
 struct Press { int frame; int btn; int len; };
 struct StickHold { int frame; float x, y; int len; };
 
+// Keypad names for scripted presses: kp0..kp9, kpstar, kphash -> 100 + bit.
+int KeypadByName(const std::string& n) {
+  if (n.size() == 3 && n[0] == 'k' && n[1] == 'p' && n[2] >= '0' && n[2] <= '9') return 100 + (n[2] - '0');
+  if (n == "kpstar") return 110;
+  if (n == "kphash") return 111;
+  return -1;
+}
+
 int BtnByName(const std::string& n) {
+  if (int k = KeypadByName(n); k >= 0) return k;
   static const char* names[] = {"b", "y", "select", "start", "up", "down", "left", "right",
                                 "a", "x", "l", "r", "l2", "r2", "l3", "r3"};
   for (int i = 0; i < 16; ++i)
@@ -140,6 +150,13 @@ host::Input ReadPad(SDL_Gamepad* pad, uint32_t held, const bool* keys, t2k::Pad*
     set(host::Y, keys[SDL_SCANCODE_C]);
     set(host::START, keys[SDL_SCANCODE_O]);
     set(host::SELECT, keys[SDL_SCANCODE_P] || keys[SDL_SCANCODE_RETURN]);
+    // The PC numpad is the Jaguar keypad (numpad / = #).
+    static const SDL_Scancode kKp[12] = {SDL_SCANCODE_KP_0, SDL_SCANCODE_KP_1, SDL_SCANCODE_KP_2, SDL_SCANCODE_KP_3,
+                                         SDL_SCANCODE_KP_4, SDL_SCANCODE_KP_5, SDL_SCANCODE_KP_6, SDL_SCANCODE_KP_7,
+                                         SDL_SCANCODE_KP_8, SDL_SCANCODE_KP_9, SDL_SCANCODE_KP_MULTIPLY,
+                                         SDL_SCANCODE_KP_DIVIDE};
+    for (int k = 0; k < 12; ++k)
+      if (keys[kKp[k]]) in.keypad |= uint16_t(1u << k);
   }
   return in;
 }
@@ -265,6 +282,8 @@ int main(int argc, char** argv) {
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
   std::string save_file, load_file, gpulog_spec, start_state, winshot_file;
   int winshot_at = -1;
+  int peek0 = -1, peek1 = -1;
+  uint32_t peek_addr = 0;   // --peek=F0:F1:hexaddr: a RAM long each frame (stderr)
   int menu_test = 0;   // --menu (1) / --menu=all (2): open the menu at start (tests; winshot counts presents)
   std::vector<Shot> rmshots;
   int runahead = 0;
@@ -320,6 +339,9 @@ int main(int argc, char** argv) {
       rm_scale = std::atoi(val("--rmscale=").c_str());
     } else if (a.rfind("--state=", 0) == 0) {
       start_state = val("--state=");
+    } else if (a.rfind("--peek=", 0) == 0) {
+      auto v = val("--peek=");
+      std::sscanf(v.c_str(), "%d:%d:%x", &peek0, &peek1, &peek_addr);
     } else if (a == "--menu" || a == "--menu=all") {
       menu_test = a == "--menu" ? 1 : 2;
     } else if (a.rfind("--winshot=", 0) == 0) {
@@ -388,7 +410,10 @@ int main(int argc, char** argv) {
     for (int f = 0; f < frames; ++f) {
       host::Input in;
       for (auto& p : presses)
-        if (p.btn >= 0 && f >= p.frame && f < p.frame + p.len) in.buttons |= uint16_t(1u << p.btn);
+        if (p.btn >= 0 && f >= p.frame && f < p.frame + p.len) {
+          if (p.btn >= 100) in.keypad |= uint16_t(1u << (p.btn - 100));
+          else in.buttons |= uint16_t(1u << p.btn);
+        }
       t2k::Pad tp;
       for (auto& s : sticks)
         if (f >= s.frame && f < s.frame + s.len) { tp.lx = s.x; tp.ly = s.y; }
@@ -425,6 +450,10 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "saved state %zu bytes\n", st.size());
       }
       if (f >= trace0 && f <= trace1) std::fprintf(stderr, "%5d %s\n", f, t2k::Status().c_str());
+      if (f >= peek0 && f <= peek1) {
+        const uint8_t* m = jagMemSpace + (peek_addr & 0xFFFFFF);
+        std::fprintf(stderr, "peek %5d %06X: %02X%02X%02X%02X\n", f, peek_addr, m[0], m[1], m[2], m[3]);
+      }
       if (!wav.empty()) all_audio.insert(all_audio.end(), host::Audio().begin(), host::Audio().end());
       host::Audio().clear();
       for (auto& s : shots)
