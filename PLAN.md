@@ -43,3 +43,36 @@ original code runs unchanged in an emulator, and we add hooks around it.
 - Xbox pad first. Stick controls are the main control problem to solve: both games are hard on a stick.
 - The owner plays 2000 mode, but every mode (Traditional, Plus, Duel) should be first-class: the aim is the
   best version of the game, as with the ST ports.
+
+6. **TxK (PS Vita, 2014)** in the same package (owner's plan 2026-11-11; start Saturday 2026-11-14). Details below.
+
+## TxK plan (2026-11-11)
+Game: `PCSB00494\` = EU Llamasoft TxK v01.03 (EP4461-PCSB00494_00-LLAMASOFTTXK0001), a decrypted folder dump
+(plain eboot.bin + sce_module\*.suprx), 104 MB. Never in git. The owner has run it well on the Deck in Vita3K.
+Firmware (owner supplies, never in git): PSP2UPDAT.PUP + PSP2UPDAT_PREINST.PUP (required), PSP2UPDAT_FONT.PUP
+(optional), planned at `vita_firmware\`.
+
+Route: the Vita3K libretro core (docs.libretro.com/library/vita3k, source github.com/WizzardSK/vita3k-libretro,
+`libretro` branch; upstream Vita3K v0.2.1 build 4123, GPL-2). It loads a game folder / eboot.bin directly. It needs
+the firmware + the core's `data` and `shaders-builtin` folders in <system>/vita3k/, and installs them on first run.
+Options worth having: resolution multiplier 1-4x, filtering, V-Sync, FPS hack. Missing: save states (so no run-ahead
+or menu slots for TxK; the game's own saves live in <system>/vita3k/ux0/). There are no Windows release DLLs (CI
+artifacts only), so we build it ourselves. Ask the owner before cloning / building (downloaded-code rule) - OK in
+principle 2026-11-11.
+
+Steps
+1. Clone into third_party\vita3k-libretro (recursive, not in the outer git), build the DLL with our clang / Ninja
+   (CMake -DBUILD_LIBRETRO=ON, target vita3k_libretro). Record the commit in CLAUDE.md.
+2. Host: load a second core (the core is a DLL, not linked in), set the system directory, boot TxK headless,
+   firmware install, screenshot.
+3. Host: libretro hardware rendering (RETRO_ENVIRONMENT_SET_HW_RENDER). Start with OpenGL core (glcore) on a hidden
+   context: the core draws into our FBO, we read the frame back and upload it into the SDL GPU (D3D12) pipeline.
+   Cost: 960x544 = ~2 MB/frame at 1x, ~8 MB at 2x (cheap); 4x ~33 MB.
+   Vulkan zero-copy is not on with SDL GPU: SDL 3.4 has no public VkDevice / VkImage access (creation options only),
+   so it would need our own Vulkan renderer. Tempest 2000 on SDL's Vulkan backend is possible (shaders to SPIR-V with
+   the Vulkan SDK's dxc; the Windows SDK's dxc has no SPIR-V) but does not remove the copy. Later, optional.
+4. Audio, input (Vita sticks map to the pad's sticks; touch / rear touch / motion: check what TxK uses), our Back
+   menu, settings in userdata\, packaging (tools\package.ps1: game + firmware in dist\ only, never published).
+5. Then TxK QoL ideas from the owner.
+Fallback if the core won't build or is unstable on Windows: ship standalone Vita3K (official prebuilt) in portable
+mode with a launcher (game copied into ux0/app/PCSB00494, run by title id, fullscreen).

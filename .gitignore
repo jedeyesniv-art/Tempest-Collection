@@ -12,3 +12,8 @@ build/
 dist/
 logs/
 userdata/
+# TxK (PS Vita) game dump and Sony firmware: never in git.
+PCSB00494/
+vita_firmware/
+*.pup
+*.PUP
