@@ -111,7 +111,8 @@ classifier (downloaded code) - ask the owner before trying again.
 7. Open questions: the psycho bonus sphere invisible on the original (left to the GPU); the owner's "offset ghost
    image of the UI" (not reproduced; ceiling bonus mfudj merge 8 lines low is a candidate).
 8. TxK (PS Vita) via the Vita3K libretro core, starting Saturday 2026-11-14: PLAN.md "TxK plan".
-8b. Neon Mode (Neon light synth as the in-play background), starting 2026-11-14: PLAN.md "Neon Mode plan".
+8b. Neon Mode (Neon light synth as the in-play background), after TxK works in the combined build: PLAN.md
+   "Neon Mode plan".
 9. Then Defender 2000, starting with the automation trial (AUTOMATION.md, owner's plan 2026-11-09).
 - Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).

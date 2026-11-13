@@ -77,14 +77,14 @@ Steps
 Fallback if the core won't build or is unstable on Windows: ship standalone Vita3K (official prebuilt) in portable
 mode with a launcher (game copied into ux0/app/PCSB00494, run by title id, fullscreen).
 
-## Neon Mode plan (2026-11-13; work starts 2026-11-14)
+## Neon Mode plan (2026-11-13; after TxK: owner wants TxK set up and a working combined build first)
 Owner's idea: Neon, Minter's Xbox 360 Blades light synth (our port: C:\Completed Projects\Xblades, CLAUDE.md there
 has the API and the pad map), as a live background in Tempest 2000. Neon descends from the VLM in the Jaguar CD.
 Owner decisions
 - A new mode, Neon Mode, picked in the menu. It replaces nothing else; Original mode stays untouched.
 - In Neon Mode, Neon replaces the starfield ENTIRELY in play and on the level select screen. Bonus modes stay as
-  they are for now. Open: the warp between levels (also the starfield) - suggested Neon, crossfading to the next
-  level's preset there; owner to decide.
+  they are for now. The warp between levels (also the starfield) is Neon too, crossfading to the next level's
+  preset (owner, 2026-11-13).
 - In play specifically: the readability challenge is part of the fun (owner). Still offer a brightness slider.
 - One preset per level (100 presets, 99 levels: start with level n -> preset n, curate later: too dark / white /
   web-coloured ones swapped out).
@@ -109,7 +109,7 @@ Controls (Neon reads them only through XInput)
 Steps
 1. Neon's background mode + the shared-memory link (frame out, audio bands in); T2K draws it behind play at 540p in
    Neon Mode (menu item), starfield capture skipped there.
-2. Level select screen; per-level presets (+ the warp crossfade if wanted); the resolution setting.
+2. Level select screen; per-level presets + the warp crossfade; the resolution setting.
 3. Virtual pad + gameplay links; tune with the owner in the window (menu sliders, sensible defaults).
 4. Packaging: neon.exe + its DLLs + dash.xex in dist\ only (personal use; dash.xex is from the owner's dump, never in
    git, never published). Neon Mode greyed out when they're missing.
