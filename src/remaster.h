@@ -63,7 +63,7 @@ void SetEnabled(bool on);
 void SetLineWidth(float game_pixels);   // setting remaster_line_width (default 1.5)
 // Settings remaster_bolt_width (game px, 0 = the original thin line; default 2), remaster_bolt_glow (default on),
 // remaster_particle_size (power-up / explosion pixels, x the original; default 1.5), remaster_shot_glow (a halo
-// around enemy bullets, strength; 0 = off, default 1).
+// around enemy bullets; 0 = off, default 0.5).
 void SetEffects(float bolt_width, bool bolt_glow, float particle_size, float shot_glow);
 bool Enabled();
 

@@ -520,7 +520,7 @@ bool g_feedback = true;   // SetFeedback (setting remaster_feedback)
 bool settings_feedback() { return g_feedback; }
 float g_width = 1.5f;   // line width in game pixels (setting remaster_line_width)
 // Effects (SetEffects): bolt core width in game px (0 = the original thin line), glow on / off, particle size scale.
-float g_bolt_width = 2.0f, g_particle = 1.5f, g_shot_glow = 1.0f;
+float g_bolt_width = 2.0f, g_particle = 1.5f, g_shot_glow = 0.25f;
 bool g_bolt_glow = true;
 
 // The game's two play buffers (cscreen / dscreen): only draws into these are taken over.
@@ -1563,7 +1563,7 @@ bool g_hard_pixels = false;   // SetHardPixels: particles as the original's squa
 void SetHardPixels(bool on) { g_hard_pixels = on; }
 
 void SetEffects(float bw, bool glow, float particle, float shot_glow) {
-  g_shot_glow = std::clamp(shot_glow, 0.f, 3.f);
+  g_shot_glow = std::clamp(shot_glow, 0.f, 3.f) * 0.5f;   // setting 0.5 = the owner's pick (strength 0.25)
   g_bolt_width = std::clamp(bw, 0.f, 8.f);
   g_bolt_glow = glow;
   g_particle = std::clamp(particle, 0.5f, 4.f);

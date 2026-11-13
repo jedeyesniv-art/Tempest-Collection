@@ -332,7 +332,7 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   reflected shots) is a rex outside RexCaller and stays with the GPU.
 - Drawn after the solids, additive: one wide halo a bullet (pieces merged by a6) and a hot core on each piece, colour
   = the brightest vertex colour at full brightness (far bullets are depth-dimmed), radius from the extent (min 2.5
-  game px). Setting remaster_shot_glow 0-3 (default 1, 0 = off), menu DISPLAY "Enemy bullet glow".
+  game px). Setting remaster_shot_glow 0-3 (x 0.5 internally; default 0.5 = the owner's pick, 0 = off), menu DISPLAY "Enemy bullet glow".
 - Checked in the window on logs/play.state (+60 / +100, glow on vs 0). Vector mode not checked yet. Window only
   (--rmshot does not draw it).
 
