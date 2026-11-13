@@ -50,11 +50,13 @@ constexpr uint32_t kGpuScreen = 0xF03FF8;
 constexpr uint32_t kCscreen = 0x7FAC;     // the buffer the Object Processor shows
 constexpr uint32_t kDscreen = 0x7FB0;     // the one being drawn
 constexpr uint32_t kSines = 0x30000;
+constexpr uint32_t kShotObj = 0xCB0C;   // _shot: the enemy bullet's vector object (an object's header in vector mode)
 
 struct Vec3i { int32_t x, y, z; };
 
 struct VecCall {
   uint32_t caller, obj;
+  bool shot = false;   // an enemy bullet (vector mode: object header = _shot)
   int32_t pos[3];
   int32_t rmode, hscale, centre[3], col;
   double ang[3];   // 0-255 (fractional when interpolated)
@@ -97,6 +99,7 @@ std::map<uint32_t, std::vector<StarCall>> g_stars;  // per gpu_screen
 struct SolidFace { int colour; int16_t x[3], y[3]; int inten[3]; };
 struct SolidCall {
   uint32_t caller = 0, obj = 0;
+  bool shot = false;   // an enemy bullet (solids mode: object header -3 = s_shot)
   int32_t pos[3], xcen, ycen, xcent, ycent;
   double rot;
   std::vector<SolidFace> faces;
@@ -132,6 +135,8 @@ struct FlineCall {
 };
 std::map<uint32_t, std::vector<FlineCall>> g_flines;  // per gpu_screen
 std::vector<Line> g_bolt_lines;                       // the displayed frame's (drawn after the solids)
+std::vector<Dot> g_shot_glows;                        // enemy bullet pieces: centre, brightest colour, radius (game px)
+std::vector<uint32_t> g_shot_objs;                     // each piece's object (s_shot draws a bullet in 3 pieces)
 struct Rect { float x, y, w, h; uint32_t c; bool grow = true; };   // grow: a particle (remaster_particle_size)
 // stoat.gas texter, from drawmsg ($80DC2E / $80DC98: the big centre messages; at their huge zoom-in scales the
 // 'dash lattice'): camel rex once per character from a font sheet. in_buf: 0 text, 1 font (long sheet base, long
@@ -249,6 +254,7 @@ void Capture(bool goat = false) {
   }
   c.caller = traps::Read32(traps::Reg(15)) - 6;
   c.obj = traps::Reg(14);   // a6
+  c.shot = c.obj < 0x200000 && traps::Read32(c.obj) == traps::Read32(kShotObj);
   for (int i = 0; i < 3; ++i) c.pos[i] = In(1 + i);
   c.rmode = In(4);
   c.hscale = In(5);
@@ -359,6 +365,7 @@ void CaptureSolid() {
   SolidCall c;
   c.caller = Caller();
   c.obj = traps::Reg(14);
+  c.shot = c.obj < 0x200000 && traps::Read32(c.obj) == 0xFFFFFFFDu;   // solids index -3: s_shot
   uint32_t p = traps::Read32(kInBuf) & 0xFFFFFF;
   for (int i = 0; i < 3; ++i) c.pos[i] = In(1 + i);
   c.xcen = In(4);
@@ -513,7 +520,7 @@ bool g_feedback = true;   // SetFeedback (setting remaster_feedback)
 bool settings_feedback() { return g_feedback; }
 float g_width = 1.5f;   // line width in game pixels (setting remaster_line_width)
 // Effects (SetEffects): bolt core width in game px (0 = the original thin line), glow on / off, particle size scale.
-float g_bolt_width = 2.0f, g_particle = 1.5f;
+float g_bolt_width = 2.0f, g_particle = 1.5f, g_shot_glow = 1.0f;
 bool g_bolt_glow = true;
 
 // The game's two play buffers (cscreen / dscreen): only draws into these are taken over.
@@ -1468,6 +1475,28 @@ void AfterFrame(bool publish) {
   if (publish) Interpolate(1.f);
 }
 
+// An enemy bullet's halo: centred on the points built for it, its colour the brightest of theirs (at full
+// brightness: a far bullet is depth-dimmed, the halo should still show it), its radius their extent.
+void AddShotGlow(uint32_t obj, const std::vector<std::pair<float, float>>& pts, const std::vector<uint32_t>& cols) {
+  if (pts.empty() || g_shot_glow <= 0) return;
+  float x0 = pts[0].first, x1 = x0, y0 = pts[0].second, y1 = y0;
+  for (auto& p : pts) x0 = std::min(x0, p.first), x1 = std::max(x1, p.first), y0 = std::min(y0, p.second), y1 = std::max(y1, p.second);
+  uint32_t best = 0;
+  int bm = -1;
+  for (uint32_t c : cols) {
+    int m = std::max({int((c >> 16) & 255), int((c >> 8) & 255), int(c & 255)});
+    if (m > bm) bm = m, best = c;
+  }
+  if (bm <= 0) return;
+  auto ch = [&](int sh) { return uint32_t(std::min(255, ((int(best >> sh) & 255) * 255 + bm / 2) / bm)) << sh; };
+  uint32_t full = ch(16) | ch(8) | ch(0);
+  float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
+  if (!InView(cx, cy, 384, 280)) return;
+  float r = std::max(x1 - x0, y1 - y0) * 0.5f;
+  g_shot_glows.push_back({cx, cy, full, r});
+  g_shot_objs.push_back(obj);
+}
+
 void Interpolate(float tf) {
   double t = g_interp ? std::clamp(double(tf), 0.0, 1.0) : 1.0;
   g_lines.clear();
@@ -1478,6 +1507,8 @@ void Interpolate(float tf) {
   g_pix_dots.clear();
   g_rex_rects.clear();
   g_bolt_lines.clear();
+  g_shot_glows.clear();
+  g_shot_objs.clear();
   const Scene &a = g_scene_a, &b = g_scene_b;
   Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
   Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
@@ -1491,10 +1522,32 @@ void Interpolate(float tf) {
   g_poly_tris.clear();
   for (auto& c : b.poly) BuildPoly(c, g_poly_tris);
   Each(a.webs, b.webs, t, LerpWeb, [](const WebCall& c) { BuildWeb(c, g_tris); });
-  Each(a.solids, b.solids, t, LerpSolid, [](const SolidCall& c) { BuildSolid(c, g_solid_tris); });
+  Each(a.solids, b.solids, t, LerpSolid, [](const SolidCall& c) {
+    size_t n0 = g_solid_tris.size();
+    BuildSolid(c, g_solid_tris);
+    if (c.shot) {
+      std::vector<std::pair<float, float>> pts;
+      std::vector<uint32_t> cols;
+      for (size_t i = n0; i < g_solid_tris.size(); ++i)
+        for (int k = 0; k < 3; ++k) pts.push_back({g_solid_tris[i].x[k], g_solid_tris[i].y[k]}), cols.push_back(g_solid_tris[i].c[k]);
+      AddShotGlow(c.obj, pts, cols);
+    }
+  });
   Each(a.pix, b.pix, t, LerpPix, [](const PixCall& c) { BuildPix(c, g_pix_dots); });
   Each(a.rex, b.rex, t, LerpRex, [](const RexCall& c) { BuildRex(c, g_rex_rects); });
-  Each(a.vec, b.vec, t, LerpVec, [](const VecCall& c) { BuildLines(c, g_lines); });
+  Each(a.vec, b.vec, t, LerpVec, [](const VecCall& c) {
+    size_t n0 = g_lines.size();
+    BuildLines(c, g_lines);
+    if (c.shot) {
+      std::vector<std::pair<float, float>> pts;
+      std::vector<uint32_t> cols;
+      for (size_t i = n0; i < g_lines.size(); ++i) {
+        pts.push_back({g_lines[i].x0, g_lines[i].y0}), cols.push_back(g_lines[i].c0);
+        pts.push_back({g_lines[i].x1, g_lines[i].y1}), cols.push_back(g_lines[i].c1);
+      }
+      AddShotGlow(c.obj, pts, cols);
+    }
+  });
   Each(a.fl, b.fl, t, LerpFline, [](const FlineCall& c) { BuildFline(c, g_bolt_lines); });
   Each(a.text, b.text, t, LerpText, [](const TextCall& c) { BuildText(c, g_rex_rects); });
 }
@@ -1509,7 +1562,8 @@ void SetLineWidth(float w) { g_width = w; }
 bool g_hard_pixels = false;   // SetHardPixels: particles as the original's square pixels (inside the feedback)
 void SetHardPixels(bool on) { g_hard_pixels = on; }
 
-void SetEffects(float bw, bool glow, float particle) {
+void SetEffects(float bw, bool glow, float particle, float shot_glow) {
+  g_shot_glow = std::clamp(shot_glow, 0.f, 3.f);
   g_bolt_width = std::clamp(bw, 0.f, 8.f);
   g_bolt_glow = glow;
   g_particle = std::clamp(particle, 0.5f, 4.f);
@@ -1668,12 +1722,14 @@ bool ScarMap(const SDL_FRect& dst, unsigned fw, unsigned fh, int ww, int wh, flo
 
 std::string Stats() {
   char b[256];
-  std::snprintf(b, sizeof b, "remaster: %zu lines, %zu bolt lines, %zu web triangles shown, %llu vect3d calls captured, "
-                "sin 0/40/80/C0 = %d %d %d %d", g_lines.size(), g_bolt_lines.size(), g_tris.size(), (unsigned long long)g_calls, g_sines[0], g_sines[0x40], g_sines[0x80], g_sines[0xC0]);
+  std::snprintf(b, sizeof b, "remaster: %zu lines, %zu bolt lines, %zu web triangles shown, %zu shot glows, %llu vect3d calls "
+                "captured, sin 0/40/80/C0 = %d %d %d %d", g_lines.size(), g_bolt_lines.size(), g_tris.size(), g_shot_glows.size(),
+                (unsigned long long)g_calls, g_sines[0], g_sines[0x40], g_sines[0x80], g_sines[0xC0]);
   return b;
 }
 
 void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy);
+void DrawShotGlows(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy);
 void DrawRects(SDL_Renderer* ren, const std::vector<Rect>& rects, const SDL_FRect& dst, float sx, float sy);
 void DrawLineList(SDL_Renderer* ren, const std::vector<Line>& lines, const SDL_FRect& dst, float sx, float sy,
                   float width = 0, float feather = 1.0f, float alpha = 1.0f,
@@ -1885,6 +1941,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   DrawTris(ren, g_tris, dst, sx, sy);
   DrawLines(ren, dst, sx, sy);
   DrawTris(ren, g_solid_tris, dst, sx, sy);
+  DrawShotGlows(ren, dst, sx, sy);
   // The bolts, over the solids as the game draws them last: a wide additive glow, then a hot whitened core.
   if (g_bolt_glow) {
     float bw = std::max(g_bolt_width, 1.0f);
@@ -1946,5 +2003,56 @@ void DrawLineList(SDL_Renderer* ren, const std::vector<Line>& lines, const SDL_F
 }
 
 void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy) { DrawLineList(ren, g_lines, dst, sx, sy); }
+
+}  // namespace remaster
+
+namespace remaster {
+
+// Enemy bullet halos (remaster_shot_glow): additive radial gradients in the bullet's colour. One wide halo a bullet
+// (its pieces, which spread apart as it nears, merged by object) and a tight hot core on each piece; at least a few
+// game px across so far-off bullets read as points of light.
+void DrawShotGlows(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy) {
+  if (g_shot_glows.empty() || g_shot_glow <= 0) return;
+  constexpr int kSeg = 20;
+  static float cs[kSeg + 1], sn[kSeg + 1];
+  if (cs[0] == 0)
+    for (int k = 0; k <= kSeg; ++k) cs[k] = std::cos(k * 2 * float(M_PI) / kSeg), sn[k] = std::sin(k * 2 * float(M_PI) / kSeg);
+  std::vector<SDL_Vertex> v;
+  v.reserve(g_shot_glows.size() * kSeg * 6);
+  auto disc = [&](float cx, float cy, float rad, uint32_t c, float a) {
+    SDL_FColor in{((c >> 16) & 255) / 255.f * a, ((c >> 8) & 255) / 255.f * a, (c & 255) / 255.f * a, 1};
+    SDL_FColor out{0, 0, 0, 1};
+    // centre -> half radius at full, half radius -> edge fading out (a softer falloff than one linear ramp)
+    SDL_FColor mid{in.r * 0.45f, in.g * 0.45f, in.b * 0.45f, 1};
+    float rm = rad * 0.4f;
+    for (int k = 0; k < kSeg; ++k) {
+      SDL_Vertex c0{{cx, cy}, in, {0, 0}};
+      SDL_Vertex m0{{cx + cs[k] * rm, cy + sn[k] * rm}, mid, {0, 0}}, m1{{cx + cs[k + 1] * rm, cy + sn[k + 1] * rm}, mid, {0, 0}};
+      SDL_Vertex o0{{cx + cs[k] * rad, cy + sn[k] * rad}, out, {0, 0}}, o1{{cx + cs[k + 1] * rad, cy + sn[k + 1] * rad}, out, {0, 0}};
+      v.insert(v.end(), {c0, m0, m1, m0, o0, m1, m1, o0, o1});
+    }
+  };
+  float g = g_shot_glow;
+  auto wx = [&](float x) { return dst.x + (x + g_ox + 0.5f) * sx; };
+  auto wy = [&](float y) { return dst.y + (y + g_oy + 0.5f) * sy; };
+  for (size_t i = 0; i < g_shot_glows.size();) {
+    size_t j = i;
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    for (; j < g_shot_glows.size() && g_shot_objs[j] == g_shot_objs[i]; ++j) {
+      const Dot& d = g_shot_glows[j];
+      x0 = std::min(x0, d.x - d.size), x1 = std::max(x1, d.x + d.size);
+      y0 = std::min(y0, d.y - d.size), y1 = std::max(y1, d.y + d.size);
+    }
+    float r = std::max(std::max(x1 - x0, y1 - y0) * 0.5f, 2.5f);   // game px
+    disc(wx((x0 + x1) * 0.5f), wy((y0 + y1) * 0.5f), r * (2.0f + 1.5f * g) * sx, g_shot_glows[i].c,
+         std::min(1.f, 0.6f * g));                                    // wide halo
+    for (; i < j; ++i) {
+      const Dot& d = g_shot_glows[i];
+      disc(wx(d.x), wy(d.y), std::max(d.size, 1.5f) * 2.0f * sx, d.c, std::min(1.f, 0.8f * g));   // hot core
+    }
+  }
+  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_ADD);
+  SDL_RenderGeometry(ren, nullptr, v.data(), int(v.size()), nullptr, 0);
+}
 
 }  // namespace remaster

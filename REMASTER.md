@@ -325,6 +325,17 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
   removed nearly all slowdown; objects drawn with several calls per a6 match by occurrence (only wrong if the count
   changes).
 
+## Step 16 (2026-11-13): enemy bullet glow
+- Owner: enemy bullets too small to see. They are objects made by alienfire: header -3 = s_shot in solids mode (horse
+  polyo2d, the chevron drawn 3 times rotated: three pieces that spread apart as the bullet nears), header = _shot
+  ($CB0C) in vector mode (vect3d). Tagged at capture (SolidCall / VecCall .shot from the a6 header); ringbull (-7,
+  reflected shots) is a rex outside RexCaller and stays with the GPU.
+- Drawn after the solids, additive: one wide halo a bullet (pieces merged by a6) and a hot core on each piece, colour
+  = the brightest vertex colour at full brightness (far bullets are depth-dimmed), radius from the extent (min 2.5
+  game px). Setting remaster_shot_glow 0-3 (default 1, 0 = off), menu DISPLAY "Enemy bullet glow".
+- Checked in the window on logs/play.state (+60 / +100, glow on vs 0). Vector mode not checked yet. Window only
+  (--rmshot does not draw it).
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.
