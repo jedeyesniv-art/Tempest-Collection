@@ -137,6 +137,9 @@ std::map<uint32_t, std::vector<FlineCall>> g_flines;  // per gpu_screen
 std::vector<Line> g_bolt_lines;                       // the displayed frame's (drawn after the solids)
 std::vector<Dot> g_shot_glows;                        // enemy bullet pieces: centre, brightest colour, radius (game px)
 std::vector<uint32_t> g_shot_objs;                     // each piece's object (s_shot draws a bullet in 3 pieces)
+std::vector<Dot> g_pup_glows;                         // power-up ring dots to glow (full-brightness colour)
+constexpr uint32_t kPupRing = 0x807624;   // pupring: the power-up climbing the web (4 rings, 8 apart in z)
+constexpr uint32_t kPupRez = 0x80768C;    // opupring: the ring collapsing onto a new power-up
 struct Rect { float x, y, w, h; uint32_t c; bool grow = true; };   // grow: a particle (remaster_particle_size)
 // stoat.gas texter, from drawmsg ($80DC2E / $80DC98: the big centre messages; at their huge zoom-in scales the
 // 'dash lattice'): camel rex once per character from a font sheet. in_buf: 0 text, 1 font (long sheet base, long
@@ -521,6 +524,7 @@ bool settings_feedback() { return g_feedback; }
 float g_width = 1.5f;   // line width in game pixels (setting remaster_line_width)
 // Effects (SetEffects): bolt core width in game px (0 = the original thin line), glow on / off, particle size scale.
 float g_bolt_width = 2.0f, g_particle = 1.5f, g_shot_glow = 0.25f;
+float g_pup_floor = 0.7f, g_pup_glow = 1.0f;   // SetPowerUps: power-up ring minimum brightness (0-1), glow strength
 bool g_bolt_glow = true;
 
 // The game's two play buffers (cscreen / dscreen): only draws into these are taken over.
@@ -920,6 +924,11 @@ void BuildPix(const PixCall& c, std::vector<Dot>& out) {
   double z = double(uint32_t(c.in[3]) >> 14);
   if (z <= 0) return;
   int i = c.mode == 6 ? depth_i(z, c.zmax) : std::clamp(255 - (c.in[5] >> 16), 0, 255);
+  // Power-ups: the depth cue leaves a far one a few dim dots (and far ones are blue, on a blue web): keep them at
+  // least g_pup_floor bright and glow them (DrawPupGlows), so one reads from where it spawns.
+  const bool pup = c.mode == 6 && (c.caller == kPupRing || c.caller == kPupRez);
+  if (pup) i = std::max(i, int(g_pup_floor * 255 + 0.5f));
+  const uint32_t glow_col = CRY16ToRGB32[((c.in[4] & 0xFF) << 8) | 255] & 0xFFFFFF;
   uint32_t col = CRY16ToRGB32[((c.in[4] & 0xFF) << 8) | i] & 0xFFFFFF;
   double x0 = cx + c.in[1] / z / 128.0, y0 = cy + c.in[2] / z / 128.0, r = c.in[5] / z / 128.0;
   int step = count ? 256 / count : 0;
@@ -930,6 +939,7 @@ void BuildPix(const PixCall& c, std::vector<Dot>& out) {
     double x = x0 + sn * r / 256.0, y = y0 + cs * r / 256.0;
     if (!InView(x, y, 382, pal ? 278 : 238)) continue;
     out.push_back({float(x + size * 0.5f), float(y + size * 0.5f), col, size});
+    if (pup && g_pup_glow > 0) g_pup_glows.push_back({float(x + size * 0.5f), float(y + size * 0.5f), glow_col, size});
   }
 }
 
@@ -1509,6 +1519,7 @@ void Interpolate(float tf) {
   g_bolt_lines.clear();
   g_shot_glows.clear();
   g_shot_objs.clear();
+  g_pup_glows.clear();
   const Scene &a = g_scene_a, &b = g_scene_b;
   Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
   Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
@@ -1562,6 +1573,10 @@ void SetLineWidth(float w) { g_width = w; }
 bool g_hard_pixels = false;   // SetHardPixels: particles as the original's square pixels (inside the feedback)
 void SetHardPixels(bool on) { g_hard_pixels = on; }
 
+void SetPowerUps(float floor, float glow) {
+  g_pup_floor = std::clamp(floor, 0.f, 1.f);
+  g_pup_glow = std::clamp(glow, 0.f, 3.f);
+}
 void SetEffects(float bw, bool glow, float particle, float shot_glow) {
   g_shot_glow = std::clamp(shot_glow, 0.f, 3.f) * 0.5f;   // setting 0.5 = the owner's pick (strength 0.25)
   g_bolt_width = std::clamp(bw, 0.f, 8.f);
@@ -1730,6 +1745,7 @@ std::string Stats() {
 
 void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy);
 void DrawShotGlows(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy);
+void DrawPupGlows(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy);
 void DrawRects(SDL_Renderer* ren, const std::vector<Rect>& rects, const SDL_FRect& dst, float sx, float sy);
 void DrawLineList(SDL_Renderer* ren, const std::vector<Line>& lines, const SDL_FRect& dst, float sx, float sy,
                   float width = 0, float feather = 1.0f, float alpha = 1.0f,
@@ -1954,6 +1970,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   DrawRects(ren, g_rex_rects, dst, sx, sy);
   if (!g_hard_pixels) {
     DrawDots(ren, g_pix_dots, dst, sx, sy, g_particle);
+    DrawPupGlows(ren, dst, sx, sy);
   } else {   // the original's square pixels: soft, enlarged particles smear into a halo through a feedback
     std::vector<Rect> px;
     px.reserve(g_pix_dots.size());
@@ -2008,30 +2025,46 @@ void DrawLines(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy) { Dr
 
 namespace remaster {
 
+// An additive radial glow (colour x a at the centre, 45% at 0.4 of the radius, 0 at the edge), for SDL_BLENDMODE_ADD.
+void GlowDisc(std::vector<SDL_Vertex>& v, float cx, float cy, float rad, uint32_t c, float a) {
+  constexpr int kSeg = 20;
+  static float cs[kSeg + 1], sn[kSeg + 1];
+  if (cs[0] == 0)
+    for (int k = 0; k <= kSeg; ++k) cs[k] = std::cos(k * 2 * float(M_PI) / kSeg), sn[k] = std::sin(k * 2 * float(M_PI) / kSeg);
+  SDL_FColor in{((c >> 16) & 255) / 255.f * a, ((c >> 8) & 255) / 255.f * a, (c & 255) / 255.f * a, 1};
+  SDL_FColor out{0, 0, 0, 1};
+  SDL_FColor mid{in.r * 0.45f, in.g * 0.45f, in.b * 0.45f, 1};
+  float rm = rad * 0.4f;
+  for (int k = 0; k < kSeg; ++k) {
+    SDL_Vertex c0{{cx, cy}, in, {0, 0}};
+    SDL_Vertex m0{{cx + cs[k] * rm, cy + sn[k] * rm}, mid, {0, 0}}, m1{{cx + cs[k + 1] * rm, cy + sn[k + 1] * rm}, mid, {0, 0}};
+    SDL_Vertex o0{{cx + cs[k] * rad, cy + sn[k] * rad}, out, {0, 0}}, o1{{cx + cs[k + 1] * rad, cy + sn[k + 1] * rad}, out, {0, 0}};
+    v.insert(v.end(), {c0, m0, m1, m0, o0, m1, m1, o0, o1});
+  }
+}
+
+// Power-up glows (remaster_pup_glow): a soft additive halo on every dot of a power-up's rings in its hue at full
+// brightness, so the ring reads as one glowing object and stands off the (often same-hued) web.
+void DrawPupGlows(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy) {
+  if (g_pup_glows.empty() || g_pup_glow <= 0) return;
+  std::vector<SDL_Vertex> v;
+  v.reserve(g_pup_glows.size() * 180);
+  float g = g_pup_glow;
+  for (auto& d : g_pup_glows) {
+    float cx = dst.x + (d.x + g_ox + 0.5f) * sx, cy = dst.y + (d.y + g_oy + 0.5f) * sy;
+    GlowDisc(v, cx, cy, (2.5f + 1.5f * g) * sx, d.c, std::min(1.f, 0.35f * g));
+  }
+  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_ADD);
+  SDL_RenderGeometry(ren, nullptr, v.data(), int(v.size()), nullptr, 0);
+}
+
 // Enemy bullet halos (remaster_shot_glow): additive radial gradients in the bullet's colour. One wide halo a bullet
 // (its pieces, which spread apart as it nears, merged by object) and a tight hot core on each piece; at least a few
 // game px across so far-off bullets read as points of light.
 void DrawShotGlows(SDL_Renderer* ren, const SDL_FRect& dst, float sx, float sy) {
   if (g_shot_glows.empty() || g_shot_glow <= 0) return;
-  constexpr int kSeg = 20;
-  static float cs[kSeg + 1], sn[kSeg + 1];
-  if (cs[0] == 0)
-    for (int k = 0; k <= kSeg; ++k) cs[k] = std::cos(k * 2 * float(M_PI) / kSeg), sn[k] = std::sin(k * 2 * float(M_PI) / kSeg);
   std::vector<SDL_Vertex> v;
-  v.reserve(g_shot_glows.size() * kSeg * 6);
-  auto disc = [&](float cx, float cy, float rad, uint32_t c, float a) {
-    SDL_FColor in{((c >> 16) & 255) / 255.f * a, ((c >> 8) & 255) / 255.f * a, (c & 255) / 255.f * a, 1};
-    SDL_FColor out{0, 0, 0, 1};
-    // centre -> half radius at full, half radius -> edge fading out (a softer falloff than one linear ramp)
-    SDL_FColor mid{in.r * 0.45f, in.g * 0.45f, in.b * 0.45f, 1};
-    float rm = rad * 0.4f;
-    for (int k = 0; k < kSeg; ++k) {
-      SDL_Vertex c0{{cx, cy}, in, {0, 0}};
-      SDL_Vertex m0{{cx + cs[k] * rm, cy + sn[k] * rm}, mid, {0, 0}}, m1{{cx + cs[k + 1] * rm, cy + sn[k + 1] * rm}, mid, {0, 0}};
-      SDL_Vertex o0{{cx + cs[k] * rad, cy + sn[k] * rad}, out, {0, 0}}, o1{{cx + cs[k + 1] * rad, cy + sn[k + 1] * rad}, out, {0, 0}};
-      v.insert(v.end(), {c0, m0, m1, m0, o0, m1, m1, o0, o1});
-    }
-  };
+  auto disc = [&](float cx, float cy, float rad, uint32_t c, float a) { GlowDisc(v, cx, cy, rad, c, a); };
   float g = g_shot_glow;
   auto wx = [&](float x) { return dst.x + (x + g_ox + 0.5f) * sx; };
   auto wy = [&](float y) { return dst.y + (y + g_oy + 0.5f) * sy; };

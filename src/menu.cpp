@@ -100,6 +100,8 @@ std::vector<Item> Items() {
   num("Lightning width (0 = original)", "remaster_bolt_width", 0.0, 5.0, 0.25, "%.2f", 2.0);
   choice("Lightning glow", "remaster_bolt_glow", {"1", "0"}, {"On", "Off"});
   num("Enemy bullet glow (0 = off)", "remaster_shot_glow", 0.0, 3.0, 0.1, "%.1f", 0.5);
+  num("Power-up min brightness (0 = original)", "remaster_pup_floor", 0.0, 1.0, 0.05, "%.2f", 0.7);
+  num("Power-up glow (0 = off)", "remaster_pup_glow", 0.0, 3.0, 0.1, "%.1f", 1.0);
   header("CHEATS");
   choice("Keypad cheats (Option skips a level, 6 warps)", "cheat_keys", {"0", "1"}, {"Off", "On"});
   choice("Infinite Superzapper", "cheat_inf_zap", {"0", "1"}, {"Off", "On"});

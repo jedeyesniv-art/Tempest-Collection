@@ -854,6 +854,8 @@ int main(int argc, char** argv) {
         remaster::SetEffects(float(settings::Num("remaster_bolt_width", 2.0)), settings::Num("remaster_bolt_glow", 1) != 0,
                              float(settings::Num("remaster_particle_size", 1.5)),
                              float(settings::Num("remaster_shot_glow", 0.5)));
+        remaster::SetPowerUps(float(settings::Num("remaster_pup_floor", 0.7)),
+                              float(settings::Num("remaster_pup_glow", 1.0)));
         // Blend between the last two frames by how far real time is into the current frame's slot (the frame
         // due at next - frame_ns was just emulated). Paused / menu: the latest frame.
         remaster::SetInterpolate(settings::Num("remaster_interpolate", 1) != 0);

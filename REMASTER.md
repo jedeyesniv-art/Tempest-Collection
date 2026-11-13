@@ -336,6 +336,16 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Checked in the window on logs/play.state (+60 / +100, glow on vs 0). Vector mode not checked yet. Window only
   (--rmshot does not draw it).
 
+## Step 17 (2026-11-13): power-ups readable from where they spawn
+- Owner: power-ups seem to pop in late, near the top of the web. They are drawn all along (same in Original mode):
+  a power-up is xcamel 6 pring rings - opupring $80768C (a ring collapsing onto the spot over 75 frames, 48(a6) 300
+  -4 a tick) then pupring $807624 (4 rings 8 apart in z, climbing the lane). pring's depth cue (z_max 1300: ~44% at
+  the far end of a play web) plus pulser's colour from z (far = blue hues, on a blue web) leave a far one a few dim
+  blue dots; it only reads once pink, well up the lane. Repro: logs/pup2536.state (spawns at +5, climbs +80..+160).
+- Ours, for those two callers only: intensity at least remaster_pup_floor (default 0.7, 0 = the original fade) and a
+  soft additive glow on every ring dot in its hue at full brightness (remaster_pup_glow, default 1, 0 = off). Menu
+  DISPLAY sliders. GlowDisc is shared with the bullet glow.
+
 ## Next
 1. Remaining play primitives: xcamel 5 (draw_pel far enemies as pixels), xcamel 6/7 (pixel rings / explosions),
    camel 4 (death / warp), ox fline (superzapper bolts), horse / ox psphere, and the other draw_vex routines.

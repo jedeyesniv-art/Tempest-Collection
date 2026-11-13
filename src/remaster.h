@@ -65,6 +65,9 @@ void SetLineWidth(float game_pixels);   // setting remaster_line_width (default 
 // remaster_particle_size (power-up / explosion pixels, x the original; default 1.5), remaster_shot_glow (a halo
 // around enemy bullets; 0 = off, default 0.5).
 void SetEffects(float bolt_width, bool bolt_glow, float particle_size, float shot_glow);
+// Settings remaster_pup_floor (power-up ring minimum brightness 0-1, 0 = the original depth fade; default 0.7),
+// remaster_pup_glow (glow on the rings, 0 = off; default 1).
+void SetPowerUps(float floor, float glow);
 bool Enabled();
 
 // Headless check: the emulated frame scaled up `scale` times with our lines drawn over it.
