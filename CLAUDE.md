@@ -6,7 +6,8 @@ graphics, an unlocked (interpolated) frame rate, Xbox-pad stick controls, QoL. A
 (the owner plays Tempest 2000 mode). Defender 2000 later ("kind of terrible": look for real improvements).
 **Entirely offline**: local git only, no remote, no push, no publishing until the owner decides.
 
-Plan and open items: PLAN.md.
+Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): T2K (done), T3K (Nuon,
+next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PLAN.md "Tempest Collection".
 
 ## Layout
 - `Tempest 2000 (1994).jag` (MD5 602bc995..., == mwenge/tempest2k `make cartridge`), `Defender 2000 (1996).jag`
@@ -110,7 +111,9 @@ classifier (downloaded code) - ask the owner before trying again.
 6. Performance: 4K with CRT++; a low-end GPU (Steam Deck class) if that's a target.
 7. Open questions: the psycho bonus sphere invisible on the original (left to the GPU); the owner's "offset ghost
    image of the UI" (not reproduced; ceiling bonus mfudj merge 8 lines low is a candidate).
-8. TxK (PS Vita) via the Vita3K libretro core, starting Saturday 2026-11-14: PLAN.md "TxK plan".
+7b. FIRST from 2026-11-14: Tempest 3000 (Nuon) via the Nuance libretro core, performance first: PLAN.md
+   "Tempest 3000 plan". Standalone: Nuance_067\Tempest3000.bat; source third_party\NuanceResurrection.
+8. TxK (PS Vita) via the Vita3K libretro core, after Tempest 3000: PLAN.md "TxK plan".
 8b. Neon Mode (Neon light synth as the in-play background), after TxK works in the combined build: PLAN.md
    "Neon Mode plan".
 9. Then Defender 2000, starting with the automation trial (AUTOMATION.md, owner's plan 2026-11-09).

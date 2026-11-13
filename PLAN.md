@@ -4,6 +4,23 @@ Goal: play the original Tempest 2000 (Jaguar, Llamasoft 1994) on PC with sharp h
 frame rate, good pad and mouse controls, and quality-of-life features. Same approach as Llamasoft on the ST: the
 original code runs unchanged in an emulator, and we add hooks around it.
 
+## Tempest Collection (owner's plan 2026-11-13)
+The project is now a Tempest collection: one launcher, each game the best version of itself.
+1. **Tempest 2000** (Jaguar, 1994): done in this repo (remaster renderer, smooth motion, stick controls).
+2. **Tempest 3000** (Nuon, 2000): next, from 2026-11-14 (plan below).
+3. **TxK** (PS Vita, 2014): after T3K (plan below).
+4. **Tempest 4000** (2018): not emulated - the owner buys it on Steam; the launcher starts it through Steam
+   (a steam://rungameid/<appid> link; look up the app ID, and grey the entry out when Steam / the game isn't
+   installed).
+5. **Arcade Tempest** (Atari, 1981), maybe and fun to have: the original that the others build on. The owner
+   supplies the ROM set (never in git, never published). It is a vector game, so it suits native rendering: draw
+   the Atari vector generator's lines ourselves at any resolution and frame rate, with a vector-monitor glow
+   look. Options: an existing core (MAME / MAME 2003-Plus libretro, which emulate Tempest) or our own small
+   emulator (6502, vector generator, mathbox, 2 POKEYs, spinner), which is easier to make deterministic and to
+   hook. Decide after a short survey; spinner -> stick / mouse controls as on T2K.
+Launcher: one exe with a game picker (or a front exe that starts each game); shared settings, controls and
+menu look. Neon Mode and Defender 2000 stay on the list after these.
+
 ## What we have
 - ROM: `Tempest 2000 (1994).jag`, 2 MB, MD5 602bc9953d3737b1ba52b2a0d9932f7c.
 - **Source code that rebuilds this ROM byte for byte**: github.com/mwenge/tempest2k (`make cartridge` checks for
@@ -44,9 +61,88 @@ original code runs unchanged in an emulator, and we add hooks around it.
 - The owner plays 2000 mode, but every mode (Traditional, Plus, Duel) should be first-class: the aim is the
   best version of the game, as with the ST ports.
 
-6. **TxK (PS Vita, 2014)** in the same package (owner's plan 2026-11-11; start Saturday 2026-11-14). Details below.
+6. **Tempest 3000 (Nuon, 2000)**: the first project from 2026-11-14 (owner 2026-11-13). Details below.
+7. **TxK (PS Vita, 2014)** in the same package (owner's plan 2026-11-11), after Tempest 3000. Details below.
 
-## TxK plan (2026-11-11)
+## Tempest 3000 plan (2026-11-13; the first project from 2026-11-14, before TxK)
+Owner: "this changes everything" - Tempest 3000 (Nuon, 2000) comes first. **Priority: smooth, even performance in
+play** (it "feels uneven in play" in Nuance today). Higher resolution would be nice but is not needed: the game looks
+good as it is. Same approach as before: the original code runs unchanged, and our hooks go around it.
+
+### What we have (2026-11-13)
+- Disc: `Nuance_067\Tempest 3000.mdf/.mds` (Alcohol image; the .mdf is a plain 2048-byte-sector ISO, volume
+  "Tempest (NUON)"), hard-linked as `Tempest 3000.iso`. Never in git (Nuance_067/ is ignored).
+- Nuance 0.6.7 standalone (Windows, asmjit JIT) runs it: boot -> title -> level select -> play, dynamic compiler on.
+  Launcher `Nuance_067\Tempest3000.bat`. Pad: nuance.cfg binds no stick axes (Nuance's DirectInput axis hack makes
+  stick-down read as held, and the main menu then ignores A); C buttons are on X / Y / L3 / R3.
+- Source: `third_party\NuanceResurrection` (github andkrau/NuanceResurrection @12ece85, not in the outer git).
+  The libretro core is `src/libretro.cpp` (CMake `-DBUILD_LIBRETRO=ON` -> nuance_libretro.dll):
+  - needs a host OpenGL 2.1 context (SET_HW_RENDER; without one the picture is black), 720x480, 32 kHz audio;
+  - input: RetroPad digital only (A, B, Start, Select = Nuon, L, R, X = C-up, Y = C-left, L2 = C-down,
+    R2 = C-right, d-pad);
+  - **timing runs on the PC's clock** (`useconds_since_start`): timers and the 60 Hz field come from the host
+    clock, and one retro_run is whatever fits in a 16 ms budget. So runs aren't repeatable, and there's no fast
+    headless run, no run-ahead and no save states (retro_serialize returns false);
+  - reads nuance.cfg from its working directory (DynamicCompiler, MPE3PacketHack: Enabled / Disabled / **T3K**,
+    an undocumented setting for this game);
+  - older cycle-based timing code still exists (`NuanceProcessorThread.cpp`: 54 MHz, cycleCounter per vblank),
+    a starting point for stage 2.
+- Standalone readings: ~12,000 Kc/s at the title (main-loop iterations, 4 MPEs each), one emulation thread.
+- The Nuon has no GPU: the game draws in software on its 4 MPEs. The Tempest 2000 capture-and-redraw remaster
+  doesn't carry over; higher resolution would be a research project (stage 6).
+
+### Why it may feel uneven (hypotheses: measure before fixing anything)
+1. Field timing jitter: the 60 Hz video interrupt comes from the PC clock, checked every 500 (standalone) / 5000
+   (libretro) loop iterations, and drawing on the same thread eats into emulation time.
+2. Frame rate vs display: Nuance shows ~59 fps; on a 120 Hz display, frames held for 2 or 3 refreshes judder.
+3. Not enough emulation speed in busy scenes: if a field's MPE work doesn't fit in 16.7 ms, the game drops frames.
+4. The game itself: real hardware may slow down in busy scenes too. We need a reference (a real-hardware video,
+   or the owner's memory of it) for how smooth T3K should be.
+
+### Stages
+0. **Measure** (first thing): in the standalone, log per field: real time, loop iterations, time spent drawing,
+   presented frames vs display refreshes. Note where play feels uneven (busy levels, explosions). Find a
+   real-hardware reference.
+1. **Core in our host**: build nuance_libretro.dll with clang + Ninja (VS env), on our own branch
+   `llamasoft-nuon`, pinned. Host side: a hidden OpenGL 2.1 context (SDL3), the core draws into our FBO, and
+   glReadPixels (720x480) feeds the existing XRGB path (measure the cost; share the texture later if it matters).
+   BIOS stubs (bios.cof, minibios.cof, minibiosX.cof) and nuance.cfg in its system folder. The owner's Xbox layout
+   through RetroPad (check which Nuon buttons T3K uses in its controller options), our Back menu, fullscreen and
+   settings. Done when T3K boots and plays in our window with sound and the pad.
+2. **Emulated time** (the performance foundation): count MPE cycles (54 MHz) instead of reading the PC clock; the
+   timers (sysTimer0 200 Hz, sysTimer1, vidTimer 60 Hz, audio periods) fire on emulated cycles, and one retro_run =
+   exactly one field. That gives repeatable runs, a fast headless mode, and our test tools (--shot, --press,
+   --wav, contact sheets). Risk: Nuance's cycle counts are approximate (JIT blocks, packet timing), and games may
+   rely on "as fast as the PC allows"; make cycles per field a setting and calibrate it against the reference.
+3. **Performance** (the owner's priority):
+   - per-field profile (each MPE, JIT vs interpreter, comm bus, drawing, readback), like T2K_PERF;
+   - idle skipping: MPEs spinning on the comm bus or waiting for the field (like the Jaguar core's RISC idle skip;
+     the MPE3 VidSync wait already exists) are fast-forwarded instead of emulated;
+   - our host paces presentation: one field per 60 Hz frame, each shown exactly twice at 120 Hz, no judder;
+   - if the game itself drops frames in busy scenes, an "MPE overclock" (more cycles per field), only possible
+     once stage 2 is done;
+   - target: the worst field well under 16.7 ms on the owner's PC; Steam Deck class after that.
+4. **Save states and run-ahead**: retro_serialize for the MPEs (registers, local memory; drop JIT caches on
+   load), system / main bus memory, comm bus, timers, audio, video state, flash EEPROM. Then menu slots and
+   run-ahead 1-2 as on T2K (test: run-ahead picture == plain run + N frames).
+5. **Controls and QoL**: find the claw position / velocity in RAM and add the lr / aim stick modes from T2K;
+   EEPROM / flash saves in userdata; quit to title; packaging as dist\Tempest3000 (never published: it holds the
+   disc image).
+6. **Later, optional**: higher resolution / widescreen (find the MPE drawing routines first); an "Original mode"
+   switch for anything we change.
+
+### Owner's answers (2026-11-13)
+- Display: 120 Hz, no VRR. Nuance reports a steady 60 fps.
+- What feels wrong: the picture is smooth, but **the game's speed fluctuates** (slows down / speeds up), noticed
+  mostly moving between menus. That points at timing (hypotheses 1 and 3: the game's clock follows the PC clock
+  and emulation speed varies), not presentation (hypothesis 2). Stage 0: log the game's own frame counter
+  against fields to see when it falls behind or catches up; stage 2 (emulated time) is the likely fix.
+- No real-hardware reference: the owner only just found the game. Use consistency as the target (a steady
+  game speed, every field the same length) and check emulated cycles per field against 54 MHz.
+- Collection: one launcher for T2K, T3K, TxK, a Steam link to T4K, maybe arcade Tempest (see the top of
+  this plan).
+
+## TxK plan (2026-11-11; after Tempest 3000)
 Game: `PCSB00494\` = EU Llamasoft TxK v01.03 (EP4461-PCSB00494_00-LLAMASOFTTXK0001), a decrypted folder dump
 (plain eboot.bin + sce_module\*.suprx), 104 MB. Never in git. The owner has run it well on the Deck in Vita3K.
 Firmware (owner supplies, never in git): PSP2UPDAT.PUP + PSP2UPDAT_PREINST.PUP (required), PSP2UPDAT_FONT.PUP
