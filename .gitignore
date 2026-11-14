@@ -24,3 +24,4 @@ build_nuance/
 build_nuance_dbg/
 build_nuance_*/
 build_aot/
+aot_catalog/

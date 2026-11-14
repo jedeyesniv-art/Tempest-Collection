@@ -92,8 +92,8 @@ vsync = 1
 # real = Nuance's own timing (follows the PC clock: uneven).
 timing = emulated
 # Rounds per video field (one block on each of the 4 processors a round): more = the game draws more pictures a
-# second but needs a faster PC. 220000 is about what Nuance managed on the owner's PC.
-nuon_rounds = 220000
+# second (up to 60: flip_cap) but needs a faster PC. 300000 = a locked 60 everywhere seen so far (AOT + threads).
+nuon_rounds = 300000
 # Fields the emulation may work ahead (1-3): 2 lets a slow field borrow time from fast ones, for one field
 # (16.7 ms) more input lag. 1 = lowest lag, but busy moments may show a field for 1 or 3 refreshes.
 buffer_fields = 2
@@ -301,7 +301,7 @@ int main(int argc, char** argv) {
   const fs::path udir = userdata.empty() ? base / "userdata" : fs::absolute(userdata);
   fs::create_directories(udir);
   settings::SetDefaultText(kDefaults);
-  settings::Load((udir / "settings.txt").string());
+  settings::Load((udir / "t3k_settings.txt").string());   // (build/userdata is shared with t2k.exe)
   disc = FindDisc(disc);
   if (disc.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 3000",
@@ -318,11 +318,11 @@ int main(int argc, char** argv) {
   if (!timing_arg.empty()) settings::Set("timing", timing_arg);
   if (!rounds_arg.empty()) settings::Set("nuon_rounds", rounds_arg);
   bool emulated = settings::Str("timing", "emulated") != "real";
-  if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 220000))) emulated = false;
+  if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 300000))) emulated = false;
   if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
   nuon::SetFlipCap(settings::Num("flip_cap", 1) != 0);
   std::fprintf(stderr, "timing: %s\n",
-               emulated ? ("emulated, " + settings::Str("nuon_rounds", "220000") + " rounds a field").c_str() : "real (PC clock)");
+               emulated ? ("emulated, " + settings::Str("nuon_rounds", "300000") + " rounds a field").c_str() : "real (PC clock)");
 
   Perf perf;
   perf.summary = std::getenv("T3K_PERF") != nullptr;

@@ -307,6 +307,31 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   traffic, the remaining per-packet checks, bigger blocks across jumps within a module); then the three renderers
   on threads.
 
+### Full module catalogue, threads, idle skip (2026-11-14; owner: "full module catalogue, then threading")
+- Catalogue: NUANCE_AOT_COLLECT=<abs dir> (core aot.cpp) merges code-load DMA chunks per target MPE and dumps each
+  new (source, local base, length >= 512) as m<src>_<base>_<len>.txt/.bin; flushed every field. aot_catalog\ (game
+  data, git-ignored) = 329 variants from: 18000 + 36000 fields of attract mode (the demos play late levels, e.g.
+  74 / 76) + the play route. tools/t3k_aot_gen.py: catalogue -> build_aot\*.cpp (incremental). New fixup kind M+
+  (a field of the executing MPE, e.g. a mapped register). Registry: dynamic, longest module first per 16-byte
+  step, per-MPE "last module" fast path and "none valid at this version" cache; behind a pointer (static-init
+  order). Coverage: 96-100% of all three renderers' packets everywhere on the route.
+- Threads (core, default on; NUANCE_THREADS=0 off, NUANCE_WINDOW, default 64): MPE0 on the emulation thread, MPE1 /
+  MPE2 on two workers, a window of rounds in parallel; then MPE3 alone with the comm bus + interrupts. Safe because
+  every cross-MPE effect comes from MPE3 (job log: MPE3 loads MPE1/2's code and starts them, sends MPE0 jobs; a
+  renderer loads only its own code; no cross-MPE control-register DMA - logged as "ctlw"). Window 256 crashes at
+  boot (a handshake); 32 / 64 run the route. **Threaded pictures are identical to serial** (same md5) and runs are
+  repeatable. NUANCE_PROFILE_PAR=1: MPE0 is the bottleneck (61-80% of the time on the emulation thread), waiting
+  for MPE1/2 13-24%, MPE3 4-12%.
+- Idle fast-forward (NUANCE_NOIDLESKIP=1 off): MPE3 stalled + renderers halted / parked -> jump to the next timer /
+  audio / field-end check point (at the top of the loop, so events fire at the same round: stats and picture
+  identical with and without). Saves ~0.5 ms: little idle left.
+- Numbers (headless, 300k rounds, flip cap): locked 60 pictures/s on title, menus and play (every picture one field);
+  run ms: title 15.5 (p95 19.1), menus 10.4, play 11.5 (p95 19.1). Serial at 220k was 22.6 / 15.6 / 17.9. Window
+  run at 300k: 94.6% of fields exactly 2 refreshes, odd holds in the title and late play, 21 fields dropped of 3300.
+- Defaults now: nuon_rounds 300000; t3k.exe uses userdata\t3k_settings.txt (build\userdata is shared with t2k.exe).
+- Next: cheaper generated code (MPE0 bound): per-packet pcexec/pcroute stores, tempCC, check what ThinLTO inlines
+  (a debug-symbol LTO build + the sampler), longer blocks across in-module jumps. Then Steam Deck class numbers.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,

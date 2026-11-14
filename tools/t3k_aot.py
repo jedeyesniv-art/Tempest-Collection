@@ -33,6 +33,8 @@ def parse_field(tok, field_index):
         return '0', ('D', int(tok[2:], 16))
     if tok.startswith('E+') and field_index != 1:   # a fixed place in nuonEnv (e.g. another MPE's memory)
         return '0', ('E', int(tok[2:], 16))
+    if tok.startswith('M+') and field_index != 1:   # a field of the executing MPE (e.g. a mapped register)
+        return '0', ('M', int(tok[2:], 16))
     if tok.startswith(('M+', 'E+', '?')):
         raw = tok[1:] if tok.startswith('?') else None
         if field_index == 1:   # INFO: stale host pointer
@@ -150,6 +152,8 @@ def main():
                     for fi, (kind, off) in fix_by_nuance[k]:
                         if kind == 'D':
                             o.append('    t.fields[%d] = (size_t)&m.dtrom[0x%X];' % (fi, off))
+                        elif kind == 'M':
+                            o.append('    t.fields[%d] = (size_t)((uint8*)&m + 0x%X);' % (fi, off))
                         else:
                             o.append('    t.fields[%d] = (size_t)((uint8*)&nuonEnv + 0x%X);' % (fi, off))
                     o.append('    %s(m, %s, t); }' % (names[h], regs))
