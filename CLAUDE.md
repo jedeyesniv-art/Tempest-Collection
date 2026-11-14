@@ -18,6 +18,8 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
 - reference/tempest2k: mwenge's source (yak.s = 68K main, src/gpu/*.gas GPU modules). Not in the outer git.
 - src/host.cpp: libretro host (env callbacks, options, video XRGB8888, audio, input, save states).
 - src/main.cpp: SDL3 window + headless test mode.
+- src/launcher.cpp: build	empest.exe, the Tempest Collection launcher (starts t2k.exe / t3k.exe as processes,
+  Steam link for T4K). PLAN.md "Tempest Collection".
 
 ## Build / test
 Test build: powershell -ExecutionPolicy Bypass -File tools\package.ps1 -> dist\Tempest2000\ (Tempest2000.exe, the

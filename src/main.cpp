@@ -98,8 +98,9 @@ bool WriteWav(const std::string& path, const std::vector<int16_t>& s, uint32_t r
 std::string FindRom(const std::string& given) {
   if (!given.empty()) return given;
   // Next to the exe, then the working folder: the first Tempest 2000 image found.
+  // (Also the folder above the exe's: the repo root for build\t2k.exe started from the launcher.)
   std::vector<fs::path> dirs = {fs::path(SDL_GetBasePath()), fs::path(SDL_GetBasePath()) / "game",
-                                fs::current_path()};
+                                fs::current_path(), fs::path(SDL_GetBasePath()).parent_path().parent_path()};
   for (auto& d : dirs) {
     std::error_code ec;
     for (auto& e : fs::directory_iterator(d, ec)) {
