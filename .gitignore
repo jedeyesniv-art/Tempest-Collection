@@ -26,3 +26,6 @@ build_nuance_*/
 build_aot/
 aot_catalog/
 aot_catalog_hires/
+third_party/vita3k-libretro/
+third_party/strawberry/
+build_vita3k/

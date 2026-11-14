@@ -9,33 +9,38 @@ namespace {
 struct Button {
   const char* key;    // settings: bind_<key>
   const char* name;
-  Fn def;
 };
 
 const Button kButtons[kButtonCount] = {
-    {"a", "A", kFire},       {"b", "B", kZap},       {"x", "X", kJump},     {"y", "Y", kOption},
-    {"lb", "LB", kCamera},   {"rb", "RB", kZap},     {"lt", "LT", kJump},   {"rt", "RT", kJump},
-    {"start", "Start", kPause}, {"ls", "L-stick click", kNone}, {"rs", "R-stick click", kNone},
+    {"a", "A"},   {"b", "B"},   {"x", "X"},   {"y", "Y"},         {"lb", "LB"},           {"rb", "RB"},
+    {"lt", "LT"}, {"rt", "RT"}, {"start", "Start"}, {"ls", "L-stick click"}, {"rs", "R-stick click"},
 };
 
-const char* kFnKeys[kFnCount] = {"none", "fire", "jump", "zap", "option", "pause", "camera"};
-const char* kFnNames[kFnCount] = {"None", "Fire", "Jump", "Superzapper", "Option", "Pause", "Camera view"};
+std::vector<FnDef> g_fns = {{"none", "None"}};
+int g_defaults[kButtonCount] = {};
 
 std::string Key(int b) { return std::string("bind_") + kButtons[b].key; }
 
 }  // namespace
 
-const char* FnName(Fn f) { return kFnNames[f]; }
-const char* ButtonName(int b) { return kButtons[b].name; }
-
-Fn FnOf(int b) {
-  std::string v = settings::Str(Key(b), kFnKeys[kButtons[b].def]);
-  for (int f = 0; f < kFnCount; ++f)
-    if (v == kFnKeys[f]) return Fn(f);
-  return kNone;
+void Setup(const std::vector<FnDef>& fns, const int (&defaults)[kButtonCount]) {
+  g_fns = {{"none", "None"}};
+  g_fns.insert(g_fns.end(), fns.begin(), fns.end());
+  for (int b = 0; b < kButtonCount; ++b) g_defaults[b] = defaults[b] >= 0 && defaults[b] < FnCount() ? defaults[b] : 0;
 }
 
-std::string ButtonsFor(Fn f) {
+int FnCount() { return int(g_fns.size()); }
+const char* FnName(int f) { return f >= 0 && f < FnCount() ? g_fns[f].name : "?"; }
+const char* ButtonName(int b) { return kButtons[b].name; }
+
+int FnOf(int b) {
+  std::string v = settings::Str(Key(b), g_fns[g_defaults[b]].key);
+  for (int f = 0; f < FnCount(); ++f)
+    if (v == g_fns[f].key) return f;
+  return 0;
+}
+
+std::string ButtonsFor(int f) {
   std::string out;
   for (int b = 0; b < kButtonCount; ++b)
     if (FnOf(b) == f) out += (out.empty() ? "" : ", ") + std::string(kButtons[b].name);
@@ -60,16 +65,16 @@ uint32_t Held(SDL_Gamepad* pad) {
   return m;
 }
 
-bool FnHeld(uint32_t held, Fn f) {
+bool FnHeld(uint32_t held, int f) {
   for (int b = 0; b < kButtonCount; ++b)
     if ((held >> b & 1) && FnOf(b) == f) return true;
   return false;
 }
 
-void Assign(Fn f, int b) { settings::Save(Key(b), kFnKeys[FnOf(b) == f ? kNone : f]); }
+void Assign(int f, int b) { settings::Save(Key(b), g_fns[FnOf(b) == f ? 0 : f].key); }
 
 void ResetDefaults() {
-  for (int b = 0; b < kButtonCount; ++b) settings::Save(Key(b), kFnKeys[kButtons[b].def]);
+  for (int b = 0; b < kButtonCount; ++b) settings::Save(Key(b), g_fns[g_defaults[b]].key);
 }
 
 }  // namespace controls

@@ -40,6 +40,7 @@ namespace {
 extern "C" uint8_t jagMemSpace[];
 extern "C" uint32_t vjOPSkipLo, vjOPSkipHi, vjOPSkip2Lo, vjOPSkip2Hi;   // core hook: an OP overlay range not drawn
 #include "menu.h"
+#include "t2k_menu.h"
 #include "settings.h"
 #include "t2k.h"
 
@@ -122,11 +123,11 @@ host::Input ReadPad(SDL_Gamepad* pad, uint32_t held, const bool* keys, t2k::Pad*
   host::Input in;
   *tp = {};
   auto set = [&](int b, bool on) { if (on) in.buttons |= uint16_t(1u << b); };
-  set(host::B, controls::FnHeld(held, controls::kFire));
-  set(host::A, controls::FnHeld(held, controls::kJump));
-  set(host::Y, controls::FnHeld(held, controls::kZap));
-  set(host::START, controls::FnHeld(held, controls::kOption));
-  set(host::SELECT, controls::FnHeld(held, controls::kPause));
+  set(host::B, controls::FnHeld(held, t2k_menu::kFire));
+  set(host::A, controls::FnHeld(held, t2k_menu::kJump));
+  set(host::Y, controls::FnHeld(held, t2k_menu::kZap));
+  set(host::START, controls::FnHeld(held, t2k_menu::kOption));
+  set(host::SELECT, controls::FnHeld(held, t2k_menu::kPause));
   if (pad) {
     auto btn = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(pad, b); };
     set(host::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP));
@@ -164,31 +165,6 @@ host::Input ReadPad(SDL_Gamepad* pad, uint32_t held, const bool* keys, t2k::Pad*
       if (keys[kKp[k]]) in.keypad |= uint16_t(1u << k);
   }
   return in;
-}
-
-menu::Nav ReadNav(SDL_Gamepad* pad, const bool* keys) {
-  menu::Nav n;
-  if (pad) {
-    auto btn = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(pad, b); };
-    int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
-    n.up = btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -20000;
-    n.down = btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 20000;
-    n.left = btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || lx < -20000;
-    n.right = btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || lx > 20000;
-    n.ok = btn(SDL_GAMEPAD_BUTTON_SOUTH);
-    n.back = btn(SDL_GAMEPAD_BUTTON_EAST) || btn(SDL_GAMEPAD_BUTTON_BACK);
-    n.cancel = btn(SDL_GAMEPAD_BUTTON_BACK);
-  }
-  if (keys) {
-    n.up |= keys[SDL_SCANCODE_UP];
-    n.down |= keys[SDL_SCANCODE_DOWN];
-    n.left |= keys[SDL_SCANCODE_LEFT];
-    n.right |= keys[SDL_SCANCODE_RIGHT];
-    n.ok |= keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_Z];
-    n.back |= keys[SDL_SCANCODE_ESCAPE] || keys[SDL_SCANCODE_BACKSPACE];
-    n.cancel |= keys[SDL_SCANCODE_ESCAPE];
-  }
-  return n;
 }
 
 const char* kViewNames[] = {"standard", "whole web", "close-up"};
@@ -297,6 +273,7 @@ int main(int argc, char** argv) {
   int peek0 = -1, peek1 = -1;
   uint32_t peek_addr = 0;   // --peek=F0:F1:hexaddr: a RAM long each frame (stderr)
   bool novsync = false;   // --novsync: present unthrottled (performance tests)
+  bool from_launcher = false;   // --from-launcher: started by tempest.exe (the menu says "Return to launcher")
   int menu_test = 0;   // --menu (1) / --menu=all (2): open the menu at start (tests; winshot counts presents)
   std::vector<Shot> rmshots;
   int runahead = 0;
@@ -361,6 +338,8 @@ int main(int argc, char** argv) {
       std::sscanf(v.c_str(), "%d:%d:%x", &peek0, &peek1, &peek_addr);
     } else if (a == "--novsync") {
       novsync = true;
+    } else if (a == "--from-launcher") {
+      from_launcher = true;
     } else if (a == "--menu" || a == "--menu=all") {
       menu_test = a == "--menu" ? 1 : 2;
     } else if (a.rfind("--winshot=", 0) == 0) {
@@ -397,6 +376,7 @@ int main(int argc, char** argv) {
   fs::create_directories(userdata);
   settings::Load((fs::path(userdata) / "settings.txt").string());
   for (auto& [k, v] : sets) settings::Set(k, v);
+  t2k_menu::Install(from_launcher);
   for (auto& [k, v] : opts) host::SetOption(k, v);
   std::string err;
   if (!host::Load(rom, fs::absolute(userdata).string(), &err)) {
@@ -582,25 +562,25 @@ int main(int argc, char** argv) {
     uint32_t held = controls::Held(pad);
     uint32_t pressed = held & ~prev_held;
     prev_held = held;
-    auto fn_pressed = [&](controls::Fn f) { return controls::FnHeld(pressed, f); };
+    auto fn_pressed = [&](int f) { return controls::FnHeld(pressed, f); };
 
     if (menu::IsOpen()) {
-      menu::Nav nav = ReadNav(pad, keys);
+      menu::Nav nav = menu::ReadNav(pad, keys);
       for (int b = 0; b < controls::kButtonCount; ++b)
         if (pressed >> b & 1) { nav.new_button = b; break; }
       switch (menu::Update(nav, now)) {
-        case menu::Action::Quit: running = false; break;
-        case menu::Action::ToggleMusic: music_frames = 4; break;
-        case menu::Action::CheatWarp:
+        case menu::kQuit: running = false; break;
+        case t2k_menu::kToggleMusic: music_frames = 4; break;
+        case t2k_menu::kCheatWarp:
           t2k::CheatWarp();
           menu::Toast("Warp after this level", now);
           break;
-        case menu::Action::ToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
-        case menu::Action::ReturnToTitle:
+        case menu::kToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
+        case menu::kReturnToTitle:
           t2k::ReturnToTitle();
           quiet_frames = 180;
           break;
-        case menu::Action::SaveState: {
+        case menu::kSaveState: {
           auto st = host::SaveState();
           std::error_code ec;
           fs::create_directories(StatePath(udir).parent_path(), ec);
@@ -613,7 +593,7 @@ int main(int argc, char** argv) {
           menu::Toast(ok ? "State saved (" + SlotInfo(udir) + ")" : "Save failed", now);
           break;
         }
-        case menu::Action::LoadState: {
+        case menu::kLoadState: {
           std::ifstream f(StatePath(udir), std::ios::binary);
           std::vector<uint8_t> st((std::istreambuf_iterator<char>(f)), {});
           bool ok = !st.empty() && host::LoadState(st);
@@ -626,13 +606,13 @@ int main(int argc, char** argv) {
       next = now;   // paused: no catching up afterwards
     } else {
       if (back && !prev_back) menu::Open();
-      if (fn_pressed(controls::kCamera)) {
+      if (fn_pressed(t2k_menu::kCamera)) {
         int v = (int(settings::Num("camera_view", 0)) + 1) % 3;
         settings::Save("camera_view", std::to_string(v));
         menu::Toast(std::string("Camera: ") + kViewNames[v], now);
       }
       // On the game's pause screen the Option button quits to the title.
-      if (t2k::Paused() && fn_pressed(controls::kOption)) {
+      if (t2k::Paused() && fn_pressed(t2k_menu::kOption)) {
         t2k::ReturnToTitle();
         quiet_frames = 180;
       }
@@ -641,7 +621,7 @@ int main(int argc, char** argv) {
 
     // The pause screen's extra line names the first button bound to Option.
     {
-      std::string b = controls::ButtonsFor(controls::kOption);
+      std::string b = controls::ButtonsFor(t2k_menu::kOption);
       b = b.substr(0, b.find(','));
       for (auto& c : b) c = char(std::tolower(static_cast<unsigned char>(c)));
       t2k::SetPauseLine(quiet_frames > 0 || b == "-" ? "" : "press " + b + " to quit to title");

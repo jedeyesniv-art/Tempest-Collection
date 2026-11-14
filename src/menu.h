@@ -1,8 +1,12 @@
-// menu.h - the in-game settings menu (Back / Esc). Emulation is paused while it is open.
+// menu.h - the in-game settings menu (Back / Esc), shared by every game program (t2k.exe, t3k.exe, ...). The game
+// describes its page once (SetPage: title + items reading / writing settings keys) and handles the action ids that
+// Update returns; the panel, folding sections, scrolling, button remapping and toasts are common. The game is
+// expected to pause its emulation while the menu is open.
 #pragma once
 #include <SDL3/SDL.h>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace menu {
 
@@ -12,19 +16,58 @@ struct Nav {            // this frame's menu input (held state; edges are found 
   bool cancel = false;  // Back / Esc only (B is bindable, so it can't cancel a remap)
   int new_button = -1;  // controls:: button index pressed this frame (edge), for remapping
 };
+// The common menu input: d-pad / left stick, A selects, B / Back closes; keyboard arrows, Enter / Z, Esc / Backspace.
+Nav ReadNav(SDL_Gamepad* pad, const bool* keys);
 
-enum class Action {
-  None, Close, Quit, ToggleMusic, ToggleFullscreen, ReturnToTitle, SaveState, LoadState, CheatWarp
+// Action ids Update returns. The common ones; a game numbers its own from kGameAction.
+enum Action : int {
+  kNone = 0, kClose, kQuit, kToggleFullscreen, kReturnToTitle, kSaveState, kLoadState,
+  kGameAction = 100
 };
+
+enum class Kind { Header, Choice, Number, Button, Bind, ResetBinds };
+
+struct Item {
+  Kind kind = Kind::Header;
+  std::string label;
+  std::string key;                      // settings key (Choice / Number)
+  std::vector<std::string> values;      // Choice: stored values (the first = the value when the key is missing)
+  std::vector<std::string> names;       // Choice: shown names
+  double lo = 0, hi = 0, step = 0;      // Number
+  double def = 0;                       // Number: the value when the setting is missing
+  const char* fmt = "%.2f";
+  int action = kNone;                    // Button
+  bool closes = false;                  // Button: the menu closes when it is chosen
+  bool slot_info = false;               // Button: shows the SetSlotInfo text as its value
+  int fn = 0;                           // Bind: controls:: function
+  std::function<bool()> when;           // shown only while this is true (unset: always)
+  int section = -1;                     // (set by SetPage) the header it belongs to; -1 = none
+};
+
+// Builds a page. The returned pointers are valid until the next call (set `when` etc. right away).
+struct Page {
+  std::vector<Item> items;
+  void Header(const std::string& label);      // "" ends the sections (later items are always shown)
+  Item* Choice(const std::string& label, const std::string& key, std::vector<std::string> values,
+               std::vector<std::string> names);
+  Item* Number(const std::string& label, const std::string& key, double lo, double hi, double step, const char* fmt,
+               double def);
+  Item* Button(const std::string& label, int action, bool closes = false);
+  // A BUTTONS section: one row per controls:: function (A on it, then a button) and "Reset buttons to defaults".
+  void Binds(const std::string& header = "BUTTONS (A on a function, then press a button; again removes it)");
+};
+
+// title: shown at the top of the panel ("TEMPEST 2000 - SETTINGS").
+void SetPage(const std::string& title, Page page);
 
 bool IsOpen();
 // Drawn: open, or still sliding out after closing.
 bool Shown();
 void Open(bool expand_all = false);   // expand_all: every section open (tests)
 void Close();
-Action Update(const Nav& nav, uint64_t now_ns);
+int Update(const Nav& nav, uint64_t now_ns);   // an Action (or a game's own id)
 void Draw(SDL_Renderer* ren, int out_w, int out_h);
-// Text shown next to the save / load items for the current slot ("empty", "8 Nov 22:14").
+// Text shown next to the slot_info items for the current slot ("empty", "8 Nov 22:14").
 void SetSlotInfo(std::function<std::string()> f);
 
 // A short message drawn over the game for a moment (e.g. "Camera: fixed").

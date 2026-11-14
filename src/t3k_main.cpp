@@ -19,9 +19,13 @@
 //   --userdata=<dir>                      save folder (default userdata next to the program)
 //   (--frames and --press work in the window too: scripted timing tests)
 //   --novsync                             present without waiting for the display
+//   --from-launcher                       started by tempest.exe (the menu's last item says "Return to launcher")
+//   --menu[=all]                          open the settings menu at start (all sections open; tests)
+//   --winshot=N:<file.bmp>                save the window after N presents, then quit (tests)
 //   T3K_PERF=1                            a timing summary every 5 s on stderr
 // Keys: arrows d-pad, Z = A, X = B, Enter = Start, Tab = Nuon, Q / E = L / R, I J K L = C up / left / down / right,
-// A / D = the stick (claw), F3 picture blend, F4 frame-rate counter, F11 fullscreen, Esc quits (no settings menu yet).
+// A / D = the stick (claw), F3 picture blend, F4 frame-rate counter, F11 fullscreen, Esc = settings menu (pad: Back).
+// The emulation pauses while the menu is open.
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <windows.h>
@@ -43,8 +47,11 @@
 #include <string>
 #include <vector>
 
+#include "controls.h"
+#include "menu.h"
 #include "nuon_host.h"
 #include "settings.h"
+#include "t3k_menu.h"
 
 namespace fs = std::filesystem;
 
@@ -281,23 +288,13 @@ std::string FindDisc(const std::string& given) {
   return {};
 }
 
-// The owner's Xbox layout (as in their Nuance setup): A = Nuon A, B = B, X = C-left, Y = C-up, LB / RB = L / R,
-// LT / L3 = C-down, RT / R3 = C-right, Start = Start, Back = Nuon. D-pad and left stick = Nuon d-pad.
+// Game buttons: the functions bound in the settings menu (t3k_menu.cpp: the owner's Nuance layout by default). Fixed:
+// d-pad and left stick = Nuon d-pad (the stick's x drives the claw in stick_mode lr), Back = settings menu.
 uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
-  uint16_t b = 0;
+  uint16_t b = t3k_menu::NuonButtons(controls::Held(pad));
   auto set = [&](int bit, bool on) { if (on) b |= uint16_t(1u << bit); };
   if (pad) {
     auto btn = [&](SDL_GamepadButton x) { return SDL_GetGamepadButton(pad, x); };
-    set(nuon::A, btn(SDL_GAMEPAD_BUTTON_SOUTH));
-    set(nuon::B, btn(SDL_GAMEPAD_BUTTON_EAST));
-    set(nuon::Y, btn(SDL_GAMEPAD_BUTTON_WEST));    // C-left
-    set(nuon::X, btn(SDL_GAMEPAD_BUTTON_NORTH));   // C-up
-    set(nuon::L, btn(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
-    set(nuon::R, btn(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER));
-    set(nuon::L2, btn(SDL_GAMEPAD_BUTTON_LEFT_STICK) || SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000);
-    set(nuon::R2, btn(SDL_GAMEPAD_BUTTON_RIGHT_STICK) || SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000);
-    set(nuon::START, btn(SDL_GAMEPAD_BUTTON_START));
-    set(nuon::SELECT, btn(SDL_GAMEPAD_BUTTON_BACK));
     const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
     set(nuon::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -16000);
     set(nuon::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 16000);
@@ -378,8 +375,9 @@ struct Perf {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg, flipcap_arg, hires_arg;
-  bool headless = false, novsync = false;
+  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg, flipcap_arg, hires_arg, winshot_file;
+  bool headless = false, novsync = false, from_launcher = false;
+  int menu_test = 0, winshot_at = -1;
   int frames = -1;   // headless default 600; the window runs until closed unless given
   std::vector<Shot> shots, memdumps;   // memdumps: --memdump=F:<prefix>
   std::vector<std::string> disasms;      // --disasm=F:mpe:hexaddr:count
@@ -394,6 +392,13 @@ int main(int argc, char** argv) {
     auto val = [&](const char* p) { return a.substr(std::strlen(p)); };
     if (a == "--headless") headless = true;
     else if (a == "--novsync") novsync = true;
+    else if (a == "--from-launcher") from_launcher = true;
+    else if (a == "--menu" || a == "--menu=all") menu_test = a == "--menu" ? 1 : 2;
+    else if (a.rfind("--winshot=", 0) == 0) {
+      auto v = val("--winshot=");
+      winshot_at = std::atoi(v.substr(0, v.find(':')).c_str());
+      winshot_file = v.substr(v.find(':') + 1);
+    }
     else if (a.rfind("--frames=", 0) == 0) frames = std::atoi(val("--frames=").c_str());
     else if (a.rfind("--wav=", 0) == 0) wav = val("--wav=");
     else if (a.rfind("--timing=", 0) == 0) timing_arg = val("--timing=");
@@ -442,6 +447,7 @@ int main(int argc, char** argv) {
   if (!wav.empty()) wav = fs::absolute(wav).string();
   if (!perflog.empty()) perflog = fs::absolute(perflog).string();
   for (auto& s : shots) s.path = fs::absolute(s.path).string();
+  if (!winshot_file.empty()) winshot_file = fs::absolute(winshot_file).string();
   for (auto& s : memdumps) s.path = fs::absolute(s.path).string();
   const std::string sample_out = std::getenv("T3K_SAMPLE") ? fs::absolute(std::getenv("T3K_SAMPLE")).string() : "";
 
@@ -455,6 +461,7 @@ int main(int argc, char** argv) {
   fs::create_directories(udir);
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "t3k_settings.txt").string());   // (build/userdata is shared with t2k.exe)
+  t3k_menu::Install(from_launcher);
   disc = FindDisc(disc);
   if (disc.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 3000",
@@ -479,7 +486,7 @@ int main(int argc, char** argv) {
   bool emulated = settings::Str("timing", "emulated") != "real";
   if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 200000))) emulated = false;
   if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
-  const double flip_cap = settings::Num("flip_cap", 3);
+  double flip_cap = settings::Num("flip_cap", 3);   // (the settings menu can change it)
   nuon::SetFlipCap(flip_cap);
   // T3K_PAD_PROPS=<hex>: extra controller properties reported to the game (tests).
   if (const char* pp = std::getenv("T3K_PAD_PROPS")) nuon::SetPadProperties(uint32_t(std::strtoul(pp, nullptr, 16)));
@@ -658,6 +665,9 @@ int main(int argc, char** argv) {
   std::atomic<float> stick_x{0.f};
   ClawControl claw;
   std::atomic<bool> emu_quit{false};
+  // The settings menu pauses the emulation: emu_pause asks, emu_parked answers once the thread is waiting (from then
+  // on the main thread may change settings the thread reads).
+  std::atomic<bool> emu_pause{false}, emu_parked{false};
   std::atomic<int64_t> fields_done{0};
   // The field grid's origin, shared: the main thread nudges it away from the vblanks (see below).
   std::atomic<uint64_t> grid_start{SDL_GetTicksNS() + field_ns};
@@ -665,6 +675,13 @@ int main(int argc, char** argv) {
   std::thread emu([&] {
     // (grid_start may move: the main thread shifts it by half a refresh when the grid sits on the vblanks.)
     for (int64_t k = 0; !emu_quit; ++k) {
+      if (emu_pause) {
+        emu_parked = true;
+        while (emu_pause && !emu_quit) SDL_Delay(2);
+        emu_parked = false;
+        if (emu_quit) break;
+        grid_start = SDL_GetTicksNS() - uint64_t(k) * field_ns;   // carry on from now: no catching up
+      }
       uint64_t due = 0;
       if (emulated) {
         due = grid_start.load() + uint64_t(k) * field_ns;
@@ -714,7 +731,7 @@ int main(int argc, char** argv) {
   // flip_cap fields after the previous one - the later of that and "finished, plus one field" - so on a 120 Hz
   // display every picture stays up for the same number of refreshes (5 at 2.5). Fields that repeat the picture
   // follow it. At a whole flip_cap the two times are the same.
-  const uint64_t picture_ns = (emulated && flip_cap > 0) ? uint64_t(flip_cap * double(field_ns)) : 0;
+  uint64_t picture_ns = (emulated && flip_cap > 0) ? uint64_t(flip_cap * double(field_ns)) : 0;
   struct Planned { int64_t field; uint64_t show_at; };
   std::vector<Planned> plan;
   int64_t planned_to = -1;
@@ -743,11 +760,18 @@ int main(int argc, char** argv) {
   uint64_t rates_t = SDL_GetTicksNS();
   uint32_t rates_flips = perf.flips.load(), rates_fields = perf.fields.load();
   const bool high_res_on = settings::Num("high_res", 0) != 0;
+  auto set_fullscreen = [&](bool on) {
+    SDL_SetWindowFullscreen(win, on);
+    settings::Save("fullscreen", on ? "1" : "0");
+  };
+  bool prev_back = false;
+  uint32_t prev_held = 0;
+  int presents = 0;
   while (running) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) running = false;
-      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) running = false;
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE && !menu::IsOpen()) menu::Open();
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F3) {
         picture_blend = !picture_blend;
         settings::Save("picture_blend", picture_blend ? "1" : "0");
@@ -757,17 +781,48 @@ int main(int argc, char** argv) {
         show_rates = !show_rates;
         settings::Save("show_rates", show_rates ? "1" : "0");
       }
-      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11) {
-        const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
-        SDL_SetWindowFullscreen(win, on);
-        settings::Save("fullscreen", on ? "1" : "0");
-      } else if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) SDL_HideCursor();
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11)
+        set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
+      else if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) SDL_HideCursor();
       else if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) SDL_ShowCursor();
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
       else if (e.type == SDL_EVENT_GAMEPAD_REMOVED && pad && SDL_GetGamepadID(pad) == e.gdevice.which) {
         SDL_CloseGamepad(pad);
         pad = nullptr;
       }
+    }
+    // Settings menu (Back / Esc): the emulation waits while it is open; its changes apply here once it is parked.
+    {
+      const uint64_t now = SDL_GetTicksNS();
+      const bool back = pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK);
+      const uint32_t held = controls::Held(pad), pressed = held & ~prev_held;
+      prev_held = held;
+      if (!menu::IsOpen() && back && !prev_back) menu::Open();
+      prev_back = back;
+      emu_pause = menu::IsOpen();
+      if (menu::IsOpen() && emu_parked) {
+        menu::Nav nav = menu::ReadNav(pad, SDL_GetKeyboardState(nullptr));
+        for (int b = 0; b < controls::kButtonCount; ++b)
+          if (pressed >> b & 1) { nav.new_button = b; break; }
+        switch (menu::Update(nav, now)) {
+          case menu::kQuit: running = false; break;
+          case menu::kToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
+          default: break;
+        }
+        picture_blend = settings::Num("picture_blend", 1) != 0;
+        show_rates = settings::Num("show_rates", 0) != 0;
+        const double fc = settings::Num("flip_cap", 3);
+        if (fc != flip_cap) {   // game speed: re-plan the picture pacing from the next field
+          flip_cap = fc;
+          nuon::SetFlipCap(flip_cap);
+          picture_ns = (emulated && flip_cap > 0) ? uint64_t(flip_cap * double(field_ns)) : 0;
+          std::lock_guard<std::mutex> lock(ring_mutex);
+          plan.clear();
+          plan_any = false;
+          planned_to = fields_done.load() - 1;
+        }
+      }
+      emu_pause = menu::IsOpen();
     }
     pad_buttons = ReadPad(pad, SDL_GetKeyboardState(nullptr));
     {
@@ -889,6 +944,17 @@ int main(int argc, char** argv) {
         SDL_SetRenderScale(ren, 1.f, 1.f);
       }
     }
+    if (menu::Shown()) menu::Draw(ren, ww, wh);
+    menu::DrawToast(ren, ww, wh, SDL_GetTicksNS());
+    if (menu_test && presents == 0) menu::Open(menu_test == 2);
+    if (winshot_at >= 0 && presents == winshot_at) {
+      if (SDL_Surface* sf = SDL_RenderReadPixels(ren, nullptr)) {
+        if (!SDL_SaveBMP(sf, winshot_file.c_str())) std::fprintf(stderr, "winshot: %s\n", SDL_GetError());
+        SDL_DestroySurface(sf);
+      }
+      running = false;
+    }
+    ++presents;
     SDL_RenderPresent(ren);
     ++presents_of_shown;
     // Keep the field grid away from the vblanks: a field becomes showable at due + one field; if that moment falls

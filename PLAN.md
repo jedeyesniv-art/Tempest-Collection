@@ -507,8 +507,15 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
 ## TxK plan (2026-11-11; after Tempest 3000)
 Game: `PCSB00494\` = EU Llamasoft TxK v01.03 (EP4461-PCSB00494_00-LLAMASOFTTXK0001), a decrypted folder dump
 (plain eboot.bin + sce_module\*.suprx), 104 MB. Never in git. The owner has run it well on the Deck in Vita3K.
-Firmware (owner supplies, never in git): PSP2UPDAT.PUP + PSP2UPDAT_PREINST.PUP (required), PSP2UPDAT_FONT.PUP
-(optional), planned at `vita_firmware\`.
+Firmware (owner supplied 2026-11-14, never in git): `vita_firmware\PSVUPDAT.PUP` (system firmware, 134 MB) and
+`vita_firmware\PSP2UPDAT.PUP` (font package, 57 MB) - the two files Vita3K installs.
+State 2026-11-14: core cloned to third_party\vita3k-libretro (branch libretro, commit 29ad0e79, recursive, 590 MB, not
+in the outer git). Windows build = upstream CI route: MSVC + preset windows-ninja + -DBUILD_LIBRETRO=ON, target
+vita3k_libretro (Boost headers bundled; curl via FetchContent; prebuilt ffmpeg downloaded at configure). With MSVC +
+libretro, external/CMakeLists.txt builds a static OpenSSL 3.6.1 from source and REQUIRES a native Windows Perl
+(Strawberry; Git's perl is rejected). Blocked there: downloading portable Strawberry Perl was refused by the
+permission classifier; the owner then approved it (third_party\strawberry). OpenSSL also wanted NASM: patched to
+no-asm instead (branch llamasoft-vita). Step 1 DONE 2026-11-14: build_vita3k\bin\Release\vita3k_libretro.dll.
 
 Route: the Vita3K libretro core (docs.libretro.com/library/vita3k, source github.com/WizzardSK/vita3k-libretro,
 `libretro` branch; upstream Vita3K v0.2.1 build 4123, GPL-2). It loads a game folder / eboot.bin directly. It needs

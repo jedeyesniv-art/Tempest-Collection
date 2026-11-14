@@ -14,145 +14,11 @@
 namespace menu {
 namespace {
 
-enum class Kind { Header, Choice, Number, Button, Bind };
+std::string g_title = "SETTINGS";
+std::vector<Item> g_items;
+std::vector<bool> g_open_sections;      // per item index (headers); folded at start
 
-struct Item {
-  Kind kind;
-  std::string label;
-  std::string key;                      // settings key (Choice / Number)
-  std::vector<std::string> values;      // Choice: stored values
-  std::vector<std::string> names;       // Choice: shown names
-  double lo = 0, hi = 0, step = 0;      // Number
-  double def = -1e30;                   // Number: the value when the setting is missing (unset: lo)
-  const char* fmt = "%.2f";
-  Action action = Action::None;         // Button
-  controls::Fn fn = controls::kNone;    // Bind
-  bool crt_only = false, crtpp_only = false;   // shown with a CRT look / with CRT++ only
-  bool lr_only = false, aim_only = false, slot_info = false, reset_binds = false;
-  int section = -1;                     // the header it belongs to (index into the item list; -1 = none)
-};
-
-std::vector<bool> g_open_sections;      // per header index; folded at start
-
-std::vector<Item> Items() {
-  std::vector<Item> v;
-  auto header = [&](const char* t) { v.push_back({Kind::Header, t}); };
-  auto num = [&](const char* label, const char* key, double lo, double hi, double step, const char* fmt,
-                 double def = -1e30) {
-    Item i{Kind::Number, label, key};
-    i.lo = lo; i.hi = hi; i.step = step; i.fmt = fmt; i.def = def > -1e29 ? def : lo;
-    v.push_back(i);
-    return &v.back();
-  };
-  auto choice = [&](const char* label, const char* key, std::vector<std::string> vals,
-                    std::vector<std::string> names) {
-    Item i{Kind::Choice, label, key};
-    i.values = std::move(vals); i.names = std::move(names);
-    v.push_back(i);
-  };
-  auto button = [&](const char* label, Action a) {
-    Item i{Kind::Button, label};
-    i.action = a;
-    v.push_back(i);
-    return &v.back();
-  };
-
-  button("Resume", Action::Close);
-  header("GAME");
-  button("Return to title", Action::ReturnToTitle);
-  choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
-  button("  Save state", Action::SaveState)->slot_info = true;
-  button("  Load state", Action::LoadState)->slot_info = true;
-  choice("Camera view", "camera_view", {"0", "1", "2"}, {"Standard", "Whole web", "Close-up"});
-  button("Music on / off", Action::ToggleMusic);
-  header("STICK");
-  choice("Stick mode", "stick_mode", {"lr", "aim"}, {"Left / right", "Aim (point at lane)"});
-  num("  Top speed", "lr_max_speed", 0.20, 0.80, 0.01, "%.2f")->lr_only = true;
-  num("  Ramp to top speed (frames)", "lr_ramp_frames", 1, 40, 1, "%.0f")->lr_only = true;
-  num("  First-frame speed", "lr_ramp_start", 0, 1, 0.05, "%.2f")->lr_only = true;
-  num("  Deflection curve", "lr_curve", 1, 3, 0.1, "%.1f")->lr_only = true;
-  num("  Deadzone", "lr_deadzone", 0.05, 0.5, 0.01, "%.2f")->lr_only = true;
-  num("  Ease-off (frames)", "lr_release_frames", 0, 8, 1, "%.0f")->lr_only = true;
-  num("  Top speed", "aim_max_speed", 0.2, 1.2, 0.05, "%.2f")->aim_only = true;
-  num("  Closing speed", "aim_gain", 0.1, 1.0, 0.05, "%.2f")->aim_only = true;
-  num("  Push needed to aim", "aim_threshold", 0.3, 0.9, 0.05, "%.2f")->aim_only = true;
-  header("BUTTONS (A on a function, then press a button; again removes it)");
-  for (int f = controls::kFire; f < controls::kFnCount; ++f) {
-    Item i{Kind::Bind, controls::FnName(controls::Fn(f))};
-    i.fn = controls::Fn(f);
-    v.push_back(i);
-  }
-  button("Reset buttons to defaults", Action::None)->reset_binds = true;
-  header("DISPLAY");
-  choice("Original mode (all improvements off)", "native", {"0", "1"}, {"Off", "On"});
-  button("Fullscreen on / off", Action::ToggleFullscreen);
-  choice("Smooth motion (remaster)", "remaster_interpolate", {"1", "0"}, {"On", "Off (60 fps steps)"});
-  choice("Native screen effects (melts, title, menus)", "remaster_feedback", {"1", "0"}, {"On", "Off"});
-  num("  Melt wobble", "melt_wobble", 0, 0.04, 0.002, "%.3f", 0.010);
-  num("  Melt drip", "melt_drip", 0, 0.03, 0.001, "%.3f", 0.006);
-  num("  Melt blob", "melt_blob", 0, 1, 0.05, "%.2f", 0.35);
-  num("  Melt spin (degrees a step)", "melt_spin", -4, 4, 0.25, "%.2f", 1.0);
-  num("  Melt mosaic", "melt_mosaic", 0, 1, 0.05, "%.2f", 0.15);
-  num("  Melt mosaic size", "melt_mosaic_size", 2, 40, 1, "%.0f", 12);
-  choice("Pixel art (text, HUD, menus)", "picture_filter", {"sharp", "xbr", "smooth"},
-         {"Sharp pixels", "Smoothed (xBR)", "Soft (bilinear)"});
-  num("Particle size (x original)", "remaster_particle_size", 0.5, 3.0, 0.1, "%.1f", 1.5);
-  num("Lightning width (0 = original)", "remaster_bolt_width", 0.0, 5.0, 0.25, "%.2f", 2.0);
-  choice("Lightning glow", "remaster_bolt_glow", {"1", "0"}, {"On", "Off"});
-  num("Enemy bullet glow (0 = off)", "remaster_shot_glow", 0.0, 3.0, 0.1, "%.1f", 0.5);
-  num("Power-up min brightness (0 = original)", "remaster_pup_floor", 0.0, 1.0, 0.05, "%.2f", 0.7);
-  num("Power-up glow (0 = off)", "remaster_pup_glow", 0.0, 3.0, 0.1, "%.1f", 1.0);
-  header("CHEATS");
-  choice("Keypad cheats (Option skips a level, 6 warps)", "cheat_keys", {"0", "1"}, {"Off", "On"});
-  choice("Infinite Superzapper", "cheat_inf_zap", {"0", "1"}, {"Off", "On"});
-  choice("Unlock Beastly mode", "cheat_beastly", {"0", "1"}, {"Off", "On"});
-  choice("Unlock every start level", "cheat_levels", {"0", "1"}, {"Off", "On"});
-  button("Warp to a bonus round after this level", Action::CheatWarp);
-  header("CRT (F9 cycles the look)");
-  choice("CRT look", "crt", {"0", "1", "2"}, {"Off", "CRT+", "CRT++ (trails, bleed, glow)"});
-  auto c = [&](const char* l, const char* k, double lo, double hi, double st, const char* f, double d) {
-    num(l, k, lo, hi, st, f, d)->crt_only = true;
-  };
-  c("  Scanlines", "crt_scanlines", 0, 1, 0.05, "%.2f", 0.45);
-  c("  Beam, dark colours", "crt_beam_min", 0, 1, 0.05, "%.2f", 0.35);
-  c("  Beam, bright colours", "crt_beam_max", 0, 1, 0.05, "%.2f", 1.0);
-  c("  Softness", "crt_blur", 0, 1, 0.05, "%.2f", 0.4);
-  c("  Phosphor mask", "crt_mask", 0, 1, 0.05, "%.2f", 0.35);
-  c("  Mask bleed", "crt_mask_bleed", 0, 1, 0.05, "%.2f", 0.5);
-  c("  Glow", "crt_halation", 0, 0.2, 0.01, "%.2f", 0.04);
-  c("  Glow size", "crt_halation_size", 0, 1, 0.02, "%.2f", 0.98);
-  c("  Curvature", "crt_curvature", 0, 0.15, 0.01, "%.2f", 0.02);
-  c("  Brightness", "crt_brightness", -0.3, 0.3, 0.01, "%.2f", 0.01);
-  c("  Contrast", "crt_contrast", 0, 1, 0.05, "%.2f", 0.35);
-  c("  Saturation", "crt_saturation", 0, 1.5, 0.05, "%.2f", 0.95);
-  c("  Warmth", "crt_temperature", -1, 1, 0.1, "%.1f", 0.3);
-  c("  Bloom", "crt_overflow", 0, 1, 0.05, "%.2f", 0.85);
-  auto pp = [&](const char* l, const char* k, double lo, double hi, double st, const char* f, double d) {
-    num(l, k, lo, hi, st, f, d)->crtpp_only = true;
-  };
-  pp("  CRT++ trails", "crt_psy_trails", 0, 2, 0.05, "%.2f", 0.9);
-  pp("  CRT++ trail length (s)", "crt_psy_length", 0, 1, 0.01, "%.2f", 0.4);
-  pp("  CRT++ trail zoom", "crt_psy_zoom", -2, 2, 0.05, "%.2f", 0.25);
-  pp("  CRT++ trail twist", "crt_psy_twist", -2, 2, 0.05, "%.2f", 0);
-  pp("  CRT++ trail colour", "crt_psy_hue", 0, 1, 0.02, "%.2f", 0.66);
-  pp("  CRT++ trail tint", "crt_psy_tint", 0, 1, 0.05, "%.2f", 0.3);
-  pp("  CRT++ colour cycle", "crt_psy_cycle", 0, 3, 0.05, "%.2f", 0);
-  pp("  CRT++ trail threshold", "crt_psy_threshold", 0, 1, 0.05, "%.2f", 0.1);
-  pp("  CRT++ trail feed", "crt_psy_gain", 0, 3, 0.1, "%.1f", 1);
-  pp("  CRT++ glow boost", "crt_psy_glow", 1, 15, 0.5, "%.1f", 4);
-  pp("  CRT++ colour bleed", "crt_psy_bleed", 0, 3, 0.1, "%.1f", 0.5);
-  pp("  CRT++ saturation boost", "crt_psy_saturation", 0.5, 2.5, 0.05, "%.2f", 1.3);
-  pp("  CRT++ keep colours", "crt_psy_keep", 0, 1, 0.05, "%.2f", 1);
-  header("");
-  button("Quit", Action::Quit);
-  int sec = -1;
-  for (size_t k = 0; k < v.size(); ++k) {
-    if (v[k].kind == Kind::Header) sec = v[k].label.empty() ? -1 : int(k);
-    else v[k].section = sec;
-  }
-  if (g_open_sections.size() != v.size()) g_open_sections.assign(v.size(), false);
-  return v;
-}
+const std::vector<Item>& Items() { return g_items; }
 
 bool g_open = false;
 int g_sel = 0;
@@ -162,16 +28,12 @@ float g_scroll = 0;                   // first shown line (in lines)
 Nav g_prev;
 int g_repeat_dir = 0;      // -1 left / +1 right / -2 up / +2 down
 uint64_t g_repeat_at = 0;
-controls::Fn g_capture = controls::kNone;
+int g_capture = 0;                    // the function waiting for a button (0 = none)
 std::string g_toast;
 uint64_t g_toast_until = 0;
 std::function<std::string()> g_slot_info;
 
-bool Visible(const Item& i) {
-  bool aim = settings::Str("stick_mode", "lr") == "aim";
-  int crt = int(settings::Num("crt", 2));
-  return !(i.lr_only && aim) && !(i.aim_only && !aim) && !(i.crt_only && crt < 1) && !(i.crtpp_only && crt != 2);
-}
+bool Visible(const Item& i) { return !i.when || i.when(); }
 
 bool Open(int section) { return section < 0 || (section < int(g_open_sections.size()) && g_open_sections[section]); }
 bool Shown(const Item& i) {
@@ -224,6 +86,98 @@ void Move(const std::vector<Item>& items, int dir) {
 
 }  // namespace
 
+void Page::Header(const std::string& label) {
+  Item i;
+  i.kind = Kind::Header;
+  i.label = label;
+  items.push_back(std::move(i));
+}
+
+Item* Page::Choice(const std::string& label, const std::string& key, std::vector<std::string> values,
+                   std::vector<std::string> names) {
+  Item i;
+  i.kind = Kind::Choice;
+  i.label = label;
+  i.key = key;
+  i.values = std::move(values);
+  i.names = std::move(names);
+  items.push_back(std::move(i));
+  return &items.back();
+}
+
+Item* Page::Number(const std::string& label, const std::string& key, double lo, double hi, double step,
+                   const char* fmt, double def) {
+  Item i;
+  i.kind = Kind::Number;
+  i.label = label;
+  i.key = key;
+  i.lo = lo; i.hi = hi; i.step = step; i.fmt = fmt; i.def = def;
+  items.push_back(std::move(i));
+  return &items.back();
+}
+
+Item* Page::Button(const std::string& label, int action, bool closes) {
+  Item i;
+  i.kind = Kind::Button;
+  i.label = label;
+  i.action = action;
+  i.closes = closes;
+  items.push_back(std::move(i));
+  return &items.back();
+}
+
+void Page::Binds(const std::string& header) {
+  Header(header);
+  for (int f = 1; f < controls::FnCount(); ++f) {
+    Item i;
+    i.kind = Kind::Bind;
+    i.label = controls::FnName(f);
+    i.fn = f;
+    items.push_back(std::move(i));
+  }
+  Item r;
+  r.kind = Kind::ResetBinds;
+  r.label = "Reset buttons to defaults";
+  items.push_back(std::move(r));
+}
+
+void SetPage(const std::string& title, Page page) {
+  g_title = title;
+  g_items = std::move(page.items);
+  int sec = -1;
+  for (size_t k = 0; k < g_items.size(); ++k) {
+    if (g_items[k].kind == Kind::Header) sec = g_items[k].label.empty() ? -1 : int(k);
+    else g_items[k].section = sec;
+  }
+  g_open_sections.assign(g_items.size(), false);
+  g_sel = 0;
+}
+
+Nav ReadNav(SDL_Gamepad* pad, const bool* keys) {
+  Nav n;
+  if (pad) {
+    auto btn = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(pad, b); };
+    int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+    n.up = btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -20000;
+    n.down = btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 20000;
+    n.left = btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || lx < -20000;
+    n.right = btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || lx > 20000;
+    n.ok = btn(SDL_GAMEPAD_BUTTON_SOUTH);
+    n.back = btn(SDL_GAMEPAD_BUTTON_EAST) || btn(SDL_GAMEPAD_BUTTON_BACK);
+    n.cancel = btn(SDL_GAMEPAD_BUTTON_BACK);
+  }
+  if (keys) {
+    n.up |= keys[SDL_SCANCODE_UP];
+    n.down |= keys[SDL_SCANCODE_DOWN];
+    n.left |= keys[SDL_SCANCODE_LEFT];
+    n.right |= keys[SDL_SCANCODE_RIGHT];
+    n.ok |= keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_Z];
+    n.back |= keys[SDL_SCANCODE_ESCAPE] || keys[SDL_SCANCODE_BACKSPACE];
+    n.cancel |= keys[SDL_SCANCODE_ESCAPE];
+  }
+  return n;
+}
+
 bool IsOpen() { return g_open; }
 bool Shown() {
   if (g_open) return true;
@@ -231,47 +185,45 @@ bool Shown() {
 }
 void Open(bool expand_all) {
   if (expand_all) {
-    Items();
     std::fill(g_open_sections.begin(), g_open_sections.end(), true);
   }
   if (!g_open) g_changed_at = SDL_GetTicksNS();
   g_open = true;
   g_prev = Nav{true, true, true, true, true, true, true};  // ignore buttons already held
   g_repeat_dir = 0;
-  g_capture = controls::kNone;
+  g_capture = 0;
 }
 void Close() {
   if (g_open) g_changed_at = SDL_GetTicksNS();
   g_open = false;
-  g_capture = controls::kNone;
+  g_capture = 0;
 }
 void SetSlotInfo(std::function<std::string()> f) { g_slot_info = std::move(f); }
 
-Action Update(const Nav& nav, uint64_t now) {
-  auto items = Items();
+int Update(const Nav& nav, uint64_t now) {
+  const auto& items = Items();
+  if (items.empty()) return kNone;
   if (!Selectable(items[g_sel])) Move(items, 1);
   Nav p = g_prev;
   g_prev = nav;
 
-  if (g_capture != controls::kNone) {            // waiting for a button to bind
-    if (nav.cancel && !p.cancel) g_capture = controls::kNone;
+  if (g_capture != 0) {            // waiting for a button to bind
+    if (nav.cancel && !p.cancel) g_capture = 0;
     else if (nav.new_button >= 0) {
       controls::Assign(g_capture, nav.new_button);
-      g_capture = controls::kNone;
+      g_capture = 0;
     }
-    return Action::None;
+    return kNone;
   }
 
-  if (nav.back && !p.back) { Close(); return Action::Close; }
+  if (nav.back && !p.back) { Close(); return kClose; }
   if (nav.ok && !p.ok) {
     const Item& it = items[g_sel];
-    if (it.kind == Kind::Header) { g_open_sections[g_sel] = !g_open_sections[g_sel]; return Action::None; }
-    if (it.kind == Kind::Bind) { g_capture = it.fn; return Action::None; }
+    if (it.kind == Kind::Header) { g_open_sections[g_sel] = !g_open_sections[g_sel]; return kNone; }
+    if (it.kind == Kind::Bind) { g_capture = it.fn; return kNone; }
+    if (it.kind == Kind::ResetBinds) { controls::ResetDefaults(); return kNone; }
     if (it.kind == Kind::Button) {
-      if (it.reset_binds) { controls::ResetDefaults(); return Action::None; }
-      if (it.action == Action::Close || it.action == Action::Quit || it.action == Action::ReturnToTitle ||
-          it.action == Action::LoadState)
-        Close();
+      if (it.closes) Close();
       return it.action;
     }
     Change(it, 1);
@@ -293,7 +245,7 @@ Action Update(const Nav& nav, uint64_t now) {
     else if (items[g_sel].kind == Kind::Header) g_open_sections[g_sel] = dir > 0;   // right opens, left folds
     else Change(items[g_sel], dir);
   }
-  return Action::None;
+  return kNone;
 }
 
 // Word-wraps text to lines of at most `cols` characters (long words are cut).
@@ -323,7 +275,8 @@ std::vector<std::string> Wrap(const std::string& text, int cols) {
 }
 
 void Draw(SDL_Renderer* ren, int w, int h) {
-  auto items = Items();
+  const auto& items = Items();
+  if (items.empty()) return;
   // Slide: eased in over kSlideNs when opening, out when closing.
   uint64_t now = SDL_GetTicksNS();
   float t = std::clamp(float(double(now - g_changed_at) / double(kSlideNs)), 0.f, 1.f);
@@ -351,10 +304,10 @@ void Draw(SDL_Renderer* ren, int w, int h) {
   // Title (fixed) and help (fixed, wrapped, at the bottom).
   float x0 = ox + pad;
   SDL_SetRenderDrawColor(ren, 255, 220, 0, 255);
-  SDL_RenderDebugText(ren, x0, pad, "TEMPEST 2000 - SETTINGS");
+  SDL_RenderDebugText(ren, x0, pad, g_title.c_str());
   SDL_SetRenderDrawColor(ren, 140, 140, 140, 255);
   SDL_RenderDebugText(ren, x0, pad + lh, "(game paused)");
-  const std::string help = g_capture != controls::kNone
+  const std::string help = g_capture != 0
       ? "Press the button to bind (Back cancels). A bound button pressed again is removed."
       : "Up / Down choose. Left / Right change, or fold / open a section. A selects. B / Back closes.";
   auto help_lines = Wrap(help, cols);

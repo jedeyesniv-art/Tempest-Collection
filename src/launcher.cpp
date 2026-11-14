@@ -71,7 +71,7 @@ HANDLE StartProgram(const fs::path& exe) {
   STARTUPINFOW si{};
   si.cb = sizeof(si);
   PROCESS_INFORMATION pi{};
-  std::wstring cmd = L"\"" + exe.wstring() + L"\"";
+  std::wstring cmd = L"\"" + exe.wstring() + L"\" --from-launcher";   // (the game's menu then says "Return to launcher")
   if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) return nullptr;
   CloseHandle(pi.hThread);
   return pi.hProcess;

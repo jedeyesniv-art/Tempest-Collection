@@ -16,6 +16,11 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   from master 34696082 (v3.11.0). Built with its own app/cmake/VJCore.cmake. Not in the outer git.
 - third_party/SDL: SDL 3.4.16, copied from the Llamatron repo. Not in the outer git.
 - reference/tempest2k: mwenge's source (yak.s = 68K main, src/gpu/*.gas GPU modules). Not in the outer git.
+- third_party/vita3k-libretro: WizzardSK/vita3k-libretro (GPL-2) for TxK, our branch `llamasoft-vita` from libretro
+  29ad0e79 (one patch: OpenSSL no-asm, so no NASM). tools\build_vita3k.bat (MSVC, Ninja Multi-Config, as upstream CI)
+  -> build_vita3k\bin\Release\vita3k_libretro.dll (32 MB; needs the MSVC C++ runtime DLLs). Configure needs the
+  portable Strawberry Perl in third_party\strawberry (owner approved the download) and downloads FFmpeg + curl.
+  Firmware in vita_firmware\ (PSVUPDAT.PUP system, PSP2UPDAT.PUP fonts). None of these in the outer git.
 - src/host.cpp: libretro host (env callbacks, options, video XRGB8888, audio, input, save states).
 - src/main.cpp: SDL3 window + headless test mode.
 - src/launcher.cpp: build\tempest.exe, the Tempest Collection launcher (starts t2k.exe / t3k.exe as processes,
@@ -68,7 +73,11 @@ Runs ~4-5x real time headless. Core says 60.054 fps, 48044 Hz; picture 326x240.
   settings menu (pauses emulation), LB = camera view cycle, LT free.
 - Camera: `view` $E350 (0 standard follow, 1 whole web fixed, 2 close-up); the game resets it to 0 on game
   select. Setting camera_view is written every in-play frame, so the choice persists.
-- Menu: src/menu.cpp (SDL debug font, placeholder look). Changes save at once via settings::Save (keeps the
+- Menu: src/menu.cpp, SHARED by every game program since 2026-11-14 (SDL debug font, placeholder look): a game
+  registers its page with menu::SetPage (src/t2k_menu.cpp, src/t3k_menu.cpp; items show via `when` lambdas, game
+  actions numbered from menu::kGameAction) and its controls functions with controls::Setup. The launcher passes
+  --from-launcher (last item "Return to launcher"). t3k.exe: Back / Esc opens it, the emulation thread parks
+  (emu_pause / emu_parked) before the menu may change settings. Changes save at once via settings::Save (keeps the
   file's comments). Esc opens it on the keyboard. Owner's top speed choice: lr_max_speed 0.41.
 
 ## Pause line, quit to title, remapping, save states, EEPROM (2026-11-08)
