@@ -407,6 +407,14 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   360x240, colours, target buffer at +0x24; comm words 0x332 + another frame buffer) run by MPE0 + MPE2 together
   through modules 806A3108, 806A3F50 (between each), 806A5FB0, 806AD2B0, 806A8990, 806AF1E8, reading a display
   list MPE3 builds (command-string parser $80012100?) whose entries reference the render templates.
+- Step 1c (2026-11-14): NUANCE_DMALOG=1 (+ NUANCE_JOBLOG) logs the renderers' linear DMA reads. MPE0 / MPE2 read
+  the module library's tables ($806A3-$806AF pages), objects ($8003E / $800DC), templates + video setup
+  ($800AE000-$800B2FFF, $800BA, $800B6), tables ($80106-$80107, $4018x) and MPE0-only data ($404E5, $8074C/F,
+  $802FE). No effect from: $800B2E10/14 + $800B6E40 (16.16 centres) poked from before the level starts, the object
+  list's $8003EBC0 (B4/98). Changing per picture: ~470 words at $800B1Cxx and ~150 at $8010A-$8010D (12-byte
+  records, not screen coordinates). => the 3D layer projects inside the renderer modules from parameters not yet
+  found; next is reading the modules (806A5FB0 / 806AD2B0 / 806A8990 / 806AF1E8 / 806A3108) for where screen x / y
+  come from - disassembly work, likely several sessions.
 - Next: decode the 3D display list (where, entry format, which fields are centres / scales / sizes), then step 2
   (buffers + frame job) and step 3 (720x480 attempt: 2D transform x2 + 3D templates / list x2 + buffers + channel).
 - Experiments next (earlier list): (1b) find the remaining elements' parameters (same template region: other formats - 16.16,
