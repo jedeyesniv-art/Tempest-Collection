@@ -54,6 +54,10 @@ bool SetTiming(bool emulated, double rounds);
 // so 1 = its limit; 2 = 30 pictures/s; fractional = a grid: 2.5 = 24 a second, as 2, 3, 2, 3 fields). A game that
 // moves per picture (Tempest 3000) runs at that speed.
 bool SetFlipCap(double fields);
+// Extra controller properties to report (CTRLR_ANALOG1 = 0x10, ...: joystick.h); set before the game starts.
+bool SetPadProperties(uint32_t extra);
+// The analog axes (-128..127), applied with the buttons each frame.
+void SetAnalog(int x, int y, int x2, int y2);
 // Dump a code module (system-bus src, len bytes, as loaded at base in MPE mpe) for tools/t3k_aot.py.
 int AotDump(int mpe, uint32_t src, uint32_t len, uint32_t base, const char* path);
 // Disassembly of `packets` packets of MPE `mpe` from `address` (one "address: text" line each).

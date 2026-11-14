@@ -10,6 +10,9 @@
 //   --wav=<file.wav>                      dump the audio
 //   --disasm=F:mpe:hexaddr:count          print count packets of MPE code after field F (headless)
 //   --aotdump=F:mpe:src:len:base:file      dump a code module for the AOT generator (headless, absolute file)
+//   --analog=F:x,y[:len]                  hold the Nuon analog stick at x,y (-128..127) from field F (headless)
+//   --poke=F:hexaddr:hexvalue[:len]       write a big-endian word into system RAM before fields F.. (headless)
+//   --stick=F:x[:len]                     hold the left stick at x (-1..1) for the claw controller (headless)
 //   --memdump=F:<prefix>                  dump the Nuon's memory after field F (headless; repeatable)
 //   --perflog=<file.csv>                  one line per frame: timing and the core's run statistics
 //   --userdata=<dir>                      save folder (default userdata next to the program)
@@ -17,7 +20,7 @@
 //   --novsync                             present without waiting for the display
 //   T3K_PERF=1                            a timing summary every 5 s on stderr
 // Keys: arrows d-pad, Z = A, X = B, Enter = Start, Tab = Nuon, Q / E = L / R, I J K L = C up / left / down / right,
-// F11 fullscreen, Esc quits (no settings menu yet).
+// A / D = the stick (claw), F11 fullscreen, Esc quits (no settings menu yet).
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <windows.h>
@@ -101,10 +104,121 @@ buffer_fields = 2
 # fields between two pictures. 3 = 20 pictures/s (the owner's choice: most playable), 2 = 30, 1 = 60;
 # 2.5 = 24 (on a 120 Hz display still even: 5 refreshes a picture; elsewhere 2-then-3 fields).
 flip_cap = 3
+
+# --- Stick controls for the claw (left stick; the d-pad keeps the original controls) ---
+# lr = push left / right: speed follows how far the stick is pushed, with a ramp; off = stick acts as the d-pad.
+stick_mode = lr
+lr_deadzone = 0.20
+# Top speed at full deflection, in lanes per picture (the game's own d-pad top speed is 0.94).
+lr_max_speed = 0.94
+# Deflection curve: 1 = linear, higher = gentler near the centre.
+lr_curve = 1.5
+# Ramp from a new push to full speed, in pictures, and the fraction of speed on the first picture.
+lr_ramp_pictures = 4
+lr_ramp_start = 0.30
+# Pictures the claw keeps easing after the stick is released (0 = stop dead, like the original).
+lr_release_pictures = 1
 )";
 
 struct Shot { int frame; std::string path; };
 struct Press { int frame; int btn; int len; };
+struct AnalogHold { int frame; int x, y, len; };
+
+// Stick control of the claw (Tempest 3000). The claw is a game object at $8003E9E0: position (16.16 lanes), velocity,
+// a speed scale (+8, normally 1.0) and flags (+12, 0x80000401: handler 0, a bounded value the game wraps / clamps
+// on the web). The game sets the velocity from the d-pad each picture (input 40, 60, then 80, x 768) and adds
+// velocity x scale to the position. So the stick presses the d-pad in its direction and sets the scale each field so
+// that the speed follows our curve and ramp; the game does the moving, wrapping and clamping itself.
+// Only while the object's signature is there (flags, and the renderer's copy at $800DC100 = the position).
+struct ClawControl {
+  int last_dir = 0;            // -1 / +1 while pushing, 0 not
+  uint32_t last_picture = 0;   // the game's picture counter ($80110AA0)
+  int pictures_pushed = 0;     // pictures since this push started
+  int release_left = 0;        // pictures of ease-off left
+  double release_speed = 0;    // speed at release (lanes per picture)
+  double last_speed = 0;
+
+  static uint32_t Get(const uint8_t* m, uint32_t a) {
+    const uint8_t* q = m + (a & 0x7FFFFF);
+    return uint32_t(q[0]) << 24 | uint32_t(q[1]) << 16 | uint32_t(q[2]) << 8 | q[3];
+  }
+  static void Put(uint8_t* m, uint32_t a, uint32_t v) {
+    uint8_t* q = m + (a & 0x7FFFFF);
+    q[0] = uint8_t(v >> 24); q[1] = uint8_t(v >> 16); q[2] = uint8_t(v >> 8); q[3] = uint8_t(v);
+  }
+
+  // stick_x: -1..1; dpad_lr: the physical d-pad's left / right bits (they win). Returns the d-pad bits to press.
+  uint16_t Update(float stick_x, uint16_t dpad_lr) {
+    size_t n = 0;
+    uint8_t* const m = nuon::Memory(0, &n);
+    const bool claw = m && n >= 0x800000 && Get(m, 0x8003E9EC) == 0x80000401U &&
+                      Get(m, 0x800DC100) == Get(m, 0x8003E9E0);
+    if (!claw || settings::Str("stick_mode", "lr") != "lr" || dpad_lr) {
+      if (claw && Get(m, 0x8003E9E8) != 0x10000) Put(m, 0x8003E9E8, 0x10000);
+      last_dir = 0;
+      pictures_pushed = 0;
+      release_left = 0;
+      // No claw in play (menus, between lives): the stick is the d-pad, as in stick_mode off.
+      if (!claw && !dpad_lr && settings::Str("stick_mode", "lr") == "lr" && std::fabs(stick_x) > 0.5f)
+        return stick_x > 0 ? uint16_t(1u << nuon::RIGHT) : uint16_t(1u << nuon::LEFT);
+      return 0;
+    }
+    const uint32_t picture = Get(m, 0x80110AA0);
+    const bool new_picture = picture != last_picture;
+    last_picture = picture;
+
+    const double dz = settings::Num("lr_deadzone", 0.2);
+    const double ax = std::fabs(stick_x);
+    const int dir = ax > dz ? (stick_x > 0 ? 1 : -1) : 0;
+    double speed = 0;   // lanes per picture wanted
+    if (dir) {
+      if (dir != last_dir) pictures_pushed = 0;
+      else if (new_picture) ++pictures_pushed;
+      const double defl = std::pow(std::min(1.0, (ax - dz) / (1.0 - dz)), settings::Num("lr_curve", 1.5));
+      const double ramp_n = std::max(1.0, settings::Num("lr_ramp_pictures", 4));
+      const double r0 = settings::Num("lr_ramp_start", 0.3);
+      const double t = std::min(1.0, pictures_pushed / ramp_n);
+      const double ramp = r0 + (1.0 - r0) * (t * t * (3 - 2 * t));
+      speed = settings::Num("lr_max_speed", 0.94) * defl * ramp;
+      release_left = int(settings::Num("lr_release_pictures", 1));
+      release_speed = speed;
+    } else if (last_dir && release_left > 0) {
+      if (new_picture) --release_left;
+    }
+    int press = dir;
+    if (!dir && last_dir && release_left > 0) {   // ease off: keep moving the same way, slower
+      press = last_dir;
+      const double total = std::max(1.0, settings::Num("lr_release_pictures", 1));
+      speed = release_speed * (release_left / (total + 1));
+    }
+    if (!press) {
+      last_dir = 0;
+      // The game applies the d-pad a picture late: while it still has input, hold that picture to the ease-off
+      // speed (half the last, or 0 = stop dead) instead of its full d-pad speed; back to 1.0 once the input is 0.
+      const int input = int(Get(m, 0x801133D8));
+      if (input != 0) {
+        const double ease = settings::Num("lr_release_pictures", 1) > 0 ? last_speed * 0.5 : 0.0;
+        const double game_speed = std::abs(input) * 768.0 / 65536.0;
+        Put(m, 0x8003E9E8, uint32_t(std::clamp(ease / game_speed, 0.0, 4.0) * 65536.0 + 0.5));
+        last_speed = ease;
+      } else if (Get(m, 0x8003E9E8) != 0x10000) {
+        Put(m, 0x8003E9E8, 0x10000);
+      }
+      return 0;
+    }
+    if (dir) last_dir = dir;
+    // The game's input for the coming picture: 40 on the first, then +20 up to 80.
+    const int input = int(Get(m, 0x801133D8));
+    const int same = (input > 0 && press > 0) || (input < 0 && press < 0);
+    const int next = same ? std::min(80, std::abs(input) + (new_picture ? 0 : 20)) : 40;
+    const double game_speed = next * 768.0 / 65536.0;
+    const double scale = std::clamp(speed / game_speed, 0.0, 4.0);
+    Put(m, 0x8003E9E8, uint32_t(scale * 65536.0 + 0.5));
+    last_speed = speed;
+    return press > 0 ? uint16_t(1u << nuon::RIGHT) : uint16_t(1u << nuon::LEFT);
+  }
+};
+struct Poke { int frame; uint32_t addr, value; int len; };
 
 int BtnByName(const std::string& n) {
   static const char* names[] = {"b", "y", "select", "start", "up", "down", "left", "right",
@@ -178,8 +292,9 @@ uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
     const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
     set(nuon::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -16000);
     set(nuon::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 16000);
-    set(nuon::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || lx < -16000);
-    set(nuon::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || lx > 16000);
+    const bool stick_lr = settings::Str("stick_mode", "lr") == "lr";   // then the claw controller handles x
+    set(nuon::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || (!stick_lr && lx < -16000));
+    set(nuon::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || (!stick_lr && lx > 16000));
   }
   if (keys) {
     set(nuon::UP, keys[SDL_SCANCODE_UP]);
@@ -255,6 +370,10 @@ int main(int argc, char** argv) {
   std::vector<std::string> disasms;      // --disasm=F:mpe:hexaddr:count
   std::vector<std::string> aotdumps;     // --aotdump=F:mpe:hexsrc:len:hexbase:file
   std::vector<Press> presses;
+  std::vector<AnalogHold> analogs;   // --analog=F:x,y[:len] (-128..127)
+  std::vector<Poke> pokes;           // --poke=F:hexaddr:hexvalue[:len] (system bus, big-endian 32-bit)
+  struct StickHold { int frame; float x; int len; };
+  std::vector<StickHold> sticks;     // --stick=F:x[:len] (-1..1): the left stick for the claw controller
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
     auto val = [&](const char* p) { return a.substr(std::strlen(p)); };
@@ -267,6 +386,21 @@ int main(int argc, char** argv) {
     else if (a.rfind("--flipcap=", 0) == 0) flipcap_arg = val("--flipcap=");
     else if (a.rfind("--perflog=", 0) == 0) perflog = val("--perflog=");
     else if (a.rfind("--disasm=", 0) == 0) disasms.push_back(val("--disasm="));
+    else if (a.rfind("--stick=", 0) == 0) {
+      StickHold h{0, 0.f, 6};
+      std::sscanf(val("--stick=").c_str(), "%d:%f:%d", &h.frame, &h.x, &h.len);
+      sticks.push_back(h);
+    }
+    else if (a.rfind("--poke=", 0) == 0) {
+      Poke k{0, 0, 0, 1};
+      std::sscanf(val("--poke=").c_str(), "%d:%x:%x:%d", &k.frame, &k.addr, &k.value, &k.len);
+      pokes.push_back(k);
+    }
+    else if (a.rfind("--analog=", 0) == 0) {
+      AnalogHold h{0, 0, 0, 6};
+      std::sscanf(val("--analog=").c_str(), "%d:%d,%d:%d", &h.frame, &h.x, &h.y, &h.len);
+      analogs.push_back(h);
+    }
     else if (a.rfind("--aotdump=", 0) == 0) aotdumps.push_back(val("--aotdump="));
     else if (a.rfind("--memdump=", 0) == 0) {
       auto v = val("--memdump=");
@@ -324,6 +458,8 @@ int main(int argc, char** argv) {
   if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
   const double flip_cap = settings::Num("flip_cap", 3);
   nuon::SetFlipCap(flip_cap);
+  // T3K_PAD_PROPS=<hex>: extra controller properties reported to the game (tests).
+  if (const char* pp = std::getenv("T3K_PAD_PROPS")) nuon::SetPadProperties(uint32_t(std::strtoul(pp, nullptr, 16)));
   std::fprintf(stderr, "timing: %s\n",
                emulated ? ("emulated, " + settings::Str("nuon_rounds", "200000") + " rounds a field").c_str() : "real (PC clock)");
 
@@ -389,10 +525,33 @@ int main(int argc, char** argv) {
       CloseHandle(me);
     });
   }
+  auto scripted_analog = [&](int f) {
+    int x = 0, y = 0;
+    for (auto& h : analogs)
+      if (f >= h.frame && f < h.frame + h.len) { x = h.x; y = h.y; }
+    if (!analogs.empty()) nuon::SetAnalog(x, y, 0, 0);
+  };
+  ClawControl headless_claw;
   if (headless) {
     if (frames < 0) frames = 600;
     for (int f = 0; f < frames; ++f) {
-      nuon::SetButtons(scripted(f));
+      {
+        float sx = 0.f;
+        for (auto& h : sticks)
+          if (f >= h.frame && f < h.frame + h.len) sx = h.x;
+        const uint16_t b = scripted(f);
+        const uint16_t lr = uint16_t((1u << nuon::LEFT) | (1u << nuon::RIGHT));
+        nuon::SetButtons(b | headless_claw.Update(sx, b & lr));
+      }
+      scripted_analog(f);
+      for (auto& k : pokes)
+        if (f >= k.frame && f < k.frame + k.len) {
+          size_t n = 0;
+          if (uint8_t* m = nuon::Memory(0, &n); m && (k.addr & 0x7FFFFF) + 4 <= n) {
+            uint8_t* q = m + (k.addr & 0x7FFFFF);
+            q[0] = uint8_t(k.value >> 24); q[1] = uint8_t(k.value >> 16); q[2] = uint8_t(k.value >> 8); q[3] = uint8_t(k.value);
+          }
+        }
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
@@ -470,6 +629,8 @@ int main(int argc, char** argv) {
   Slot ring[8];
   std::mutex ring_mutex;
   std::atomic<uint16_t> pad_buttons{0};
+  std::atomic<float> stick_x{0.f};
+  ClawControl claw;
   std::atomic<bool> emu_quit{false};
   std::atomic<int64_t> fields_done{0};
   // The field grid's origin, shared: the main thread nudges it away from the vblanks (see below).
@@ -491,7 +652,11 @@ int main(int argc, char** argv) {
           SDL_DelayPrecise(due - (buffer_fields - 1) * field_ns - now);
         }
       }
-      nuon::SetButtons(pad_buttons.load() | scripted(uint64_t(k)));
+      {
+        const uint16_t b = pad_buttons.load() | scripted(uint64_t(k));
+        const uint16_t lr = uint16_t((1u << nuon::LEFT) | (1u << nuon::RIGHT));
+        nuon::SetButtons(b | claw.Update(stick_x.load(), b & lr));
+      }
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
@@ -563,6 +728,13 @@ int main(int argc, char** argv) {
       }
     }
     pad_buttons = ReadPad(pad, SDL_GetKeyboardState(nullptr));
+    {
+      float x = pad ? SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.f : 0.f;
+      const bool* ks = SDL_GetKeyboardState(nullptr);
+      if (ks[SDL_SCANCODE_A]) x = -1.f;   // (keyboard A / D: the stick, for testing without a pad)
+      if (ks[SDL_SCANCODE_D]) x = 1.f;
+      stick_x = std::clamp(x, -1.f, 1.f);
+    }
 
     // The newest finished field whose time has passed: due <= now - one field (emulated timing), else the newest;
     // with picture pacing, the newest planned field whose picture's time has come.

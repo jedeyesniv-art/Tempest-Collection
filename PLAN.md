@@ -354,6 +354,24 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   dump). Earlier candidate $800DC26C (16.16 lanes) still unconfirmed. Then: how the game reads the pad, the lane
   count / open webs, and T2K-style lr (ramped speed) and aim modes.
 
+### Claw stick controls (2026-11-14): lr mode done
+- The claw is a game object at $8003E9E0 (MPE3 object list; type handler 0 at $8001228A = a bounded value): +0
+  position (16.16 lanes; 16 on level 1's closed web), +4 velocity, +8 speed SCALE (1.0), +12 flags 0x80000401.
+  Each picture the game sets velocity = d-pad input x 768 (input $801133D8: 20/40, 60, 80 while held, 0 on release)
+  and adds velocity x scale, wrapping / clamping on the web itself. $800DC100 is the renderer's copy, $8075FAB4 a
+  stack copy of the lane. Found with NUANCE_WATCH=<addr> (core: logs every interpreted packet that changes a
+  system-bus word; run with DynamicCompiler Disabled) -> $80012210 (object list store) -> handler table $8011332C.
+- Analog: reporting CTRLR_ANALOG1 (T3K_PAD_PROPS=10) skips the "controller configuration" screen but the axes
+  (d1-d4) aren't read in play (the claw spins at a fixed -69120 whatever they hold) - not pursued.
+- t3k.exe ClawControl (stick_mode = lr, default): the stick presses the d-pad its way and sets the scale each field
+  so speed = lr_max_speed (0.94 = the game's top) x deflection curve x ramp (lr_ramp_pictures, lr_ramp_start);
+  the game's late d-pad picture after release is held to half the last speed (lr_release_pictures, 0 = stop dead).
+  Only while the signature holds (flags + renderer copy == position); else the stick is the d-pad (menus). The
+  physical d-pad keeps the original controls. Keyboard A / D = the stick. --stick=F:x[:len], --poke=F:addr:val[:len],
+  --analog, T3K_MEMDUMP_REGIONS, tools/t3k_clawsearch.py. Measured: full 0.19 / 0.41 / 0.63 then 0.94; half 0.216
+  steady (= curve); release eases 0.94 -> 0.12 -> 0.
+- Next: owner's feel test; aim mode (needs the web's lane geometry); open webs (clamping) unverified.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,

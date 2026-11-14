@@ -272,6 +272,18 @@ std::string Disasm(int mpe, uint32_t address, int packets) {
   return buf;
 }
 
+bool SetPadProperties(uint32_t extra) {
+  auto f = reinterpret_cast<void (*)(uint32_t)>(::GetProcAddress(g_core.dll, "nuance_set_pad_properties"));
+  if (!f) return false;
+  f(extra);
+  return true;
+}
+
+void SetAnalog(int x, int y, int x2, int y2) {
+  static auto f = reinterpret_cast<void (*)(int, int, int, int)>(::GetProcAddress(g_core.dll, "nuance_set_analog"));
+  if (f) f(x, y, x2, y2);
+}
+
 int AotDump(int mpe, uint32_t src, uint32_t len, uint32_t base, const char* path) {
   using Fn = int (*)(int, uint32_t, uint32_t, uint32_t, const char*);
   auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_aot_dump"));
