@@ -246,6 +246,21 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
 - Claw "much too fast": at 60 pictures/s it would be 6.4 lanes/s with the d-pad; stage 5 stick modes (as T2K's lr
   ramp) on $800DC26C.
 
+### Parking wait loops (2026-11-14; owner: "something fundamental needs to shift" - a 9700X is top-end)
+- MPE packets per field at the 60-picture threshold (1.2-1.4M) exceed what a 54 MHz MPE can do: much of it is
+  waiting. --disasm=F:mpe:addr:count (core nuance_disasm) showed: MPE3 $800150A0 = jsr DCacheFlush (a no-op) + OR
+  the three renderer-completion words $8003DE50-58, loop while non-zero; MPE0 $20300000 = dequeue from its comm
+  job queue ($20101C10: write index $..1C18, read index $..1C1C), loop until a command (r4 == 3).
+- Parking (core, on by default; NUANCE_NOPARK=1 off): an MPE at such a loop head (code bytes checked: overlays)
+  with nothing to do is skipped each round until the condition can pass or it has an enabled interrupt, then
+  resumes at the loop head. 400k rounds: 25.6 -> 19.9 ms a field, same picture rate. Benchmark at 220k: 16.2 ->
+  12.7 ms (picture md5 now ad6a8115... - timing shifted by parking / flip cap; re-baseline when settled).
+- What remains is real renderer work: MPE0-2 run the same overlay renderer (top block $20300D8C, 17 packets), ~276k
+  calls each a field at 400k (~18 ns), one after another on one core: ~15 of the 20 ms. The real hardware runs them
+  at the same time -> next: MPE0-2 on three threads in windows of W rounds, MPE3 + comm bus + interrupts between
+  windows (latency W rounds; deterministic if the renderers don't race on shared memory). Needs a thread-safety
+  audit of the core first (JIT, DMA, comm bus, BIOS handlers, statics).
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,

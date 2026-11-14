@@ -263,6 +263,15 @@ uint8_t* Memory(int which, size_t* size) {
 void ReleaseContext() { SDL_GL_MakeCurrent(g_glwin, nullptr); }
 void MakeContextCurrent() { SDL_GL_MakeCurrent(g_glwin, g_gl); }
 
+std::string Disasm(int mpe, uint32_t address, int packets) {
+  using Fn = size_t (*)(int, uint32_t, int, char*, size_t);
+  auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_disasm"));
+  if (!f) return {};
+  std::string buf(size_t(packets) * 600 + 1024, '\0');
+  buf.resize(f(mpe, address, packets, buf.data(), buf.size()));
+  return buf;
+}
+
 bool SetFlipCap(bool on) {
   using Fn = void (*)(int);
   auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_set_flip_cap"));
