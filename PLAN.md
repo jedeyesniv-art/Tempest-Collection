@@ -454,7 +454,17 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
     disassembly by module (--disasm per catalogue module; the one-range run crashes on data).
   * Cost: in play 9.5 ms a field (p95 26) vs 3.7 (p95 10) - patched modules miss the AOT catalogue (validated by
     bytes): collect a high-res catalogue next.
-  Open: title transition warp only updates the left 360 columns; main menu "3000" logo (0010000D entry: word 0 is a
+  Update (later 2026-11-14): fixed since - menu "3000" logo + big text (0010000D: position, 16.16 scales), purple HUD
+  icon / score (same type), death + warp zoom feedback (00300004: centre doubled, word 1 NOT - the source offset is
+  word 1 - centre, doubling it read (360, 240) off into unwritten memory = pink), title / boot feedback (0000000F:
+  word 1 = 384 x (240 x 16), both halves doubled), any entry word holding the 360-wide frame-buffer DMA flags,
+  object perspective path (mul >>#20 -> #19). A 3800-field timeline (play, 3 deaths, warps, levels 2-3, game over)
+  looks right. Tools: NUANCE_BASELOG (each pixel-DMA base / flags once), NUANCE_RECTLOG=<field> (every pixel-DMA
+  rectangle; read vs write ranges found the zoom offset at once).
+  Still open: 2D vector objects with size >= 256 stay at the old size (the spinning TEMPEST logo on the title and
+  menu: doubled to 992 it vanished - an overflow in one of 806AA120's handlers, table at local $20100EC0 by word 5's
+  low half); menu dot / ring sizes; point size clamps (806A5FB0 2..24); the AOT catalogue for the patched modules.
+  Older notes: title transition warp only updated the left 360 columns (fixed); main menu "3000" logo (0010000D entry: word 0 is a
   centre there but not on the boot screen - read its module first) and maybe text sizes; the purple HUD icon is half
   size; sprite size clamps (806A5FB0: 2..24) not doubled; untested: level transitions, other screens, options,
   high-score entry; the window (host) path with high_res = 1.
