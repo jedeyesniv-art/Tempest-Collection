@@ -528,8 +528,11 @@ on llamasoft-vita reads VITA3K_AUTO_OK_DIALOG (Win32 GetEnvironmentVariable: the
 predates the host setting it), txk setting auto_ok_dialog (default: that text).
 Route: Start at 900 (title -> Level Select), Cross at 1300 -> level 1 by ~1800 (frames from boot, fresh userdata).
 Unhandled env (harmless so far): keyboard callback, core assets dir, sensors, VFS.
-Next: step 3 rest (window polish: aspect / filters), step 4 (shared Back menu, controls, packaging with the MSVC
-runtime DLLs), then TxK QoL with the owner.
+2026-11-14 later: shared Back menu (src/txk_menu.cpp): restart, internal resolution 1-4x (core option, applies on
+restart = retro_reset, the core's deferred unload + load), anisotropic filtering, picture scaling, button remapping
+(Select on LT by default: Back opens the menu). 2x and 4x hold 60 pictures/s in play (RTX 5070 Ti, readback
+included). No save states: the core's retro_serialize is a stub (upstream Vita3K has none either). In the launcher.
+Next: packaging with the MSVC runtime DLLs, then TxK QoL with the owner.
 
 Route: the Vita3K libretro core (docs.libretro.com/library/vita3k, source github.com/WizzardSK/vita3k-libretro,
 `libretro` branch; upstream Vita3K v0.2.1 build 4123, GPL-2). It loads a game folder / eboot.bin directly. It needs
