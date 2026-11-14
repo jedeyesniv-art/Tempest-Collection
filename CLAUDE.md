@@ -113,11 +113,20 @@ classifier (downloaded code) - ask the owner before trying again.
 6. Performance: 4K with CRT++; a low-end GPU (Steam Deck class) if that's a target.
 7. Open questions: the psycho bonus sphere invisible on the original (left to the GPU); the owner's "offset ghost
    image of the UI" (not reproduced; ceiling bonus mfudj merge 8 lines low is a candidate).
-7b. FIRST from 2026-11-14: Tempest 3000 (Nuon) via the Nuance libretro core, performance first: PLAN.md
-   "Tempest 3000 plan". Standalone: Nuance_067\Tempest3000.bat; source third_party\NuanceResurrection (branch
-   llamasoft-nuon, not in the outer git). 2026-11-14: stage 1 done (build\t3k.exe plays it; tools\build_nuance.bat
-   then build.bat), stage 0 measured, stage 2 emulated time done (deterministic; game speed = nuon_rounds): see PLAN.md
-   "Stage 2 done". Next: stage 3 speed (PLAN.md "Stage 3 next").
+7b. Tempest 3000 (Nuon) via the Nuance libretro core (third_party\NuanceResurrection, branch llamasoft-nuon, not in
+   the outer git; tools\build_nuance.bat then build.bat). State 2026-11-14 (details: PLAN.md "Tempest 3000 plan" and
+   "High resolution"): plays at full speed (emulated time, AOT, parallel renderers), flip_cap 3 (owner's choice,
+   20 pictures/s), picture_blend (F3), lr stick controls, F4 on-screen counter (pictures/s, fields/s).
+   HIGH RES 720x480 works (owner: "stunning"): setting high_res = 1 / --hires; core src/hires.cpp + hires_table.inc
+   (tools/t3k_hires_table.py: 87 code patches checked against original words), display list entry transforms by type,
+   buffers remapped above 8 MB. Original mode stays pixel-identical. Investigation tools: NUANCE_PIXLOG, _RECTLOG,
+   _BASELOG, _DMALOG, _HIRES_TRACE, _HIRES_SKIP (PLAN.md lists them). Open: big vector objects (size >= 256, the
+   spinning TEMPEST logo) stay old size; menu dot sizes; a high-res AOT catalogue exists (aot_catalog_hires ->
+   build_aot\aoth_*; small gain).
+   Launcher: build\tempest.exe (src/launcher.cpp), barebones; games run as separate processes. NEXT (owner agreed
+   direction): a shared in-game settings overlay (T2K's Back menu as a module; T3K: high_res, blend, flip_cap, stick,
+   controls, return to launcher), then the launcher's look and packaging all games together (local only).
+   Also open for T3K: high scores / options not saved (flash EEPROM not persisted), aim stick mode, open webs.
 8. TxK (PS Vita) via the Vita3K libretro core, after Tempest 3000: PLAN.md "TxK plan".
 8b. Neon Mode (Neon light synth as the in-play background), after TxK works in the combined build: PLAN.md
    "Neon Mode plan".
