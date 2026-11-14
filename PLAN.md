@@ -391,7 +391,17 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   $800B2E10/14 = 180.0 / 120.0 (screen centre = the projection origin); the job descriptor MPE3 sends the renderers
   ($8004E040) holds 360 / 240 (16-bit at +4/+6) and a buffer base (+0x24) -> the renderers take the size from their
   jobs; $800B1730 = channel dmaflags + a buffer base (video setup data). Plus 188 / 200 other 16-bit 360 / 240 hits.
-- Experiments next: (1) poke the projection centre / scale and see whether the renderers draw bigger (projection
+- Experiment 1 (2026-11-14): pokes at field boundaries to the job area ($8004E080...) don't stick - MPE3 rebuilds
+  it within each field, many jobs a picture (NUANCE_WATCH=8004E080: writers $80012100 = a command-string parser
+  ('<', '>', '0'-'4') and $800117A2 = a 4-vector copy from a per-job parameter block at [r8+0x18]). The centres live
+  in render-job TEMPLATES in system RAM, mostly $800B3000-$800BB000 (00B4 0078 x12, 00B4 0098 x11; 0168 00F0 =
+  360x240 x10). Halving all those centres (static data: poked once, stays) moved the web's LINES to centre
+  (90,60): the renderers draw from parameters (go). The web's filled surface, the claw, enemies and stars did not
+  move: their centre / origin comes from other parameters still to find.
+- Experiments next: (1b) find the remaining elements' parameters (same template region: other formats - 16.16,
+  separate x / y words, per-object camera data); (2) where the buffers are allocated and the 360x240 frame job is
+  filled; (3) a real 720x480 attempt with all found parameters doubled.
+- (was:) (1) poke the projection centre / scale and see whether the renderers draw bigger (projection
   parameter-driven?); (2) find where the buffers are allocated and the job descriptor filled; (3) a real 720x480
   attempt: bigger buffers in free main-bus memory, job sizes, channel flags, projection x2, then fix what breaks
   (text, sprites, clears, feedback effects).
