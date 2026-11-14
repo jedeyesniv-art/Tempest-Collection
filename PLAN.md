@@ -461,6 +461,15 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   object perspective path (mul >>#20 -> #19). A 3800-field timeline (play, 3 deaths, warps, levels 2-3, game over)
   looks right. Tools: NUANCE_BASELOG (each pixel-DMA base / flags once), NUANCE_RECTLOG=<field> (every pixel-DMA
   rectangle; read vs write ranges found the zoom offset at once).
+  Owner test (2026-11-14): "really quite impressive"; bug: claw + enemies sat inward of the web. Cause: 806AE210
+  projects 3D-placed objects and writes screen position (word 0) + size (word 4) into their entries itself; the
+  centre was doubled, the position multiplies not (fixed: 12 x mul >>#19 -> >>#18; size multiplies stay because word
+  4 is doubled on read). Found with NUANCE_HIRES_TRACE=<entry> (reads / write-backs with values, into the job log).
+  Speed: window with the owner's settings (200k rounds) holds 60 fields/s after boot (field max 18-22 ms, the
+  2-field buffer absorbs it); the game draws its 20 pictures/s in high res too (emulated budget is enough at 200k).
+  F4 = on-screen counter (pictures/s, fields/s). High-res AOT catalogue: aot_catalog_hires -> build_aot/aoth_*
+  (tools/t3k_aot_gen.py aot_catalog_hires build_aot aoth_; 29 patched modules) - small gain (8.1 vs 9.8 ms a field);
+  AOT vs dynamic compiler runs drift apart in game state in high res (renderer timing), pictures both clean.
   Still open: 2D vector objects with size >= 256 stay at the old size (the spinning TEMPEST logo on the title and
   menu: doubled to 992 it vanished - an overflow in one of 806AA120's handlers, table at local $20100EC0 by word 5's
   low half); menu dot / ring sizes; point size clamps (806A5FB0 2..24); the AOT catalogue for the patched modules.
