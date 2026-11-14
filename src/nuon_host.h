@@ -53,6 +53,8 @@ bool SetTiming(bool emulated, double rounds);
 // At most one new picture a field (the hardware shows a flipped buffer from the next vblank): a second flip in a
 // field waits for the next one. False if the core can't.
 bool SetFlipCap(bool on);
+// Dump a code module (system-bus src, len bytes, as loaded at base in MPE mpe) for tools/t3k_aot.py.
+int AotDump(int mpe, uint32_t src, uint32_t len, uint32_t base, const char* path);
 // Disassembly of `packets` packets of MPE `mpe` from `address` (one "address: text" line each).
 std::string Disasm(int mpe, uint32_t address, int packets);
 // The core's OpenGL context is current on one thread at a time: release it before another thread runs frames

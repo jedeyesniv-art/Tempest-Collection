@@ -9,6 +9,7 @@
 //   --press=F:<btn>[:len]                 hold a RetroPad button from frame F (default 6 frames)
 //   --wav=<file.wav>                      dump the audio
 //   --disasm=F:mpe:hexaddr:count          print count packets of MPE code after field F (headless)
+//   --aotdump=F:mpe:src:len:base:file      dump a code module for the AOT generator (headless, absolute file)
 //   --memdump=F:<prefix>                  dump the Nuon's memory after field F (headless; repeatable)
 //   --perflog=<file.csv>                  one line per frame: timing and the core's run statistics
 //   --userdata=<dir>                      save folder (default userdata next to the program)
@@ -250,6 +251,7 @@ int main(int argc, char** argv) {
   int frames = -1;   // headless default 600; the window runs until closed unless given
   std::vector<Shot> shots, memdumps;   // memdumps: --memdump=F:<prefix>
   std::vector<std::string> disasms;      // --disasm=F:mpe:hexaddr:count
+  std::vector<std::string> aotdumps;     // --aotdump=F:mpe:hexsrc:len:hexbase:file
   std::vector<Press> presses;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
@@ -263,6 +265,7 @@ int main(int argc, char** argv) {
     else if (a.rfind("--flipcap=", 0) == 0) flipcap_arg = val("--flipcap=");
     else if (a.rfind("--perflog=", 0) == 0) perflog = val("--perflog=");
     else if (a.rfind("--disasm=", 0) == 0) disasms.push_back(val("--disasm="));
+    else if (a.rfind("--aotdump=", 0) == 0) aotdumps.push_back(val("--aotdump="));
     else if (a.rfind("--memdump=", 0) == 0) {
       auto v = val("--memdump=");
       memdumps.push_back({std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)});
@@ -398,6 +401,13 @@ int main(int argc, char** argv) {
         unsigned da = 0;
         if (std::sscanf(spec.c_str(), "%d:%d:%x:%d", &df, &dm, &da, &dn) == 4 && df == f)
           std::printf("--- mpe%d %08X (field %d)\n%s", dm, da, f, nuon::Disasm(dm, da, dn).c_str());
+      }
+      for (auto& spec : aotdumps) {
+        int df = 0, dm = 0;
+        unsigned src = 0, len = 0, base = 0;
+        char file[512] = {};
+        if (std::sscanf(spec.c_str(), "%d:%d:%x:%u:%x:%511s", &df, &dm, &src, &len, &base, file) == 6 && df == f)
+          std::fprintf(stderr, "aotdump %s: %d packets\n", file, nuon::AotDump(dm, src, len, base, file));
       }
       for (auto& d : memdumps)
         if (d.frame == f) {   // <prefix>_sys.bin ($80000000), _main.bin ($40000000), _mpe3.bin ($20000000)

@@ -272,6 +272,12 @@ std::string Disasm(int mpe, uint32_t address, int packets) {
   return buf;
 }
 
+int AotDump(int mpe, uint32_t src, uint32_t len, uint32_t base, const char* path) {
+  using Fn = int (*)(int, uint32_t, uint32_t, uint32_t, const char*);
+  auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_aot_dump"));
+  return f ? f(mpe, src, len, base, path) : -1;
+}
+
 bool SetFlipCap(bool on) {
   using Fn = void (*)(int);
   auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_set_flip_cap"));

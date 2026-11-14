@@ -281,6 +281,32 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   budget, verified against the interpreter in lockstep (deterministic runs). Pixel-exact, game-agnostic within T3K,
   and it is ~75% of the cost.
 
+### AOT-compiled renderer modules (2026-11-14; owner: "start with the hottest module")
+- Core (llamasoft-nuon): src/aot.{h,cpp} - module registry, per-MPE validation (g_iramVersion bumped in
+  UpdateInvalidateRegion; byte compare only after a write), candidate index over IRAM $20300000-$20302000,
+  AotTry() before FetchDecodeExecute in the round loop. nuance_aot_dump(mpe, src, len, base, path) decodes a module
+  with the interpreter's options (+ .bin of its bytes). CMake NUANCE_AOT_DIR: every .cpp there is compiled in.
+- Generated code (tools/t3k_aot.py; output in build_aot\ = game code translation, NOT in git): per packet the
+  interpreter's exact steps (pcroute / pcexec, tempreg copy or tempCC, the same Execute_* handlers called directly
+  with constexpr fields; pointer fields rebuilt per MPE: D+ = own dtrom, E+ = fixed place in nuonEnv; INFO fields
+  holding host pointers are stale scheduler data -> 0); packets fall through, per packet only the delay-slot
+  countdown / exception / jump check; block ends at a taken jump or NUANCE_AOT_MAX (64) packets; media tick + Halt
+  once per block. The interrupt test mirrors FetchDecodeExecute exactly (AotInterruptTaken) - the renderers
+  always have masked intsrc bits, a plain intsrc test kept AOT to 2-packet runs.
+- Workflow: NUANCE_JOBLOG=<abs> run -> tools/t3k_aot_targets.py jobs.txt F dir -> t3k.exe ... --aotdump=... (all
+  targets in one run) -> tools/t3k_aot.py each dump -> build_aot\aot_<src>_<base>.cpp -> tools\build_nuance.bat
+  (ThinLTO + lld now: inlining the handlers is what makes AOT fast; delete build_nuance\ after option changes).
+  30 (module, base) pairs from the route to level 1 (dumped at field 2600); coverage 98-100% of renderer packets
+  to field 2700, 33-40% after (level 2's modules aren't in the catalogue yet).
+- **Exact**: DynamicCompiler Disabled + NUANCE_AOT_MAX=1 vs NUANCE_NOAOT=1: pictures at fields 1500 / 1799 and all
+  per-field stats byte-identical over 1800 fields, with 895M packets run through AOT.
+- Speed (headless, flip cap on): 60 pictures/s in early play needs 400k rounds with the JIT (20.6 ms a field) but
+  220k with AOT (15.5 ms, fields 2300-2700). Still over budget at 220k: title 25.6 ms, later play 17-18 ms (p95
+  26). NUANCE_AOT_STATS=1 prints per-module validations / runs / packets at exit; NUANCE_PROFILE shows "mpeN AOT x%".
+- Next: catalogue all levels' modules (longer job-log runs; maybe dump at several fields); codegen (cc / tempCC
+  traffic, the remaining per-packet checks, bigger blocks across jumps within a module); then the three renderers
+  on threads.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
