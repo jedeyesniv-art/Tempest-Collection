@@ -372,6 +372,17 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   steady (= curve); release eases 0.94 -> 0.12 -> 0.
 - Next: owner's feel test; aim mode (needs the web's lane geometry); open webs (clamping) unverified.
 
+### Smooth motion at a fixed game speed (2026-11-14)
+- Owner: on the fence between flip_cap 2 and 3; real play probably floated between them, but floating speed would
+  feel terrible: wants a FIXED ~2.5 speed with smooth motion at any display rate. One game step = one drawn picture
+  (MPE3 moves everything, then the renderers draw that state), so smoothness needs made-up in-between frames.
+- Option 1 (done, experiment): picture_blend = 1 (default; F3 toggles, saved): the previous picture stays underneath
+  and the current one fades in over its slot (flip_cap fields, from its planned show time). ~1 picture more lag.
+- Option 2 (the real one, research, shares the work with high resolution): capture two consecutive pictures' renderer
+  job lists, interpolate the moving values, run our recompiled renderer modules on the in-between job lists; watch
+  out for feedback / trail effects. Option 3 (slow every object's speed scale at 60 steps) rejected: timers,
+  spawns and animations count steps.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,

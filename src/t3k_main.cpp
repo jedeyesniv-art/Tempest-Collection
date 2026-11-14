@@ -20,7 +20,7 @@
 //   --novsync                             present without waiting for the display
 //   T3K_PERF=1                            a timing summary every 5 s on stderr
 // Keys: arrows d-pad, Z = A, X = B, Enter = Start, Tab = Nuon, Q / E = L / R, I J K L = C up / left / down / right,
-// A / D = the stick (claw), F11 fullscreen, Esc quits (no settings menu yet).
+// A / D = the stick (claw), F3 picture blend, F11 fullscreen, Esc quits (no settings menu yet).
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <windows.h>
@@ -104,6 +104,9 @@ buffer_fields = 2
 # fields between two pictures. 3 = 20 pictures/s (the owner's choice: most playable), 2 = 30, 1 = 60;
 # 2.5 = 24 (on a 120 Hz display still even: 5 refreshes a picture; elsewhere 2-then-3 fields).
 flip_cap = 3
+# 1 = cross-fade between the game's pictures (smooth-looking motion at any display rate, ~one picture more lag;
+# F3 toggles). 0 = each picture shown as it is.
+picture_blend = 1
 
 # --- Stick controls for the claw (left stick; the d-pad keeps the original controls) ---
 # lr = push left / right: speed follows how far the stick is pushed, with a ramp; off = stick acts as the d-pad.
@@ -609,6 +612,9 @@ int main(int argc, char** argv) {
   SDL_SetRenderVSync(ren, vsync_on ? 1 : 0);
   SDL_HideCursor();
   SDL_Texture* tex = nullptr;
+  SDL_Texture* tex_prev = nullptr;   // picture_blend: the previous picture
+  bool picture_blend = settings::Num("picture_blend", 1) != 0;
+  uint64_t blend_from = 0, pick_show_at = 0;   // when the current picture's slot began
   unsigned tw = 0, th = 0;
 
   SDL_AudioSpec spec{SDL_AUDIO_S16, 2, int(nuon::SampleRate())};
@@ -715,6 +721,11 @@ int main(int argc, char** argv) {
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) running = false;
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) running = false;
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F3) {
+        picture_blend = !picture_blend;
+        settings::Save("picture_blend", picture_blend ? "1" : "0");
+        std::fprintf(stderr, "picture blend %s\n", picture_blend ? "on" : "off");
+      }
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11) {
         const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
         SDL_SetWindowFullscreen(win, on);
@@ -762,7 +773,10 @@ int main(int argc, char** argv) {
           if (plan[j].show_at <= now) take = j;
         if (take != SIZE_MAX) {
           const Slot& sl = ring[plan[take].field & 7];
-          if (sl.field == plan[take].field && sl.field > shown) pick = &sl;
+          if (sl.field == plan[take].field && sl.field > shown) {
+            pick = &sl;
+            pick_show_at = plan[take].show_at;
+          }
           plan.erase(plan.begin(), plan.begin() + take + 1);
         }
         if (plan.size() > 64) plan.erase(plan.begin(), plan.end() - 8);   // (stalls)
@@ -775,15 +789,21 @@ int main(int argc, char** argv) {
       }
       if (pick && pick->frame.width) {
         const nuon::Frame& f = pick->frame;
+        const bool new_picture = !picture_ns || pick->pic != shown_pic || shown < 0;
+        if (new_picture && picture_ns) {   // blending: the previous picture stays underneath while this one fades in
+          std::swap(tex, tex_prev);
+          blend_from = pick_show_at ? pick_show_at : now;
+        }
         if (!tex || tw != f.width || th != f.height) {
           if (tex) SDL_DestroyTexture(tex);
+          if (tex_prev && (tw != f.width || th != f.height)) { SDL_DestroyTexture(tex_prev); tex_prev = nullptr; }
           tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, int(f.width), int(f.height));
           SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
           tw = f.width;
           th = f.height;
         }
         SDL_UpdateTexture(tex, nullptr, f.pixels.data(), int(f.width * 4));
-        if (!picture_ns || pick->pic != shown_pic || shown < 0) {   // a new picture (or field without pacing)
+        if (new_picture) {   // a new picture (or field without pacing)
           if (shown >= 0) {
             hold_hist[std::min(presents_of_shown, 7)]++;
             if (odd_holds.size() < 4000 && presents_of_shown != (picture_ns ? int(std::lround(2 * flip_cap)) : 2))
@@ -804,7 +824,21 @@ int main(int argc, char** argv) {
       float h = float(wh), w = h * 4.f / 3.f;
       if (w > ww) { w = float(ww); h = w * 3.f / 4.f; }
       SDL_FRect dst{(ww - w) / 2, (wh - h) / 2, w, h};
-      SDL_RenderTexture(ren, tex, nullptr, &dst);
+      // picture_blend (F3): cross-fade from the previous picture to this one over its time slot - smooth-looking
+      // motion between the game's steps, at the price of about one picture more lag.
+      if (picture_blend && picture_ns && tex_prev) {
+        const double t = std::clamp(double(int64_t(SDL_GetTicksNS() + refresh_ns / 2 - blend_from)) / double(picture_ns),
+                                    0.0, 1.0);
+        SDL_SetTextureBlendMode(tex_prev, SDL_BLENDMODE_NONE);
+        SDL_RenderTexture(ren, tex_prev, nullptr, &dst);
+        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureAlphaModFloat(tex, float(t));
+        SDL_RenderTexture(ren, tex, nullptr, &dst);
+        SDL_SetTextureAlphaModFloat(tex, 1.f);
+        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+      } else {
+        SDL_RenderTexture(ren, tex, nullptr, &dst);
+      }
     }
     SDL_RenderPresent(ren);
     ++presents_of_shown;
@@ -841,6 +875,7 @@ int main(int argc, char** argv) {
   if (perf.csv) std::fclose(perf.csv);
   if (audio) SDL_DestroyAudioStream(audio);
   if (tex) SDL_DestroyTexture(tex);
+  if (tex_prev) SDL_DestroyTexture(tex_prev);
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
   nuon::Unload();
