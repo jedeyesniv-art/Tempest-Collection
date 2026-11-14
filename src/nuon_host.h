@@ -50,8 +50,14 @@ bool GetRunStats(RunStats* out);
 // Emulated time (default): one RunFrame = exactly one field of `rounds` emulation rounds; the host paces at Fps().
 // Off: Nuance's own timing (the core runs by the PC clock). False if the core can't (another build).
 bool SetTiming(bool emulated, double rounds);
+// At most one new picture a field (the hardware shows a flipped buffer from the next vblank): a second flip in a
+// field waits for the next one. False if the core can't.
+bool SetFlipCap(bool on);
 // The core's OpenGL context is current on one thread at a time: release it before another thread runs frames
 // (RunFrame makes it current on the calling thread), and take it back before Unload.
+// The Nuon's memory (big-endian words): 0 = system bus DRAM ($80000000), 1 = main bus DRAM ($40000000),
+// 2..5 = MPE 0..3 local memory ($20000000). Null if the core can't.
+uint8_t* Memory(int which, size_t* size);
 void ReleaseContext();
 void MakeContextCurrent();
 

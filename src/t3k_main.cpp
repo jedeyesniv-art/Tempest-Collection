@@ -8,6 +8,7 @@
 //   --shot=F:<file.bmp>                   save the picture after frame F (repeatable)
 //   --press=F:<btn>[:len]                 hold a RetroPad button from frame F (default 6 frames)
 //   --wav=<file.wav>                      dump the audio
+//   --memdump=F:<prefix>                  dump the Nuon's memory after field F (headless; repeatable)
 //   --perflog=<file.csv>                  one line per frame: timing and the core's run statistics
 //   --userdata=<dir>                      save folder (default userdata next to the program)
 //   (--frames and --press work in the window too: scripted timing tests)
@@ -94,6 +95,8 @@ nuon_rounds = 220000
 # Fields the emulation may work ahead (1-3): 2 lets a slow field borrow time from fast ones, for one field
 # (16.7 ms) more input lag. 1 = lowest lag, but busy moments may show a field for 1 or 3 refreshes.
 buffer_fields = 2
+# 1 = at most one new picture a video field, as on the hardware (a flipped buffer shows from the next vblank).
+flip_cap = 1
 )";
 
 struct Shot { int frame; std::string path; };
@@ -241,10 +244,10 @@ struct Perf {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg;
+  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg, flipcap_arg;
   bool headless = false, novsync = false;
   int frames = -1;   // headless default 600; the window runs until closed unless given
-  std::vector<Shot> shots;
+  std::vector<Shot> shots, memdumps;   // memdumps: --memdump=F:<prefix>
   std::vector<Press> presses;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
@@ -255,7 +258,12 @@ int main(int argc, char** argv) {
     else if (a.rfind("--wav=", 0) == 0) wav = val("--wav=");
     else if (a.rfind("--timing=", 0) == 0) timing_arg = val("--timing=");
     else if (a.rfind("--rounds=", 0) == 0) rounds_arg = val("--rounds=");
+    else if (a.rfind("--flipcap=", 0) == 0) flipcap_arg = val("--flipcap=");
     else if (a.rfind("--perflog=", 0) == 0) perflog = val("--perflog=");
+    else if (a.rfind("--memdump=", 0) == 0) {
+      auto v = val("--memdump=");
+      memdumps.push_back({std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)});
+    }
     else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
     else if (a.rfind("--shot=", 0) == 0) {
       auto v = val("--shot="), c = v.substr(0, v.find(':'));
@@ -275,6 +283,7 @@ int main(int argc, char** argv) {
   if (!wav.empty()) wav = fs::absolute(wav).string();
   if (!perflog.empty()) perflog = fs::absolute(perflog).string();
   for (auto& s : shots) s.path = fs::absolute(s.path).string();
+  for (auto& s : memdumps) s.path = fs::absolute(s.path).string();
   const std::string sample_out = std::getenv("T3K_SAMPLE") ? fs::absolute(std::getenv("T3K_SAMPLE")).string() : "";
 
   SetUnhandledExceptionFilter(CrashFilter);
@@ -304,6 +313,8 @@ int main(int argc, char** argv) {
   if (!rounds_arg.empty()) settings::Set("nuon_rounds", rounds_arg);
   bool emulated = settings::Str("timing", "emulated") != "real";
   if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 220000))) emulated = false;
+  if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
+  nuon::SetFlipCap(settings::Num("flip_cap", 1) != 0);
   std::fprintf(stderr, "timing: %s\n",
                emulated ? ("emulated, " + settings::Str("nuon_rounds", "220000") + " rounds a field").c_str() : "real (PC clock)");
 
@@ -379,6 +390,17 @@ int main(int argc, char** argv) {
       auto& au = nuon::Audio();
       if (!wav.empty()) wav_samples.insert(wav_samples.end(), au.begin(), au.end());
       au.clear();
+      for (auto& d : memdumps)
+        if (d.frame == f) {   // <prefix>_sys.bin ($80000000), _main.bin ($40000000), _mpe3.bin ($20000000)
+          const char* names[] = {"_sys.bin", "_main.bin", nullptr, nullptr, nullptr, "_mpe3.bin"};
+          for (int w : {0, 1, 5}) {
+            size_t n = 0;
+            const uint8_t* m = nuon::Memory(w, &n);
+            if (!m) continue;
+            std::ofstream o(d.path + names[w], std::ios::binary);
+            o.write(reinterpret_cast<const char*>(m), std::streamsize(n));
+          }
+        }
       for (auto& s : shots)
         if (s.frame == f && !WriteBmp(s.path, nuon::LastFrame())) std::fprintf(stderr, "shot %s failed\n", s.path.c_str());
       perf.Frame(f, t0, t1, SDL_GetTicksNS());

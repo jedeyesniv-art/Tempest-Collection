@@ -221,6 +221,31 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   or fix the IL downgrade's T3K flicker - verify against the picture md5 AND by eye); the stale-COMPILED fix; a
   per-MPE lookup cache in front of PageMap::FindEntry.
 
+### How the game times itself, and the flip cap (2026-11-14, after the owner's play test)
+- Owner: "a large improvement but still not quite there": in play with a web + enemies it feels sluggish and the
+  speed uneven; between levels (no geometry) it gets smooth and speeds up; the claw moves much too fast.
+- Memory (core export nuance_get_memory, t3k --memdump=F:prefix, tools/t3k_memsearch.py, tools/t3k_dtsearch.py):
+  $80110AA0 = the game's picture counter (+1 per picture; mirrored at MPE3 $20000FF0), $807FFDC0 = BIOS field
+  counter, $800DC26C = claw position (16.16 lanes, likely; to confirm for stage 5 stick controls).
+- **The game moves per picture**: the claw steps 0.106 lanes per picture held right, whether the picture took 1 or 2
+  fields; no delta-time variable. So game speed = picture rate. It flips with **VidConfig** from MPE3 (three display
+  structures in turn), never waits for the field, and Nuance applies the flip at once - so with enough emulation it
+  draws 65-77 pictures a second. The hardware shows a flipped buffer from the next vblank: real T3K must have been
+  capped at 60 (and, being per-picture, was surely meant to run at a locked 60).
+- **Flip cap** (core g_flip_cap, setting flip_cap = 1, --flipcap): a second VidConfig / VidChangeBase by MPE3 within
+  a field is held - MPE3 sleeps until the next field (MPE3wait_fieldCounter, as VidSync) and the BIOS call is
+  retried (bCallingMediaCallback suppresses the implicit rts). NUANCE_DEBUG_FLIPS=1 logs flips.
+- Result, level 1 in play, flip cap on: 400k rounds = **59.7 pictures/s, 237 of 238 pictures exactly one field**
+  (locked 60, the intended speed); 300k / 350k = ~51/s (a picture's work just misses one field). MPE3PacketHack =
+  T3K doesn't lower the threshold (MPE3 isn't the bottleneck: the MPE0-2 renderers are).
+- So the target: ~400k rounds (more for busier levels) inside 16.7 ms. Today 400k = 25.5 ms a field here: needs
+  ~1.6x. Above the threshold extra rounds don't change the game (MPE3 sleeps), so idle-skipping is a lever too.
+- Host time per picture ~ the MPE0-2 calls a picture needs x ~20 ns: fewer, bigger calls (compile the uncompiled
+  26-40% - branch + I/O delay slots, I/O packets; the stale-COMPILED fix), cheaper calls (dispatch), and skipping
+  rounds where MPE3 sleeps and MPE0-2 are halted.
+- Claw "much too fast": at 60 pictures/s it would be 6.4 lanes/s with the d-pad; stage 5 stick modes (as T2K's lr
+  ramp) on $800DC26C.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
