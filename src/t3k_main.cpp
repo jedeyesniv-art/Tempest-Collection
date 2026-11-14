@@ -98,9 +98,9 @@ nuon_rounds = 200000
 # (16.7 ms) more input lag. 1 = lowest lag, but busy moments may show a field for 1 or 3 refreshes.
 buffer_fields = 2
 # Game speed. Tempest 3000 moves a fixed step per picture, so its speed is its picture rate: the minimum video
-# fields between two pictures. 2 = 30 pictures/s (likely the original speed), 1 = 60 (twice as fast), 3 = 20;
+# fields between two pictures. 3 = 20 pictures/s (the owner's choice: most playable), 2 = 30, 1 = 60;
 # 2.5 = 24 (on a 120 Hz display still even: 5 refreshes a picture; elsewhere 2-then-3 fields).
-flip_cap = 2.5
+flip_cap = 3
 )";
 
 struct Shot { int frame; std::string path; };
@@ -322,7 +322,7 @@ int main(int argc, char** argv) {
   bool emulated = settings::Str("timing", "emulated") != "real";
   if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 200000))) emulated = false;
   if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
-  const double flip_cap = settings::Num("flip_cap", 2.5);
+  const double flip_cap = settings::Num("flip_cap", 3);
   nuon::SetFlipCap(flip_cap);
   std::fprintf(stderr, "timing: %s\n",
                emulated ? ("emulated, " + settings::Str("nuon_rounds", "200000") + " rounds a field").c_str() : "real (PC clock)");
