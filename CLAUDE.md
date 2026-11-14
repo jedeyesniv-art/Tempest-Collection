@@ -112,7 +112,9 @@ classifier (downloaded code) - ask the owner before trying again.
 7. Open questions: the psycho bonus sphere invisible on the original (left to the GPU); the owner's "offset ghost
    image of the UI" (not reproduced; ceiling bonus mfudj merge 8 lines low is a candidate).
 7b. FIRST from 2026-11-14: Tempest 3000 (Nuon) via the Nuance libretro core, performance first: PLAN.md
-   "Tempest 3000 plan". Standalone: Nuance_067\Tempest3000.bat; source third_party\NuanceResurrection.
+   "Tempest 3000 plan". Standalone: Nuance_067\Tempest3000.bat; source third_party\NuanceResurrection (branch
+   llamasoft-nuon, not in the outer git). 2026-11-14: stage 1 done (build\t3k.exe plays it; tools\build_nuance.bat
+   then build.bat), stage 0 measured: see PLAN.md "Stage 1 done, stage 0 measured". Next: stage 2 emulated time.
 8. TxK (PS Vita) via the Vita3K libretro core, after Tempest 3000: PLAN.md "TxK plan".
 8b. Neon Mode (Neon light synth as the in-play background), after TxK works in the combined build: PLAN.md
    "Neon Mode plan".

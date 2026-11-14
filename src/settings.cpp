@@ -65,6 +65,8 @@ void Parse(const std::string& text) {
 
 }  // namespace
 
+void SetDefaultText(const char* text) { kDefaults = text; }
+
 void Load(const std::string& path) {
   g_path = path;
   if (!std::filesystem::exists(path)) std::ofstream(path) << kDefaults;

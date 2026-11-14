@@ -4,6 +4,7 @@
 
 namespace settings {
 
+void SetDefaultText(const char* text); // before Load: another program's defaults (default: Tempest 2000's)
 void Load(const std::string& path);   // missing file: written with the defaults
 bool Reload();                          // true if the file changed
 double Num(const std::string& key, double def);

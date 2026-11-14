@@ -32,3 +32,21 @@ target_compile_definitions(t2k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES
 if(WIN32)
   target_link_libraries(t2k PRIVATE ws2_32 iphlpapi winmm)
 endif()
+
+# Tempest 3000 (Nuon): the Nuance libretro core is a separate DLL (tools\build_nuance.bat -> build_nuance\), loaded at
+# run time; its BIOS stubs (from the Nuance source) and our nuance.cfg go to system\nuance next to the exe.
+add_executable(t3k WIN32 src/t3k_main.cpp src/nuon_host.cpp src/settings.cpp)
+target_link_libraries(t3k PRIVATE SDL3::SDL3-static opengl32)
+target_compile_definitions(t3k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
+if(WIN32)
+  target_link_libraries(t3k PRIVATE winmm)
+endif()
+set(NUANCE_SRC "${CMAKE_SOURCE_DIR}/third_party/NuanceResurrection")
+# A target of its own (not POST_BUILD): the DLL changes without t3k relinking.
+add_custom_target(t3k_runtime ALL
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/system/nuance"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${NUANCE_SRC}/bios.cof" "${NUANCE_SRC}/minibios.cof"
+          "${NUANCE_SRC}/minibiosX.cof" "${CMAKE_SOURCE_DIR}/res/nuance/nuance.cfg" "${CMAKE_BINARY_DIR}/system/nuance"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/build_nuance/nuance_libretro.dll"
+          "${CMAKE_BINARY_DIR}"
+  DEPENDS t3k)
