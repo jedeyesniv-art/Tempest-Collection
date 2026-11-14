@@ -415,7 +415,20 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   records, not screen coordinates). => the 3D layer projects inside the renderer modules from parameters not yet
   found; next is reading the modules (806A5FB0 / 806AD2B0 / 806A8990 / 806AF1E8 / 806A3108) for where screen x / y
   come from - disassembly work, likely several sessions.
-- Next: decode the 3D display list (where, entry format, which fields are centres / scales / sizes), then step 2
+- Step 1d (2026-11-14): the 3D layer's centre is mostly CODE, not data. tools/t3k_immsearch.py searches the
+  decoded module catalogue for operand values: 26 sites hold the 180 / 120 centre (add #180 / #120 after the
+  projection multiply in 806AD2B0 x4, 806A8990, 806AEF0A; mv_s #180.0 / #120.0 16.16 in 806AA120, 806AE210,
+  806A73AE). tools/t3k_centre_pokes.py re-encodes them (+ the template centres) to any (cx, cy): at (90, 60) the
+  web surface, lines, claw, shots and star all moved. Left in place: the centre-hole enemies. NUANCE_PIXLOG=x,y
+  (pixel-write DMAs covering a pixel, into the job log) showed them drawn by 806A8990's other path ($806A8E70):
+  centre = frame size word ($20100050 = 0x016800F0) >> 1, so that path follows the frame size by itself.
+  Disassemble library code with --disasm=F:3:<library address>:N (local pc = lib - module src + 203002D0).
+  Also hard-coded: 22 pixel-DMA flag immediates with the 360 width (002DC840 x15, 002DE840 x6, 042DC840 x1).
+- Step 3 patch list (720x480 attempt): centre sites -> 360 / 240; DMA flag sites -> width 720 (0x5A in bits
+  16-23); frame job + render template sizes 016800F0 -> 02D001E0, template centres x2; projection scale x2 (r21
+  in 806A8990 = frame-job derived, check others); MPE1 2D descriptors x2 at hand-over; three 720x480x4 buffers in
+  free main-bus memory + the video channel (dmaflags, base, VidConfig size); host picture 720x480.
+- Earlier plan: decode the 3D display list (where, entry format, which fields are centres / scales / sizes), then step 2
   (buffers + frame job) and step 3 (720x480 attempt: 2D transform x2 + 3D templates / list x2 + buffers + channel).
 - Experiments next (earlier list): (1b) find the remaining elements' parameters (same template region: other formats - 16.16,
   separate x / y words, per-object camera data); (2) where the buffers are allocated and the 360x240 frame job is
