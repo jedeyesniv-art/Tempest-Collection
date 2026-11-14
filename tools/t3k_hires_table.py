@@ -48,6 +48,8 @@ def mv_imm(old, new):
 # 3D projection: screen scale 0.75 (mv_s #$C000 before mul >>#16) -> 1.5, and the centres (180.5, 120.5) of the
 # points / particles (806A5FB0) and objects (806A8990) -> (360.5, 240.5).
 SCALE_SITES = [0x806A625C, 0x806A63FC, 0x806A8BBE, 0x806A8DFA]
+# (Not the 2D modules' own mv_s #$C000 at 806AA354, 806AC8C8/928, 806ACE86, 806AE546/5C0/8F4/AEE/E86: tried, the text
+# went half size and the web surface doubled twice.)
 CENTRE_X5 = [0x806A629E, 0x806A6446, 0x806A667E, 0x806A8C0C, 0x806B0176]
 CENTRE_Y5 = [0x806A62A4, 0x806A644C, 0x806A6684, 0x806A8C14, 0x806A9382, 0x806B017E]
 
@@ -59,7 +61,18 @@ def imm10(old, new):
     return f
 
 
+def mul_shift(old, new):
+    """mul Si, Sk, >>#n, Sk (32-bit ALU form): the shift is the low 5 bits of the last byte."""
+    def f(w):
+        assert (w >> 28) == 9 and (w & 0x1F) == old and (w & 0xE0) == 0x80, hex(w)
+        return (w & ~0x1F) | new
+    return f
+
+
 OTHER = [
+    # Objects (806A8990), perspective path: (x - 1.0) * (1/z) >> 20 -> >> 19 (x2).
+    (0x806A9372, mul_shift(20, 19), 'object projection: mul >>#20 -> >>#19 (x)'),
+    (0x806A9376, mul_shift(20, 19), 'object projection: mul >>#20 -> >>#19 (y)'),
     # Title screen tile effect (806B0B30): right / bottom edge tests 354 / 234 -> 714 / 474.
     (0x806B0CA2, imm10(354, 714), 'title tiles: cmp #354 -> #714'),
     (0x806B0CC2, imm10(234, 474), 'title tiles: cmp #234 -> #474'),
