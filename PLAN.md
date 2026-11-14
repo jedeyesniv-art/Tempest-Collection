@@ -428,6 +428,36 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   16-23); frame job + render template sizes 016800F0 -> 02D001E0, template centres x2; projection scale x2 (r21
   in 806A8990 = frame-job derived, check others); MPE1 2D descriptors x2 at hand-over; three 720x480x4 buffers in
   free main-bus memory + the video channel (dmaflags, base, VidConfig size); host picture 720x480.
+- Step 3 DONE in principle (2026-11-14): 720x480 mode, core src/hires.cpp (+ hires_table.inc from
+  tools/t3k_hires_table.py), t3k setting high_res (default 0) / --hires; nuance_set_hires(). In play and attract
+  mode the picture is the original's layout at twice the resolution (web lines + surface, claw, enemies, shots, star,
+  HUD); original mode stays pixel-identical. How it works:
+  * Memory: the main bus is backed by 16 MB (MAIN_BUS_ALLOC_SIZE; the game's allocator still sees 8 MB; free in the
+    game's 8 MB was only 2.25 MB at $401C0000). The game's buffers $40010000 / $40064600 / $400B8C00 are remapped to
+    $40800000 + n x 0x151800 at pixel DMA (DMABiLinear base) and in VidConfig / VidChangeBase (src 720x480, flags).
+    The new buffers start black (feedback screens copy what is there; the original was cleared at boot).
+  * The 3D layer is a display list of 64-byte entries at $8004E040 (type = last word), read by MPE0-2 (bands
+    r0 = 0 / 1 / 2; MPE1 also runs the 2D jobs) into local $20100030; render target block $800B1720 -> local
+    $20100000 (flags, buffer, clip limits at +0x18 / +0x1C). Entry transform on read (EntryTransform): full-screen
+    rectangle (0,0,360,240) -> 720x480; 00710001 (2D sprites AND vector objects: web lines, claw, HUD) words 0 + 4
+    doubled; 0000000F (feedback) word 1; 0010000D (effect) DMA flags in word 8. Renderers WRITE entries back
+    (MPE1, 16 words from $20100030): the inverse runs then, or the claw doubled every pass (it ended in a corner).
+    Game data patches (frame sizes, clip, flags) are applied per field AND to the local copy when DMA'd in.
+  * Code (73 sites, checked against the catalogue's original words): centres 180/120 (add #imm, mv_s 16.16) and
+    180.5/120.5 (0x00B48000 / 0x00788000 in 806A5FB0 points, 806A8990 objects, 806B0080); projection scale
+    mv_s #$C000 (0.75) -> 1.5 before the >>19 projection multiplies (806A5FB0, 806A8990); web surface vertices are
+    packed half pixels unpacked with asr #17 -> #16 (806AD2B0); the clear's tile row kept only 8 bits (bits #7 ->
+    #8 in 806A3108: rows past 255 wrapped); DMA flag immediates 2D -> 5A; edge tests (title tiles 354/234, object
+    edges 240.0 / 352.0).
+  * Tools: NUANCE_PIXLOG=x,y (which DMA writes a pixel: module + pc), NUANCE_DMALOG (reads with local address,
+    and writes), NUANCE_HIRES_SKIP=<addrs> / NUANCE_HIRES_NOENTRY (bisect), tools/t3k_libwords.py, a whole-library
+    disassembly by module (--disasm per catalogue module; the one-range run crashes on data).
+  * Cost: in play 9.5 ms a field (p95 26) vs 3.7 (p95 10) - patched modules miss the AOT catalogue (validated by
+    bytes): collect a high-res catalogue next.
+  Open: title transition warp only updates the left 360 columns; main menu "3000" logo (0010000D entry: word 0 is a
+  centre there but not on the boot screen - read its module first) and maybe text sizes; the purple HUD icon is half
+  size; sprite size clamps (806A5FB0: 2..24) not doubled; untested: level transitions, other screens, options,
+  high-score entry; the window (host) path with high_res = 1.
 - Earlier plan: decode the 3D display list (where, entry format, which fields are centres / scales / sizes), then step 2
   (buffers + frame job) and step 3 (720x480 attempt: 2D transform x2 + 3D templates / list x2 + buffers + channel).
 - Experiments next (earlier list): (1b) find the remaining elements' parameters (same template region: other formats - 16.16,

@@ -5,6 +5,7 @@
 //   --headless --frames=N                 run N fields without showing a window (as fast as the PC can; with
 //                                         --timing=real one takes a real 60th of a second)
 //   --timing=emulated|real --rounds=N     override settings timing / nuon_rounds
+//   --hires[=0|1]                         override settings high_res (render at 720x480)
 //   --shot=F:<file.bmp>                   save the picture after frame F (repeatable)
 //   --press=F:<btn>[:len]                 hold a RetroPad button from frame F (default 6 frames)
 //   --wav=<file.wav>                      dump the audio
@@ -107,6 +108,9 @@ flip_cap = 3
 # 1 = cross-fade between the game's pictures (smooth-looking motion at any display rate, ~one picture more lag;
 # F3 toggles). 0 = each picture shown as it is.
 picture_blend = 1
+# 1 = render at 720x480, twice the game's own 360x240 (experimental: some screens still have flaws; needs about 2.5x
+# the CPU time). Read at start-up.
+high_res = 0
 
 # --- Stick controls for the claw (left stick; the d-pad keeps the original controls) ---
 # lr = push left / right: speed follows how far the stick is pushed, with a ramp; off = stick acts as the d-pad.
@@ -366,7 +370,7 @@ struct Perf {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg, flipcap_arg;
+  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg, flipcap_arg, hires_arg;
   bool headless = false, novsync = false;
   int frames = -1;   // headless default 600; the window runs until closed unless given
   std::vector<Shot> shots, memdumps;   // memdumps: --memdump=F:<prefix>
@@ -387,6 +391,8 @@ int main(int argc, char** argv) {
     else if (a.rfind("--timing=", 0) == 0) timing_arg = val("--timing=");
     else if (a.rfind("--rounds=", 0) == 0) rounds_arg = val("--rounds=");
     else if (a.rfind("--flipcap=", 0) == 0) flipcap_arg = val("--flipcap=");
+    else if (a == "--hires") hires_arg = "1";
+    else if (a.rfind("--hires=", 0) == 0) hires_arg = val("--hires=");
     else if (a.rfind("--perflog=", 0) == 0) perflog = val("--perflog=");
     else if (a.rfind("--disasm=", 0) == 0) disasms.push_back(val("--disasm="));
     else if (a.rfind("--stick=", 0) == 0) {
@@ -452,6 +458,12 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "load: %s\n", err.c_str());
     if (!headless) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 3000", err.c_str(), nullptr);
     return 1;
+  }
+  // High resolution: 720x480 rendering (before the first field).
+  if (!hires_arg.empty()) settings::Set("high_res", hires_arg);
+  if (settings::Num("high_res", 0) != 0) {
+    if (nuon::SetHighRes(true)) std::fprintf(stderr, "high resolution: 720x480\n");
+    else std::fprintf(stderr, "high resolution: not supported by this core\n");
   }
   std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", disc.c_str(), nuon::Fps(), nuon::SampleRate());
   if (!timing_arg.empty()) settings::Set("timing", timing_arg);

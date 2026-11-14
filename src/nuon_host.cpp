@@ -290,6 +290,14 @@ int AotDump(int mpe, uint32_t src, uint32_t len, uint32_t base, const char* path
   return f ? f(mpe, src, len, base, path) : -1;
 }
 
+bool SetHighRes(bool on) {
+  using Fn = void (*)(int);
+  auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_set_hires"));
+  if (!f) return false;
+  f(on ? 1 : 0);
+  return true;
+}
+
 bool SetFlipCap(double fields) {
   using Fn = void (*)(double);
   auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_set_flip_interval"));

@@ -54,6 +54,8 @@ bool SetTiming(bool emulated, double rounds);
 // so 1 = its limit; 2 = 30 pictures/s; fractional = a grid: 2.5 = 24 a second, as 2, 3, 2, 3 fields). A game that
 // moves per picture (Tempest 3000) runs at that speed.
 bool SetFlipCap(double fields);
+// Tempest 3000 rendered at 720x480 instead of its own 360x240 (call after Load, before the first frame).
+bool SetHighRes(bool on);
 // Extra controller properties to report (CTRLR_ANALOG1 = 0x10, ...: joystick.h); set before the game starts.
 bool SetPadProperties(uint32_t extra);
 // The analog axes (-128..127), applied with the buttons each frame.
