@@ -338,6 +338,11 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   g_flip_cap / nuance_set_flip_cap(fields); setting flip_cap, default 2 = 30 pictures/s, every picture exactly 2
   fields; 1 = 60; 3 = 20). Likely the original behaviour: a flip waits for the vblank, so work just over one field
   rounds up to two. Only whole divisors of 60 are even (30 / 20 / 15); in-between rates would mix holds again.
+- Owner: "2 feels a little quick and 3 feels a little slow". flip_cap may now be fractional (core: a 2.5-field grid,
+  pictures 2, 3, 2, 3 fields apart = 24 a second; restarts from the picture if the game falls behind), and t3k.exe
+  paces pictures, not fields: picture n is shown at max(finished + 1 field, picture n-1 + flip_cap fields), so at
+  120 Hz every picture stays up 5 refreshes (window test: 1308 of 1310 pictures exactly 5; at 2: 887/888 exactly 4).
+  Default flip_cap 2.5. (The old build truncated 2.5 to 2 - the owner had already tried it.)
 - Cost at 30: 5-7 ms a field mean (the idle skip removes the waiting half), p95 13.5 ms at 150k rounds, no fields
   over budget in menus / play; default nuon_rounds 200000 for margin in busier levels.
 

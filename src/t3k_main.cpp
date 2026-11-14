@@ -98,8 +98,9 @@ nuon_rounds = 200000
 # (16.7 ms) more input lag. 1 = lowest lag, but busy moments may show a field for 1 or 3 refreshes.
 buffer_fields = 2
 # Game speed. Tempest 3000 moves a fixed step per picture, so its speed is its picture rate: the minimum video
-# fields between two pictures. 2 = 30 pictures/s (likely the original speed), 1 = 60 (twice as fast), 3 = 20.
-flip_cap = 2
+# fields between two pictures. 2 = 30 pictures/s (likely the original speed), 1 = 60 (twice as fast), 3 = 20;
+# 2.5 = 24 (on a 120 Hz display still even: 5 refreshes a picture; elsewhere 2-then-3 fields).
+flip_cap = 2.5
 )";
 
 struct Shot { int frame; std::string path; };
@@ -321,7 +322,8 @@ int main(int argc, char** argv) {
   bool emulated = settings::Str("timing", "emulated") != "real";
   if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 200000))) emulated = false;
   if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
-  nuon::SetFlipCap(int(settings::Num("flip_cap", 2)));
+  const double flip_cap = settings::Num("flip_cap", 2.5);
+  nuon::SetFlipCap(flip_cap);
   std::fprintf(stderr, "timing: %s\n",
                emulated ? ("emulated, " + settings::Str("nuon_rounds", "200000") + " rounds a field").c_str() : "real (PC clock)");
 
@@ -456,8 +458,9 @@ int main(int argc, char** argv) {
   // costs under 16.7 ms of PC time.
   const uint64_t field_ns = uint64_t(1e9 / nuon::Fps());
   const uint64_t buffer_fields = uint64_t(std::clamp(settings::Num("buffer_fields", 2), 1.0, 3.0));
-  struct Slot { int64_t field = -1; uint64_t due = 0; nuon::Frame frame; };
-  Slot ring[4];
+  // pic: the game's picture count after the field (VidConfig / VidChangeBase calls).
+  struct Slot { int64_t field = -1; uint64_t due = 0; uint32_t pic = 0; nuon::Frame frame; };
+  Slot ring[8];
   std::mutex ring_mutex;
   std::atomic<uint16_t> pad_buttons{0};
   std::atomic<bool> emu_quit{false};
@@ -494,9 +497,11 @@ int main(int argc, char** argv) {
       au.clear();
       {
         std::lock_guard<std::mutex> lock(ring_mutex);
-        Slot& sl = ring[k & 3];
+        Slot& sl = ring[k & 7];
         sl.field = k;
         sl.due = due ? due : SDL_GetTicksNS();
+        nuon::RunStats rs{};
+        sl.pic = nuon::GetRunStats(&rs) ? rs.vid_flips : uint32_t(k);
         sl.frame = nuon::LastFrame();
       }
       perf.Frame(uint64_t(k), t0, t1, SDL_GetTicksNS());
@@ -507,7 +512,19 @@ int main(int argc, char** argv) {
   });
 
   int64_t shown = -1;
-  // Refreshes each field stayed on screen, and fields never shown (stderr at exit: the smoothness measure).
+  // Picture pacing: with a fractional flip_cap (2.5: pictures come 2, 3, 2, 3 fields apart) each picture is shown
+  // flip_cap fields after the previous one - the later of that and "finished, plus one field" - so on a 120 Hz
+  // display every picture stays up for the same number of refreshes (5 at 2.5). Fields that repeat the picture
+  // follow it. At a whole flip_cap the two times are the same.
+  const uint64_t picture_ns = (emulated && flip_cap > 0) ? uint64_t(flip_cap * double(field_ns)) : 0;
+  struct Planned { int64_t field; uint64_t show_at; };
+  std::vector<Planned> plan;
+  int64_t planned_to = -1;
+  uint32_t plan_pic = 0;
+  bool plan_any = false;
+  uint64_t plan_show = 0;
+  uint32_t shown_pic = 0;
+  // Refreshes each picture stayed on screen, and fields never shown (stderr at exit: the smoothness measure).
   int presents_of_shown = 0;
   int64_t skipped = 0;
   std::vector<int64_t> hold_hist(8, 0);
@@ -540,15 +557,42 @@ int main(int argc, char** argv) {
     }
     pad_buttons = ReadPad(pad, SDL_GetKeyboardState(nullptr));
 
-    // The newest finished field whose time has passed: due <= now - one field (emulated timing), else the newest.
+    // The newest finished field whose time has passed: due <= now - one field (emulated timing), else the newest;
+    // with picture pacing, the newest planned field whose picture's time has come.
     {
       const uint64_t now = SDL_GetTicksNS();
       std::lock_guard<std::mutex> lock(ring_mutex);
       const Slot* pick = nullptr;
-      for (const Slot& sl : ring) {
-        if (sl.field < 0 || sl.field <= shown) continue;
-        if (emulated && sl.due + field_ns > now) continue;
-        if (!pick || sl.field > pick->field) pick = &sl;
+      if (picture_ns) {
+        for (;;) {   // plan the fields that arrived, in order
+          const Slot& sl = ring[(planned_to + 1) & 7];
+          if (sl.field != planned_to + 1) break;
+          const uint64_t ready = sl.due + field_ns;
+          uint64_t at;
+          if (!plan_any || sl.pic == plan_pic) at = plan_any ? std::max(ready, plan_show) : ready;
+          else if (ready > plan_show + picture_ns + field_ns / 2) at = ready;   // the game fell behind: restart
+          else at = std::max(ready, plan_show + picture_ns);
+          if (!plan_any || sl.pic != plan_pic) plan_show = at;
+          plan_any = true;
+          plan_pic = sl.pic;
+          plan.push_back({sl.field, at});
+          planned_to = sl.field;
+        }
+        size_t take = SIZE_MAX;
+        for (size_t j = 0; j < plan.size(); ++j)
+          if (plan[j].show_at <= now) take = j;
+        if (take != SIZE_MAX) {
+          const Slot& sl = ring[plan[take].field & 7];
+          if (sl.field == plan[take].field && sl.field > shown) pick = &sl;
+          plan.erase(plan.begin(), plan.begin() + take + 1);
+        }
+        if (plan.size() > 64) plan.erase(plan.begin(), plan.end() - 8);   // (stalls)
+      } else {
+        for (const Slot& sl : ring) {
+          if (sl.field < 0 || sl.field <= shown) continue;
+          if (emulated && sl.due + field_ns > now) continue;
+          if (!pick || sl.field > pick->field) pick = &sl;
+        }
       }
       if (pick && pick->frame.width) {
         const nuon::Frame& f = pick->frame;
@@ -560,12 +604,16 @@ int main(int argc, char** argv) {
           th = f.height;
         }
         SDL_UpdateTexture(tex, nullptr, f.pixels.data(), int(f.width * 4));
-        if (shown >= 0) {
-          hold_hist[std::min(presents_of_shown, 7)]++;
-          if (presents_of_shown != 2 && odd_holds.size() < 4000) odd_holds.push_back(shown);
-          skipped += pick->field - shown - 1;
+        if (!picture_ns || pick->pic != shown_pic || shown < 0) {   // a new picture (or field without pacing)
+          if (shown >= 0) {
+            hold_hist[std::min(presents_of_shown, 7)]++;
+            if (odd_holds.size() < 4000 && presents_of_shown != (picture_ns ? int(std::lround(2 * flip_cap)) : 2))
+              odd_holds.push_back(shown);
+            if (!picture_ns) skipped += pick->field - shown - 1;
+          }
+          presents_of_shown = 0;
+          shown_pic = pick->pic;
         }
-        presents_of_shown = 0;
         shown = pick->field;
       }
     }
@@ -601,7 +649,7 @@ int main(int argc, char** argv) {
   }
   emu_quit = true;
   emu.join();
-  std::fprintf(stderr, "fields shown for 0..7+ refreshes:");
+  std::fprintf(stderr, picture_ns ? "pictures shown for 0..7+ refreshes:" : "fields shown for 0..7+ refreshes:");
   for (auto n : hold_hist) std::fprintf(stderr, " %lld", (long long)n);
   std::fprintf(stderr, "; fields never shown: %lld; grid shifts: %d\n", (long long)skipped, grid_shifts);
   if (const char* hf = std::getenv("T3K_HOLDS")) {

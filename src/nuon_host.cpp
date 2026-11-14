@@ -278,9 +278,9 @@ int AotDump(int mpe, uint32_t src, uint32_t len, uint32_t base, const char* path
   return f ? f(mpe, src, len, base, path) : -1;
 }
 
-bool SetFlipCap(int fields) {
-  using Fn = void (*)(int);
-  auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_set_flip_cap"));
+bool SetFlipCap(double fields) {
+  using Fn = void (*)(double);
+  auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_set_flip_interval"));
   if (!f) return false;
   f(fields);
   return true;

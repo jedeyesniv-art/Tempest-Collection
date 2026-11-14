@@ -50,9 +50,10 @@ bool GetRunStats(RunStats* out);
 // Emulated time (default): one RunFrame = exactly one field of `rounds` emulation rounds; the host paces at Fps().
 // Off: Nuance's own timing (the core runs by the PC clock). False if the core can't (another build).
 bool SetTiming(bool emulated, double rounds);
-// At most one new picture every `fields` fields (0 = off; the hardware shows a flipped buffer from the next vblank,
-// so 1 = its limit; 2 = 30 pictures/s). A game that moves per picture (Tempest 3000) runs at that speed.
-bool SetFlipCap(int fields);
+// One new picture every `fields` fields at most (0 = off; the hardware shows a flipped buffer from the next vblank,
+// so 1 = its limit; 2 = 30 pictures/s; fractional = a grid: 2.5 = 24 a second, as 2, 3, 2, 3 fields). A game that
+// moves per picture (Tempest 3000) runs at that speed.
+bool SetFlipCap(double fields);
 // Dump a code module (system-bus src, len bytes, as loaded at base in MPE mpe) for tools/t3k_aot.py.
 int AotDump(int mpe, uint32_t src, uint32_t len, uint32_t base, const char* path);
 // Disassembly of `packets` packets of MPE `mpe` from `address` (one "address: text" line each).
