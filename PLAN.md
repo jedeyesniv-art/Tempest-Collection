@@ -332,6 +332,15 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
 - Next: cheaper generated code (MPE0 bound): per-packet pcexec/pcroute stores, tempCC, check what ThinLTO inlines
   (a debug-symbol LTO build + the sampler), longer blocks across in-module jumps. Then Steam Deck class numbers.
 
+### Game speed: 30 pictures/s (2026-11-14)
+- Owner after the locked-60 build: "noticeably better all round" but the game "appears massively too fast, I would
+  guess 2x at least". The game moves per picture, so flip_cap became the minimum fields per picture (core
+  g_flip_cap / nuance_set_flip_cap(fields); setting flip_cap, default 2 = 30 pictures/s, every picture exactly 2
+  fields; 1 = 60; 3 = 20). Likely the original behaviour: a flip waits for the vblank, so work just over one field
+  rounds up to two. Only whole divisors of 60 are even (30 / 20 / 15); in-between rates would mix holds again.
+- Cost at 30: 5-7 ms a field mean (the idle skip removes the waiting half), p95 13.5 ms at 150k rounds, no fields
+  over budget in menus / play; default nuon_rounds 200000 for margin in busier levels.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
