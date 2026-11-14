@@ -23,6 +23,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
+#include <map>
 #include <mutex>
 #include <thread>
 #include <cmath>
@@ -89,6 +91,9 @@ timing = emulated
 # Rounds per video field (one block on each of the 4 processors a round): more = the game draws more pictures a
 # second but needs a faster PC. 220000 is about what Nuance managed on the owner's PC.
 nuon_rounds = 220000
+# Fields the emulation may work ahead (1-3): 2 lets a slow field borrow time from fast ones, for one field
+# (16.7 ms) more input lag. 1 = lowest lag, but busy moments may show a field for 1 or 3 refreshes.
+buffer_fields = 2
 )";
 
 struct Shot { int frame; std::string path; };
@@ -270,6 +275,7 @@ int main(int argc, char** argv) {
   if (!wav.empty()) wav = fs::absolute(wav).string();
   if (!perflog.empty()) perflog = fs::absolute(perflog).string();
   for (auto& s : shots) s.path = fs::absolute(s.path).string();
+  const std::string sample_out = std::getenv("T3K_SAMPLE") ? fs::absolute(std::getenv("T3K_SAMPLE")).string() : "";
 
   SetUnhandledExceptionFilter(CrashFilter);
   if (!SDL_Init(SDL_INIT_VIDEO | (headless ? 0 : SDL_INIT_AUDIO | SDL_INIT_GAMEPAD))) {
@@ -317,6 +323,52 @@ int main(int argc, char** argv) {
       if (int64_t(f) >= p.frame && int64_t(f) < p.frame + p.len) b |= uint16_t(1u << p.btn);
     return b;
   };
+  // T3K_SAMPLE=<file> (headless): a sampling profiler - another thread stops this one ~2000 times a second and counts
+// where it was (module + offset; "jit" outside any module); tools/t3k_sample.py symbolizes the file.
+  std::atomic<bool> sampling{false};
+  std::thread sampler;
+  const bool sample_on = !sample_out.empty();
+  if (headless && sample_on) {
+    HANDLE me = nullptr;
+    DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &me, 0, FALSE, DUPLICATE_SAME_ACCESS);
+    sampling = true;
+    std::string out = sample_out;
+    sampler = std::thread([me, out, &sampling] {
+      std::map<std::pair<std::string, uint64_t>, uint64_t> counts;
+      std::map<HMODULE, std::string> names;
+      while (sampling) {
+        Sleep(0);
+        SDL_DelayPrecise(500000);
+        if (SuspendThread(me) == DWORD(-1)) continue;
+        CONTEXT c{};
+        c.ContextFlags = CONTEXT_CONTROL;
+        const bool ok = GetThreadContext(me, &c);
+        ResumeThread(me);
+        if (!ok) continue;
+        HMODULE m = nullptr;
+        std::string mod = "jit";
+        uint64_t off = c.Rip;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               (LPCSTR)c.Rip, &m)) {
+          auto it = names.find(m);
+          if (it == names.end()) {
+            char name[MAX_PATH] = "?";
+            GetModuleFileNameA(m, name, sizeof(name));
+            it = names.emplace(m, name).first;
+          }
+          mod = it->second;
+          off = c.Rip - uint64_t(m);
+        } else off = 0;   // JIT code: one bucket
+        counts[{mod, off}]++;
+      }
+      FILE* f = std::fopen(out.c_str(), "w");
+      if (f) {
+        for (auto& [k, n] : counts) std::fprintf(f, "%llu\t%s\t0x%llx\n", (unsigned long long)n, k.first.c_str(), (unsigned long long)k.second);
+        std::fclose(f);
+      }
+      CloseHandle(me);
+    });
+  }
   if (headless) {
     if (frames < 0) frames = 600;
     for (int f = 0; f < frames; ++f) {
@@ -331,6 +383,7 @@ int main(int argc, char** argv) {
         if (s.frame == f && !WriteBmp(s.path, nuon::LastFrame())) std::fprintf(stderr, "shot %s failed\n", s.path.c_str());
       perf.Frame(f, t0, t1, SDL_GetTicksNS());
     }
+    if (sampler.joinable()) { sampling = false; sampler.join(); }
     if (!wav.empty()) WriteWav(wav, wav_samples, uint32_t(nuon::SampleRate()));
     if (perf.csv) std::fclose(perf.csv);
     nuon::Unload();
@@ -360,25 +413,30 @@ int main(int argc, char** argv) {
   // finished (due one field ago), so at 120 Hz each field is shown for exactly two refreshes as long as a field
   // costs under 16.7 ms of PC time.
   const uint64_t field_ns = uint64_t(1e9 / nuon::Fps());
+  const uint64_t buffer_fields = uint64_t(std::clamp(settings::Num("buffer_fields", 2), 1.0, 3.0));
   struct Slot { int64_t field = -1; uint64_t due = 0; nuon::Frame frame; };
   Slot ring[4];
   std::mutex ring_mutex;
   std::atomic<uint16_t> pad_buttons{0};
   std::atomic<bool> emu_quit{false};
   std::atomic<int64_t> fields_done{0};
+  // The field grid's origin, shared: the main thread nudges it away from the vblanks (see below).
+  std::atomic<uint64_t> grid_start{SDL_GetTicksNS() + field_ns};
   nuon::ReleaseContext();   // the emulation thread takes the core's OpenGL context
   std::thread emu([&] {
-    uint64_t start = SDL_GetTicksNS() + field_ns;
+    // (grid_start may move: the main thread shifts it by half a refresh when the grid sits on the vblanks.)
     for (int64_t k = 0; !emu_quit; ++k) {
       uint64_t due = 0;
       if (emulated) {
-        due = start + uint64_t(k) * field_ns;
+        due = grid_start.load() + uint64_t(k) * field_ns;
         const uint64_t now = SDL_GetTicksNS();
         if (now > due + 8 * field_ns) {   // fell far behind (a stall): restart the schedule from now
-          start = now - uint64_t(k) * field_ns;
+          grid_start = now - uint64_t(k) * field_ns;
           due = now;
-        } else if (now < due) {
-          SDL_DelayPrecise(due - now);
+        } else if (now + (buffer_fields - 1) * field_ns < due) {
+          // buffer_fields > 1: a field may start that many fields early, so a slow field borrows time from fast
+          // ones (it is still shown at due + one field).
+          SDL_DelayPrecise(due - (buffer_fields - 1) * field_ns - now);
         }
       }
       nuon::SetButtons(pad_buttons.load() | scripted(uint64_t(k)));
@@ -411,6 +469,16 @@ int main(int argc, char** argv) {
   int presents_of_shown = 0;
   int64_t skipped = 0;
   std::vector<int64_t> hold_hist(8, 0);
+  uint32_t near_edge = 0;   // the last 16 presents: 1 = the field grid was within 1.5 ms of the wake-up
+  int grid_shifts = 0;
+  std::vector<int64_t> odd_holds;   // fields not shown for exactly 2 refreshes (T3K_HOLDS=<file> writes them)
+  uint64_t refresh_ns = 0;  // the display's refresh period (vsync on)
+  if (const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win))) {
+    const double hz = dm->refresh_rate_numerator > 0 ? double(dm->refresh_rate_numerator) / dm->refresh_rate_denominator
+                                                     : double(dm->refresh_rate);
+    if (hz > 20) refresh_ns = uint64_t(1e9 / hz);
+    std::fprintf(stderr, "display %.3f Hz\n", hz);
+  }
   while (running) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -452,6 +520,7 @@ int main(int argc, char** argv) {
         SDL_UpdateTexture(tex, nullptr, f.pixels.data(), int(f.width * 4));
         if (shown >= 0) {
           hold_hist[std::min(presents_of_shown, 7)]++;
+          if (presents_of_shown != 2 && odd_holds.size() < 4000) odd_holds.push_back(shown);
           skipped += pick->field - shown - 1;
         }
         presents_of_shown = 0;
@@ -470,6 +539,21 @@ int main(int argc, char** argv) {
     }
     SDL_RenderPresent(ren);
     ++presents_of_shown;
+    // Keep the field grid away from the vblanks: a field becomes showable at due + one field; if that moment falls
+    // within 1.5 ms of when this loop wakes after a vblank, timer jitter picks the refresh (1-then-3 holds). When
+    // most of the last 16 presents were that close, shift the grid by half a refresh.
+    if (emulated && vsync_on && refresh_ns) {
+      const uint64_t tp = SDL_GetTicksNS();
+      const uint64_t edge = grid_start.load() + field_ns;   // one grid edge; the others are field_ns apart
+      const uint64_t ph = (tp >= edge ? tp - edge : refresh_ns * 1000 - (edge - tp) % (refresh_ns * 1000)) % refresh_ns;
+      const bool close = ph < 1500000 || ph > refresh_ns - 1500000;
+      near_edge = (near_edge << 1 | (close ? 1u : 0u)) & 0xFFFF;
+      if (std::popcount(near_edge) > 8) {
+        grid_start += refresh_ns / 2;
+        near_edge = 0;
+        ++grid_shifts;
+      }
+    }
     if (!vsync_on) SDL_DelayNS(1000000);
     if (frames >= 0 && fields_done >= frames) running = false;
   }
@@ -477,7 +561,13 @@ int main(int argc, char** argv) {
   emu.join();
   std::fprintf(stderr, "fields shown for 0..7+ refreshes:");
   for (auto n : hold_hist) std::fprintf(stderr, " %lld", (long long)n);
-  std::fprintf(stderr, "; fields never shown: %lld\n", (long long)skipped);
+  std::fprintf(stderr, "; fields never shown: %lld; grid shifts: %d\n", (long long)skipped, grid_shifts);
+  if (const char* hf = std::getenv("T3K_HOLDS")) {
+    if (FILE* f = std::fopen(hf, "w")) {
+      for (auto k : odd_holds) std::fprintf(f, "%lld\n", (long long)k);
+      std::fclose(f);
+    }
+  }
   nuon::MakeContextCurrent();
   if (perf.csv) std::fclose(perf.csv);
   if (audio) SDL_DestroyAudioStream(audio);

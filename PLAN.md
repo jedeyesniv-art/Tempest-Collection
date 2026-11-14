@@ -199,6 +199,28 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   (symbolize with llvm-symbolizer and tools\build_nuance_dbg.bat's PDB; lldb here lacks python311.dll).
 - Game pictures in play at 220k: ~39/s, 1- and 2-field holds; MPE3PacketHack = T3K: 42.5/s, ~10% more PC time.
 
+### Stage 3 progress (2026-11-14; owner: "220k feels much more even now")
+- Benchmark: tools/t3k_bench.py (route to level 1 headless, ms per field, picture at field 2399 must stay md5
+  b8309089...). 17.4 -> 16.2 ms a field: TickMediaCallbacks fast path (-5%), plain read before the locked exchange
+  in TriggerScheduledInterrupts, instrumentation compiled out of the round loop (RunRounds<kInstr>). No gain from
+  -march=x86-64-v3 or ThinLTO (tried; logs\t3k\bx.bat builds variants into build_nuance_<name>).
+- Sampling profiler: T3K_SAMPLE=<abs file> (headless) + tools/t3k_sample.py with the debug core's PDB
+  (logs\t3k\dbgrun has exe + system + debug DLL). ntdll samples (ZwQueryInformationThread) are the sampler itself.
+- Where the time goes: compiled game code ~37%, the dispatcher ~45%. Calls that run UNCOMPILED code: MPE0 40%,
+  MPE1/2 26-29% (NUANCE_PROFILE dispatch line; NUANCE_UNCOMPILED=1 lists the pcs): mostly packets marked
+  NEVERCOMPILE - branches whose delay slots hold control-register (I/O) or indirect memory ops, and I/O packets -
+  a long tail of ~18k pcs. Upstream's fix for that (FetchSuperBlock "IL downgrade", bForceILBlock) is disabled
+  because it flickered in T3K's first level. Also a stale-COMPILED bug: 5 MPE0 overlay pcs marked compiled but
+  never found in the native cache (FlushRegion doesn't clear the icache flag) -> interpreted forever (~2% of calls).
+  Spinning is small (self / 2-block loops 0-5%); MPE3 calls are cheap (9 ns).
+- Host: buffer_fields (default 2) lets a field start one field early (slow fields borrow from fast ones, +16.7 ms
+  input lag), and the field grid is nudged half a refresh away from the vblanks. Window run: 95.4% of fields exactly
+  2 refreshes; ALL odd holds were in the first ~900 fields (boot / title / intro: the title is the heaviest scene,
+  18-21 ms a field for long stretches); menus + play 100%. T3K_HOLDS=<abs file> lists odd-hold fields.
+- Next speed options, biggest first: make the uncompiled packets compile (I/O ops as IL calls inside native blocks,
+  or fix the IL downgrade's T3K flicker - verify against the picture md5 AND by eye); the stale-COMPILED fix; a
+  per-MPE lookup cache in front of PageMap::FindEntry.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
