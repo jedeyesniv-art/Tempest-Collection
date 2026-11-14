@@ -21,7 +21,7 @@
 //   --novsync                             present without waiting for the display
 //   T3K_PERF=1                            a timing summary every 5 s on stderr
 // Keys: arrows d-pad, Z = A, X = B, Enter = Start, Tab = Nuon, Q / E = L / R, I J K L = C up / left / down / right,
-// A / D = the stick (claw), F3 picture blend, F11 fullscreen, Esc quits (no settings menu yet).
+// A / D = the stick (claw), F3 picture blend, F4 frame-rate counter, F11 fullscreen, Esc quits (no settings menu yet).
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <windows.h>
@@ -108,6 +108,8 @@ flip_cap = 3
 # 1 = cross-fade between the game's pictures (smooth-looking motion at any display rate, ~one picture more lag;
 # F3 toggles). 0 = each picture shown as it is.
 picture_blend = 1
+# 1 = the frame-rate counter (F4): the game's pictures a second, emulated fields a second.
+show_rates = 0
 # 1 = render at 720x480, twice the game's own 360x240 (experimental: some screens still have flaws; needs about 2.5x
 # the CPU time). Read at start-up.
 high_res = 0
@@ -329,10 +331,16 @@ struct Perf {
   uint64_t start = 0, last = 0, from = 0;
   uint64_t n = 0, run_sum = 0, run_max = 0, frame_max = 0, budget_breaks = 0, iters_sum = 0, stall_sum = 0;
   uint32_t last_field = 0, fields_skipped = 0;
+  // For the on-screen counter (F4): the game's flips (pictures) and the field counter, from the emulation thread.
+  std::atomic<uint32_t> flips{0}, fields{0};
 
   void Frame(uint64_t frame, uint64_t t_run0, uint64_t t_run1, uint64_t t_end) {
     nuon::RunStats s{};
     const bool have = nuon::GetRunStats(&s);
+    if (have) {
+      flips.store(s.vid_flips, std::memory_order_relaxed);
+      fields.store(s.field_counter, std::memory_order_relaxed);
+    }
     const uint64_t frame_ns = last ? t_end - last : 0;
     last = t_end;
     if (csv) {
@@ -728,6 +736,13 @@ int main(int argc, char** argv) {
     if (hz > 20) refresh_ns = uint64_t(1e9 / hz);
     std::fprintf(stderr, "display %.3f Hz\n", hz);
   }
+  // F4: on-screen counter - the game's pictures a second (its real frame rate; the display refresh is separate) and
+  // emulated fields a second (60 = keeping up).
+  bool show_rates = settings::Num("show_rates", 0) != 0;
+  std::string rates_text;
+  uint64_t rates_t = SDL_GetTicksNS();
+  uint32_t rates_flips = perf.flips.load(), rates_fields = perf.fields.load();
+  const bool high_res_on = settings::Num("high_res", 0) != 0;
   while (running) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -737,6 +752,10 @@ int main(int argc, char** argv) {
         picture_blend = !picture_blend;
         settings::Save("picture_blend", picture_blend ? "1" : "0");
         std::fprintf(stderr, "picture blend %s\n", picture_blend ? "on" : "off");
+      }
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F4) {
+        show_rates = !show_rates;
+        settings::Save("show_rates", show_rates ? "1" : "0");
       }
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11) {
         const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
@@ -850,6 +869,24 @@ int main(int argc, char** argv) {
         SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
       } else {
         SDL_RenderTexture(ren, tex, nullptr, &dst);
+      }
+    }
+    if (show_rates) {
+      const uint64_t now = SDL_GetTicksNS();
+      if (now - rates_t >= 1000000000ull) {
+        const uint32_t fl = perf.flips.load(), fi = perf.fields.load();
+        const double secs = (now - rates_t) / 1e9;
+        char buf[128];
+        std::snprintf(buf, sizeof buf, "%.1f pictures/s  %.1f fields/s  %s", (fl - rates_flips) / secs,
+                      (fi - rates_fields) / secs, high_res_on ? "720x480" : "360x240");
+        rates_text = buf;
+        rates_t = now; rates_flips = fl; rates_fields = fi;
+      }
+      if (!rates_text.empty()) {
+        SDL_SetRenderScale(ren, 2.f, 2.f);
+        SDL_SetRenderDrawColor(ren, 255, 255, 0, 255);
+        SDL_RenderDebugText(ren, 8.f, 8.f, rates_text.c_str());
+        SDL_SetRenderScale(ren, 1.f, 1.f);
       }
     }
     SDL_RenderPresent(ren);

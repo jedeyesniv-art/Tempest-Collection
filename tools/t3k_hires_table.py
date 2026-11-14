@@ -48,6 +48,10 @@ def mv_imm(old, new):
 # 3D projection: screen scale 0.75 (mv_s #$C000 before mul >>#16) -> 1.5, and the centres (180.5, 120.5) of the
 # points / particles (806A5FB0) and objects (806A8990) -> (360.5, 240.5).
 SCALE_SITES = [0x806A625C, 0x806A63FC, 0x806A8BBE, 0x806A8DFA]
+# 806AE210 projects the 3D-placed objects (claw, enemies) into their entries: position = pos * r6 >> 19 + centre,
+# size = word 4 * r6 >> 19. Word 4 is already doubled on read, so only the position multiplies get >> 18.
+OBJ_POS_MULS = [0x806AE554, 0x806AE558, 0x806AE5D8, 0x806AE5DC, 0x806AE902, 0x806AE906, 0x806AEAFC, 0x806AEB00,
+                0x806AEEB2, 0x806AEEB6, 0x806AEECA, 0x806AEECE]
 # (Not the 2D modules' own mv_s #$C000 at 806AA354, 806AC8C8/928, 806ACE86, 806AE546/5C0/8F4/AEE/E86: tried, the text
 # went half size and the web surface doubled twice.)
 CENTRE_X5 = [0x806A629E, 0x806A6446, 0x806A667E, 0x806A8C0C, 0x806B0176]
@@ -69,7 +73,7 @@ def mul_shift(old, new):
     return f
 
 
-OTHER = [
+OTHER = [(a, mul_shift(19, 18), 'object position projection: mul >>#19 -> >>#18') for a in OBJ_POS_MULS] + [
     # Objects (806A8990), perspective path: (x - 1.0) * (1/z) >> 20 -> >> 19 (x2).
     (0x806A9372, mul_shift(20, 19), 'object projection: mul >>#20 -> >>#19 (x)'),
     (0x806A9376, mul_shift(20, 19), 'object projection: mul >>#20 -> >>#19 (y)'),

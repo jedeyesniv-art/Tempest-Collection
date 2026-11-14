@@ -1,6 +1,7 @@
 """Generate build_aot\\*.cpp from a module catalogue (NUANCE_AOT_COLLECT dumps: m<src>_<base>_<len>.txt + .bin).
 
-python -I tools/t3k_aot_gen.py [catalog_dir] [out_dir]     (defaults: aot_catalog, build_aot)
+python -I tools/t3k_aot_gen.py [catalog_dir] [out_dir] [prefix]     (defaults: aot_catalog, build_aot, aot_)
+The high-res catalogue (aot_catalog_hires: the same modules with the 720x480 patches) uses the prefix aoth_.
 
 Skips sources that are already up to date; removes generated files whose dump is gone. Prints a summary.
 Both directories hold game code (dumps / translations): they are git-ignored and must never be committed.
@@ -16,11 +17,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def main():
     cat = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'aot_catalog')
     out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, 'build_aot')
+    prefix = sys.argv[3] if len(sys.argv) > 3 else 'aot_'
     os.makedirs(out, exist_ok=True)
     want = set()
     made = skipped = failed = 0
     for dump in sorted(glob.glob(os.path.join(cat, 'm*.txt'))):
-        name = 'aot_' + os.path.basename(dump)[1:-4] + '.cpp'
+        name = prefix + os.path.basename(dump)[1:-4] + '.cpp'
         want.add(name)
         dst = os.path.join(out, name)
         if os.path.exists(dst) and os.path.getmtime(dst) >= max(os.path.getmtime(dump),
@@ -35,7 +37,7 @@ def main():
         else:
             made += 1
     removed = 0
-    for f in glob.glob(os.path.join(out, 'aot_*.cpp')):
+    for f in glob.glob(os.path.join(out, prefix + '*.cpp')):
         if os.path.basename(f) not in want:
             os.remove(f)
             removed += 1
