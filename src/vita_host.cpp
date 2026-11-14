@@ -37,6 +37,7 @@ retro_hw_render_callback g_hw{};
 bool g_hw_requested = false;
 std::string g_system_dir, g_save_dir;
 std::map<std::string, std::string> g_options;
+bool g_options_changed = false;
 uint16_t g_buttons = 0;
 int g_sticks[4] = {};
 Frame g_frame;
@@ -181,7 +182,8 @@ bool EnvCb(unsigned cmd, void* data) {
       return true;
     }
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
-      *static_cast<bool*>(data) = false;
+      *static_cast<bool*>(data) = g_options_changed;
+      g_options_changed = false;
       return true;
     case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
       *static_cast<unsigned*>(data) = 2;
@@ -292,7 +294,17 @@ template <typename T> bool Sym(T& f, const char* name) {
 
 }  // namespace
 
-void SetOption(const std::string& key, const std::string& value) { g_options[key] = value; }
+void SetOption(const std::string& key, const std::string& value) {
+  auto it = g_options.find(key);
+  if (it != g_options.end() && it->second == value) return;
+  g_options[key] = value;
+  g_options_changed = true;
+}
+
+void Reset() {
+  using Fn = void (*)();
+  if (auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "retro_reset"))) f();
+}
 
 bool Load(const std::string& core_dll, const std::string& game, const std::string& system_dir,
           const std::string& save_dir, std::string* err) {

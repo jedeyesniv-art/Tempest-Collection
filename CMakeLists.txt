@@ -61,7 +61,7 @@ add_custom_target(t3k_runtime ALL
 
 # TxK (PS Vita): the Vita3K libretro core is a separate DLL (tools\build_vita3k.bat -> build_vita3k\bin\Release\),
 # loaded at run time. Firmware comes from vita_firmware\ (txk.exe links it into system\vita3k\ on first start).
-add_executable(txk WIN32 src/txk_main.cpp src/vita_host.cpp src/settings.cpp)
+add_executable(txk WIN32 src/txk_main.cpp src/txk_menu.cpp src/vita_host.cpp src/settings.cpp src/menu.cpp src/controls.cpp)
 target_link_libraries(txk PRIVATE SDL3::SDL3-static opengl32)
 target_compile_definitions(txk PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)

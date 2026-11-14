@@ -22,8 +22,11 @@ enum Btn : int {
   A = 8, X = 9, L = 10, R = 11, L2 = 12, R2 = 13, L3 = 14, R3 = 15
 };
 
-// Before Load: a core option (key as the core names it, e.g. vita3k_resolution_multiplier).
+// A core option (key as the core names it, e.g. vita3k_resolution_multiplier). Before Load, or while running: the
+// core is told on its next frame (GET_VARIABLE_UPDATE); some options (the resolution) only apply after Reset.
 void SetOption(const std::string& key, const std::string& value);
+// Restart the game (the core unloads and loads it again on a later frame, with the current options).
+void Reset();
 
 // core_dll: vita3k_libretro.dll; game: the game's folder (or its eboot.bin, a .pkg / .vpk / .zip); system_dir:
 // holds vita3k\ (the firmware .pup files; the core unpacks its data there); save_dir: the core's saves go in

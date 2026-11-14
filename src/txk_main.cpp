@@ -9,12 +9,18 @@
 //   --opt=key=value                       a core option (vita3k_...) for this run
 //   --wav=<file.wav>                      dump the audio
 //   --userdata=<dir>                      save folder (default userdata next to the program)
+//   --setopt=F:key=value                  change a core option at frame F (headless; tests)
+//   --reset=F                             restart the game at frame F (headless; tests)
+//   --from-launcher                       started by tempest.exe (the menu's last item says "Return to launcher")
+//   --menu[=all]                          open the settings menu at start (all sections open; tests)
+//   --winshot=N:<file.bmp>                save the window after N presents, then quit (tests)
 // Settings (userdata\txk_settings.txt): fullscreen, vsync, and any vita3k_* key is handed to the core as an option.
 // Firmware: vita_firmware\PSVUPDAT.PUP (system) and PSP2UPDAT.PUP (fonts) are linked into system\vita3k\ as
 // firmware.pup / font.pup, the names the core tells the parts apart by.
-// Pad (Xbox): A = Cross, B = Circle, X = Square, Y = Triangle, LB / RB = L / R, Start = Start, Back = Select, sticks.
+// Pad (Xbox, remappable in the menu): A = Cross, B = Circle, X = Square, Y = Triangle, LB / RB = L / R, LT = Select,
+// Start = Start; fixed: d-pad, sticks, Back = settings menu (the game pauses while it is open).
 // Keys: arrows, Z = Cross, X = Circle, A = Square, S = Triangle, Q / W = L / R, Enter = Start, Tab = Select,
-// F11 fullscreen, Esc quits.
+// F11 fullscreen, Esc = settings menu.
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <windows.h>
@@ -30,7 +36,10 @@
 #include <string>
 #include <vector>
 
+#include "controls.h"
+#include "menu.h"
 #include "settings.h"
+#include "txk_menu.h"
 #include "vita_host.h"
 
 namespace fs = std::filesystem;
@@ -48,8 +57,14 @@ vsync = 1
 auto_ok_dialog = Network features are disabled
 
 # --- Core options (Vita3K): any vita3k_* key here is handed to the core; missing ones use the core's defaults ---
-# Internal resolution: 1 = the Vita's 960x544, 2 = 1920x1088, ... (needs a faster GPU).
+# Internal resolution: 1 = the Vita's 960x544, 2 = 1920x1088, 3 = 2880x1632, 4 = 3840x2176 (applies when the game
+# (re)starts).
 vita3k_resolution_multiplier = 1
+# Anisotropic texture filtering: 1 (off), 2, 4, 8, 16.
+vita3k_anisotropic_filtering = 1
+
+# Picture scaling to the window: smooth (bilinear) or sharp (nearest pixel).
+picture_filter = smooth
 )";
 
 struct Shot { int frame; std::string path; };
@@ -124,20 +139,13 @@ void PlaceFirmware(const fs::path& vita_dir) {
   }
 }
 
-// Xbox layout: A = Cross (RetroPad B), B = Circle (A), X = Square (Y), Y = Triangle (X).
+// Game buttons: the functions bound in the settings menu (txk_menu.cpp). Fixed: the d-pad (and the sticks, passed
+// as they are), Back = settings menu, the keyboard.
 uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
-  uint16_t b = 0;
+  uint16_t b = txk_menu::VitaButtons(controls::Held(pad));
   auto set = [&](int bit, bool on) { if (on) b |= uint16_t(1u << bit); };
   if (pad) {
     auto btn = [&](SDL_GamepadButton x) { return SDL_GetGamepadButton(pad, x); };
-    set(vita::B, btn(SDL_GAMEPAD_BUTTON_SOUTH));
-    set(vita::A, btn(SDL_GAMEPAD_BUTTON_EAST));
-    set(vita::Y, btn(SDL_GAMEPAD_BUTTON_WEST));
-    set(vita::X, btn(SDL_GAMEPAD_BUTTON_NORTH));
-    set(vita::L, btn(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
-    set(vita::R, btn(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER));
-    set(vita::START, btn(SDL_GAMEPAD_BUTTON_START));
-    set(vita::SELECT, btn(SDL_GAMEPAD_BUTTON_BACK));
     set(vita::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP));
     set(vita::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN));
     set(vita::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT));
@@ -163,9 +171,12 @@ uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string game, wav, userdata;
-  bool headless = false;
-  int frames = -1;
+  std::string game, wav, userdata, winshot_file;
+  bool headless = false, from_launcher = false;
+  int frames = -1, menu_test = 0, winshot_at = -1;
+  struct SetOpt { int frame; std::string key, value; };
+  std::vector<SetOpt> setopts;
+  std::vector<int> resets;
   std::vector<Shot> shots;
   std::vector<Press> presses;
   std::vector<StickHold> sticks;
@@ -174,7 +185,19 @@ int main(int argc, char** argv) {
     std::string a = argv[i];
     auto val = [&](const char* p) { return a.substr(std::strlen(p)); };
     if (a == "--headless") headless = true;
-    else if (a == "--from-launcher") {}
+    else if (a == "--from-launcher") from_launcher = true;
+    else if (a == "--menu" || a == "--menu=all") menu_test = a == "--menu" ? 1 : 2;
+    else if (a.rfind("--winshot=", 0) == 0) {
+      const std::string v = val("--winshot=");
+      winshot_at = std::atoi(v.substr(0, v.find(':')).c_str());
+      winshot_file = v.substr(v.find(':') + 1);
+    } else if (a.rfind("--reset=", 0) == 0) resets.push_back(std::atoi(val("--reset=").c_str()));
+    else if (a.rfind("--setopt=", 0) == 0) {
+      const std::string v = val("--setopt=");
+      const size_t c = v.find(':'), eq = v.find('=', c);
+      if (c != std::string::npos && eq != std::string::npos)
+        setopts.push_back({std::atoi(v.substr(0, c).c_str()), v.substr(c + 1, eq - c - 1), v.substr(eq + 1)});
+    }
     else if (a.rfind("--frames=", 0) == 0) frames = std::atoi(val("--frames=").c_str());
     else if (a.rfind("--wav=", 0) == 0) wav = val("--wav=");
     else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
@@ -202,6 +225,7 @@ int main(int argc, char** argv) {
   if (!game.empty()) game = fs::absolute(game).string();
   if (!wav.empty()) wav = fs::absolute(wav).string();
   for (auto& s : shots) s.path = fs::absolute(s.path).string();
+  if (!winshot_file.empty()) winshot_file = fs::absolute(winshot_file).string();
 
   if (!SDL_Init(SDL_INIT_VIDEO | (headless ? 0 : SDL_INIT_AUDIO | SDL_INIT_GAMEPAD))) {
     std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -212,6 +236,7 @@ int main(int argc, char** argv) {
   fs::create_directories(udir);
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "txk_settings.txt").string());
+  txk_menu::Install(from_launcher);
   game = FindGame(game);
   if (game.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TxK", "Put your TxK game folder (PCSB00494) next to the program.",
@@ -268,6 +293,10 @@ int main(int argc, char** argv) {
       for (auto& h : sticks)
         if (f >= h.frame && f < h.frame + h.len) { sx = h.x; sy = h.y; }
       vita::SetSticks(int(sx * 32767), int(sy * 32767), 0, 0);
+      for (auto& o : setopts)
+        if (o.frame == f) vita::SetOption(o.key, o.value);
+      for (int r : resets)
+        if (r == f) vita::Reset();
       vita::RunFrame();
       auto& au = vita::Audio();
       if (!wav.empty()) wav_samples.insert(wav_samples.end(), au.begin(), au.end());
@@ -303,17 +332,28 @@ int main(int argc, char** argv) {
   bool running = true;
   const double frame_ns = 1e9 / vita::Fps();
   uint64_t next = SDL_GetTicksNS();
-  int frame = 0;
+  int frame = 0, presents = 0;
+  bool prev_back = false;
+  uint32_t prev_held = 0;
+  auto set_fullscreen = [&](bool on) {
+    SDL_SetWindowFullscreen(win, on);
+    settings::Save("fullscreen", on ? "1" : "0");
+  };
+  // Core options the menu changes: handed to the core as they change (some apply when the game restarts).
+  auto apply_core_options = [&] {
+    for (const char* k : {"vita3k_resolution_multiplier", "vita3k_anisotropic_filtering"}) {
+      const std::string v = settings::Str(k, "");
+      if (!v.empty()) vita::SetOption(k, v);
+    }
+  };
   while (running) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) running = false;
-      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) running = false;
-      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11) {
-        const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
-        SDL_SetWindowFullscreen(win, on);
-        settings::Save("fullscreen", on ? "1" : "0");
-      } else if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) SDL_HideCursor();
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE && !menu::IsOpen()) menu::Open();
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11)
+        set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
+      else if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) SDL_HideCursor();
       else if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) SDL_ShowCursor();
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
       else if (e.type == SDL_EVENT_GAMEPAD_REMOVED && pad && SDL_GetGamepadID(pad) == e.gdevice.which) {
@@ -322,9 +362,38 @@ int main(int argc, char** argv) {
       }
     }
     const uint64_t now = SDL_GetTicksNS();
+    // Settings menu (Back / Esc): no frames run while it is open (the game waits for its next vblank).
+    {
+      const bool back = pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK);
+      const uint32_t held = controls::Held(pad), pressed = held & ~prev_held;
+      prev_held = held;
+      if (!menu::IsOpen() && back && !prev_back) menu::Open();
+      prev_back = back;
+      if (menu::IsOpen()) {
+        menu::Nav nav = menu::ReadNav(pad, SDL_GetKeyboardState(nullptr));
+        for (int b = 0; b < controls::kButtonCount; ++b)
+          if (pressed >> b & 1) { nav.new_button = b; break; }
+        const std::string res_before = settings::Str("vita3k_resolution_multiplier", "1");
+        switch (menu::Update(nav, now)) {
+          case menu::kQuit: running = false; break;
+          case menu::kToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
+          case txk_menu::kRestart:
+            vita::Reset();
+            menu::Toast("Restarting the game", now);
+            break;
+          default: break;
+        }
+        apply_core_options();
+        if (settings::Str("vita3k_resolution_multiplier", "1") != res_before)
+          menu::Toast("Resolution: restart the game to apply", now);
+        next = now;   // paused: no catching up afterwards
+      }
+    }
     int todo = 0;
-    while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
-    if (now > next + uint64_t(frame_ns * 8)) next = now;
+    if (!menu::IsOpen()) {
+      while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
+      if (now > next + uint64_t(frame_ns * 8)) next = now;
+    }
     for (int k = 0; k < todo; ++k) {
       vita::SetButtons(ReadPad(pad, SDL_GetKeyboardState(nullptr)) | scripted(frame));
       if (pad)
@@ -347,11 +416,12 @@ int main(int argc, char** argv) {
       if (!tex || tw != f.width || th != f.height) {
         if (tex) SDL_DestroyTexture(tex);
         tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, int(f.width), int(f.height));
-        SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
         tw = f.width;
         th = f.height;
       }
       SDL_UpdateTexture(tex, nullptr, f.pixels.data(), int(f.width * 4));
+      SDL_SetTextureScaleMode(tex, settings::Str("picture_filter", "smooth") == "sharp" ? SDL_SCALEMODE_NEAREST
+                                                                                         : SDL_SCALEMODE_LINEAR);
     }
     int ww = 0, wh = 0;
     SDL_GetRenderOutputSize(ren, &ww, &wh);
@@ -363,6 +433,17 @@ int main(int argc, char** argv) {
       SDL_FRect dst{(ww - w) / 2, (wh - h) / 2, w, h};
       SDL_RenderTexture(ren, tex, nullptr, &dst);
     }
+    if (menu::Shown()) menu::Draw(ren, ww, wh);
+    menu::DrawToast(ren, ww, wh, SDL_GetTicksNS());
+    if (menu_test && presents == 0) menu::Open(menu_test == 2);
+    if (winshot_at >= 0 && presents == winshot_at) {
+      if (SDL_Surface* sf = SDL_RenderReadPixels(ren, nullptr)) {
+        if (!SDL_SaveBMP(sf, winshot_file.c_str())) std::fprintf(stderr, "winshot: %s\n", SDL_GetError());
+        SDL_DestroySurface(sf);
+      }
+      running = false;
+    }
+    ++presents;
     SDL_RenderPresent(ren);
   }
   if (audio) SDL_DestroyAudioStream(audio);

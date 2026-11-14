@@ -48,7 +48,7 @@ std::vector<Game> MakeGames(const fs::path& base) {
       {"TEMPEST", "1981  ARCADE", Kind::NotYet, "", ""},
       {"TEMPEST 2000", "1994  ATARI JAGUAR", Kind::Program, "t2k.exe", ""},
       {"TEMPEST 3000", "2000  NUON", Kind::Program, "t3k.exe", ""},
-      {"TxK", "2014  PS VITA", Kind::NotYet, "", ""},
+      {"TxK", "2014  PS VITA", Kind::Program, "txk.exe", ""},
       {"TEMPEST 4000", "2018  STEAM", Kind::Steam, kSteamAppT4K, ""},
   };
   for (auto& x : g) {
