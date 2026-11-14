@@ -30,6 +30,7 @@ struct Core {
   void (*unload_game)();
   void (*run)();
   void (*get_run_stats)(RunStats*);   // ours (llamasoft-nuon); null on another build
+  void (*set_timing)(int, double);    // ours
 } g_core;
 
 retro_system_av_info g_av{};
@@ -208,6 +209,7 @@ bool Load(const std::string& core_dll, const std::string& disc, const std::strin
             Sym(g_core.unload_game, "retro_unload_game") && Sym(g_core.run, "retro_run");
   if (!ok) { *err = core_dll + ": missing libretro entry points"; return false; }
   Sym(g_core.get_run_stats, "nuance_get_run_stats");
+  Sym(g_core.set_timing, "nuance_set_timing");
   g_system_dir = system_dir;
   g_save_dir = save_dir;
   if (!CreateGL(err)) return false;
@@ -250,6 +252,15 @@ const Frame& LastFrame() { return g_frame; }
 double Fps() { return g_av.timing.fps; }
 double SampleRate() { return g_av.timing.sample_rate; }
 std::vector<int16_t>& Audio() { return g_audio; }
+
+void ReleaseContext() { SDL_GL_MakeCurrent(g_glwin, nullptr); }
+void MakeContextCurrent() { SDL_GL_MakeCurrent(g_glwin, g_gl); }
+
+bool SetTiming(bool emulated, double rounds) {
+  if (!g_core.set_timing) return false;
+  g_core.set_timing(emulated ? 1 : 0, rounds);
+  return true;
+}
 
 bool GetRunStats(RunStats* out) {
   if (!g_core.get_run_stats) return false;

@@ -176,6 +176,38 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   field's real time: profile the dispatch loop, idle-skip spinning MPEs, the T3K hack value). Find how the game
   paces (field counter polling on MPE3?) to know whether 30 or 60 pictures/s is its real-hardware target.
 
+### Stage 2 done: emulated time (2026-11-14)
+- Owner tried stage 1: "significant improvement already", ~84 fps in play but speed still uneven; CPU / GPU usage low.
+- Core (llamasoft-nuon): `nuance_set_timing(emulated, rounds_per_field)`. Emulated (default): one retro_run = one
+  field = a FIXED number of rounds (one FetchDecodeExecute per MPE a round, MPE3 skipped while in VidSync: Nuance's
+  own interleaving); the 54 MHz emulated clock advances evenly over the rounds and drives timer0 / timer1 / audio
+  periods (checked every 64 rounds) and TimeElapsed (timer.cpp g_emu_time; real_useconds_since_start for the PC).
+  Real: Nuance's loop (RunRealTime). **Runs are deterministic** (two runs: identical shots and stats).
+- Tried first and dropped: per-MPE packet clocks (each MPE runs 900k packets a field, halted MPEs idle). It changes
+  the interleaving the game was tested against: hang at the level-select transition (MPE2 never restarted), and with
+  "halted MPEs keep up" a wild store crash (Execute_StoreScalarLinear) by field ~736. Don't go back to it without a
+  real reason.
+- **The game's speed follows the emulation work, not time**: at 180k rounds the menus / level start come far later
+  than at 220k (zoom_180000.png vs zoom_220000.png in logs\t3k). No TimeElapsed or VidSync calls at all. So rounds per
+  field = game speed; Nuance's average on this PC was ~220k (default `nuon_rounds = 220000` in settings.txt). Real
+  hardware is likely faster (220k rounds = MPE0-2 ~43 MHz-equivalent, MPE3 ~17 with the packet hack) -> more speed
+  from stage 3 = closer to hardware; calibrate against a real-hardware video if one turns up.
+- Host: the emulation runs on its own thread paced by the clock (field k at start + k/60 s); the main thread presents
+  every vblank the newest field due one field ago, so at 120 Hz each field shows for exactly 2 refreshes when it costs
+  < 16.7 ms. Measured: 220k rounds 90% of fields exactly 2 refreshes (p50 field 16-17 ms, p95 20 ms); 180k 98%
+  (game at a steady 30 pictures/s, but slower). Exit prints the refresh histogram. Crash handler prints module+offset
+  (symbolize with llvm-symbolizer and tools\build_nuance_dbg.bat's PDB; lldb here lacks python311.dll).
+- Game pictures in play at 220k: ~39/s, 1- and 2-field holds; MPE3PacketHack = T3K: 42.5/s, ~10% more PC time.
+
+### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
+- NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
+  calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
+  comm bus + interrupts ~7%, profiler overhead).
+- Ideas, measure each: slim FetchDecodeExecute's per-call path (interrupt checks, cache lookup, TickMediaCallbacks);
+  bigger blocks / block chaining for MPE0-2; the T3K packet-hack range; detect MPEs spinning on a mailbox / comm bus
+  and skip ahead (must keep the interleaving the game depends on); profile-guided build. Target: 220k rounds in
+  ~10 ms, then raise the default toward hardware speed.
+
 ## TxK plan (2026-11-11; after Tempest 3000)
 Game: `PCSB00494\` = EU Llamasoft TxK v01.03 (EP4461-PCSB00494_00-LLAMASOFTTXK0001), a decrypted folder dump
 (plain eboot.bin + sce_module\*.suprx), 104 MB. Never in git. The owner has run it well on the Deck in Vita3K.

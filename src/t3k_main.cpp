@@ -2,8 +2,9 @@
 //
 //   t3k.exe [disc]                        play in a window (disc: Tempest 3000 .iso next to the program, in game\,
 //                                         or in Nuance_067\)
-//   --headless --frames=N                 run N core frames without showing a window (the core still runs on the
-//                                         PC clock: one frame takes a real 60th of a second)
+//   --headless --frames=N                 run N fields without showing a window (as fast as the PC can; with
+//                                         --timing=real one takes a real 60th of a second)
+//   --timing=emulated|real --rounds=N     override settings timing / nuon_rounds
 //   --shot=F:<file.bmp>                   save the picture after frame F (repeatable)
 //   --press=F:<btn>[:len]                 hold a RetroPad button from frame F (default 6 frames)
 //   --wav=<file.wav>                      dump the audio
@@ -16,8 +17,15 @@
 // F11 fullscreen, Esc quits (no settings menu yet).
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <windows.h>
+#undef min
+#undef max
 
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <thread>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -33,12 +41,54 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// A crash: the exception, the faulting address and the call stack as module+offset on stderr, for
+// llvm-symbolizer --obj=<module> <offset> (with the debug core: tools\build_nuance_dbg.bat).
+LONG WINAPI CrashFilter(EXCEPTION_POINTERS* ep) {
+  auto where = [](void* a) {
+    HMODULE m = nullptr;
+    char name[MAX_PATH] = "?";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)a, &m))
+      GetModuleFileNameA(m, name, sizeof(name));
+    const char* base = std::strrchr(name, '\\');
+    std::fprintf(stderr, "  %s+0x%llx\n", base ? base + 1 : name, (unsigned long long)((uint8_t*)a - (uint8_t*)m));
+  };
+  std::fprintf(stderr, "CRASH: exception 0x%08lX at:\n", ep->ExceptionRecord->ExceptionCode);
+  where(ep->ExceptionRecord->ExceptionAddress);
+  if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION)
+    std::fprintf(stderr, "  (%s 0x%llx)\n", ep->ExceptionRecord->ExceptionInformation[0] ? "writing" : "reading",
+                 (unsigned long long)ep->ExceptionRecord->ExceptionInformation[1]);
+  // Walk the faulting thread's stack from the exception context.
+  CONTEXT ctx = *ep->ContextRecord;
+  for (int i = 0; i < 24 && ctx.Rip; ++i) {
+    DWORD64 image = 0;
+    PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &image, nullptr);
+    if (i) where((void*)ctx.Rip);
+    if (!fn) {   // a leaf (or JIT code): return address on top of the stack
+      ctx.Rip = *(DWORD64*)ctx.Rsp;
+      ctx.Rsp += 8;
+      continue;
+    }
+    void* handler_data = nullptr;
+    DWORD64 frame = 0;
+    RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, ctx.Rip, fn, &ctx, &handler_data, &frame, nullptr);
+  }
+  std::fflush(stderr);
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+
 const char* kDefaults = R"(# Tempest 3000 settings.
 
 # 1 = start fullscreen (F11 toggles and saves it).
 fullscreen = 1
 # 1 = wait for the display when presenting (no tearing).
 vsync = 1
+# emulated = steady game speed: every video field gets the same amount of emulation (nuon_rounds);
+# real = Nuance's own timing (follows the PC clock: uneven).
+timing = emulated
+# Rounds per video field (one block on each of the 4 processors a round): more = the game draws more pictures a
+# second but needs a faster PC. 220000 is about what Nuance managed on the owner's PC.
+nuon_rounds = 220000
 )";
 
 struct Shot { int frame; std::string path; };
@@ -152,12 +202,12 @@ struct Perf {
     const uint64_t frame_ns = last ? t_end - last : 0;
     last = t_end;
     if (csv) {
-      std::fprintf(csv, "%llu,%.3f,%.3f,%.3f,%.3f,%llu,%llu,%u,%u,%u,%llu,%llu,%llu,%llu,%u\n",
+      std::fprintf(csv, "%llu,%.3f,%.3f,%.3f,%.3f,%llu,%llu,%u,%u,%u,%llu,%llu,%llu,%llu,%u,%u\n",
                    (unsigned long long)frame, (t_end - start) / 1e6, frame_ns / 1e6, (t_run1 - t_run0) / 1e6,
                    (t_end - t_run1) / 1e6, (unsigned long long)s.iterations, (unsigned long long)s.mpe3_stalled,
                    s.field_fired, s.field_counter, s.vidsync_calls, (unsigned long long)s.mpe_packets[0],
                    (unsigned long long)s.mpe_packets[1], (unsigned long long)s.mpe_packets[2],
-                   (unsigned long long)s.mpe_packets[3], s.vid_flips);
+                   (unsigned long long)s.mpe_packets[3], s.vid_flips, s.time_elapsed_calls);
     }
     if (!summary || !have) return;
     ++n;
@@ -186,7 +236,7 @@ struct Perf {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string disc, wav, perflog, userdata;
+  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg;
   bool headless = false, novsync = false;
   int frames = -1;   // headless default 600; the window runs until closed unless given
   std::vector<Shot> shots;
@@ -198,6 +248,8 @@ int main(int argc, char** argv) {
     else if (a == "--novsync") novsync = true;
     else if (a.rfind("--frames=", 0) == 0) frames = std::atoi(val("--frames=").c_str());
     else if (a.rfind("--wav=", 0) == 0) wav = val("--wav=");
+    else if (a.rfind("--timing=", 0) == 0) timing_arg = val("--timing=");
+    else if (a.rfind("--rounds=", 0) == 0) rounds_arg = val("--rounds=");
     else if (a.rfind("--perflog=", 0) == 0) perflog = val("--perflog=");
     else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
     else if (a.rfind("--shot=", 0) == 0) {
@@ -219,6 +271,7 @@ int main(int argc, char** argv) {
   if (!perflog.empty()) perflog = fs::absolute(perflog).string();
   for (auto& s : shots) s.path = fs::absolute(s.path).string();
 
+  SetUnhandledExceptionFilter(CrashFilter);
   if (!SDL_Init(SDL_INIT_VIDEO | (headless ? 0 : SDL_INIT_AUDIO | SDL_INIT_GAMEPAD))) {
     std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
     return 1;
@@ -241,13 +294,19 @@ int main(int argc, char** argv) {
     return 1;
   }
   std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", disc.c_str(), nuon::Fps(), nuon::SampleRate());
+  if (!timing_arg.empty()) settings::Set("timing", timing_arg);
+  if (!rounds_arg.empty()) settings::Set("nuon_rounds", rounds_arg);
+  bool emulated = settings::Str("timing", "emulated") != "real";
+  if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 220000))) emulated = false;
+  std::fprintf(stderr, "timing: %s\n",
+               emulated ? ("emulated, " + settings::Str("nuon_rounds", "220000") + " rounds a field").c_str() : "real (PC clock)");
 
   Perf perf;
   perf.summary = std::getenv("T3K_PERF") != nullptr;
   if (!perflog.empty()) {
     perf.csv = std::fopen(perflog.c_str(), "w");
     if (perf.csv) std::fprintf(perf.csv, "frame,t_ms,frame_ms,run_ms,rest_ms,iterations,mpe3_stalled,field_fired,"
-                                         "field_counter,vidsync_calls,mpe0,mpe1,mpe2,mpe3,vid_flips\n");
+                                         "field_counter,vidsync_calls,mpe0,mpe1,mpe2,mpe3,vid_flips,time_elapsed\n");
   }
   perf.start = perf.from = SDL_GetTicksNS();
   std::vector<int16_t> wav_samples;
@@ -283,7 +342,8 @@ int main(int argc, char** argv) {
   SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
   if (!ren) { std::fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
   if (settings::Num("fullscreen", 1) != 0) SDL_SetWindowFullscreen(win, true);
-  SDL_SetRenderVSync(ren, (novsync || settings::Num("vsync", 1) == 0) ? 0 : 1);
+  const bool vsync_on = !novsync && settings::Num("vsync", 1) != 0;
+  SDL_SetRenderVSync(ren, vsync_on ? 1 : 0);
   SDL_HideCursor();
   SDL_Texture* tex = nullptr;
   unsigned tw = 0, th = 0;
@@ -294,7 +354,63 @@ int main(int argc, char** argv) {
 
   SDL_Gamepad* pad = nullptr;
   bool running = true;
-  uint64_t frame = 0;
+
+  // The emulation runs on its own thread: field k starts at start + k / 60 s (emulated timing; real timing: as fast
+  // as the core returns, it paces itself). The main thread presents at every vblank the newest field that is surely
+  // finished (due one field ago), so at 120 Hz each field is shown for exactly two refreshes as long as a field
+  // costs under 16.7 ms of PC time.
+  const uint64_t field_ns = uint64_t(1e9 / nuon::Fps());
+  struct Slot { int64_t field = -1; uint64_t due = 0; nuon::Frame frame; };
+  Slot ring[4];
+  std::mutex ring_mutex;
+  std::atomic<uint16_t> pad_buttons{0};
+  std::atomic<bool> emu_quit{false};
+  std::atomic<int64_t> fields_done{0};
+  nuon::ReleaseContext();   // the emulation thread takes the core's OpenGL context
+  std::thread emu([&] {
+    uint64_t start = SDL_GetTicksNS() + field_ns;
+    for (int64_t k = 0; !emu_quit; ++k) {
+      uint64_t due = 0;
+      if (emulated) {
+        due = start + uint64_t(k) * field_ns;
+        const uint64_t now = SDL_GetTicksNS();
+        if (now > due + 8 * field_ns) {   // fell far behind (a stall): restart the schedule from now
+          start = now - uint64_t(k) * field_ns;
+          due = now;
+        } else if (now < due) {
+          SDL_DelayPrecise(due - now);
+        }
+      }
+      nuon::SetButtons(pad_buttons.load() | scripted(uint64_t(k)));
+      const uint64_t t0 = SDL_GetTicksNS();
+      nuon::RunFrame();
+      const uint64_t t1 = SDL_GetTicksNS();
+      auto& au = nuon::Audio();
+      if (audio && !au.empty()) {
+        // The display's clock and the sound card's drift apart slowly: keep the queue short (~100 ms).
+        if (SDL_GetAudioStreamQueued(audio) > int(nuon::SampleRate()) * 4 / 10) SDL_ClearAudioStream(audio);
+        SDL_PutAudioStreamData(audio, au.data(), int(au.size() * 2));
+      }
+      au.clear();
+      {
+        std::lock_guard<std::mutex> lock(ring_mutex);
+        Slot& sl = ring[k & 3];
+        sl.field = k;
+        sl.due = due ? due : SDL_GetTicksNS();
+        sl.frame = nuon::LastFrame();
+      }
+      perf.Frame(uint64_t(k), t0, t1, SDL_GetTicksNS());
+      fields_done = k + 1;
+      if (frames >= 0 && k + 1 >= frames) break;
+    }
+    nuon::ReleaseContext();
+  });
+
+  int64_t shown = -1;
+  // Refreshes each field stayed on screen, and fields never shown (stderr at exit: the smoothness measure).
+  int presents_of_shown = 0;
+  int64_t skipped = 0;
+  std::vector<int64_t> hold_hist(8, 0);
   while (running) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -312,25 +428,35 @@ int main(int argc, char** argv) {
         pad = nullptr;
       }
     }
-    nuon::SetButtons(ReadPad(pad, SDL_GetKeyboardState(nullptr)) | scripted(frame));
-    const uint64_t t0 = SDL_GetTicksNS();
-    nuon::RunFrame();
-    const uint64_t t1 = SDL_GetTicksNS();
+    pad_buttons = ReadPad(pad, SDL_GetKeyboardState(nullptr));
 
-    auto& au = nuon::Audio();
-    if (audio && !au.empty()) SDL_PutAudioStreamData(audio, au.data(), int(au.size() * 2));
-    au.clear();
-
-    const nuon::Frame& f = nuon::LastFrame();
-    if (f.width) {
-      if (!tex || tw != f.width || th != f.height) {
-        if (tex) SDL_DestroyTexture(tex);
-        tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, int(f.width), int(f.height));
-        SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
-        tw = f.width;
-        th = f.height;
+    // The newest finished field whose time has passed: due <= now - one field (emulated timing), else the newest.
+    {
+      const uint64_t now = SDL_GetTicksNS();
+      std::lock_guard<std::mutex> lock(ring_mutex);
+      const Slot* pick = nullptr;
+      for (const Slot& sl : ring) {
+        if (sl.field < 0 || sl.field <= shown) continue;
+        if (emulated && sl.due + field_ns > now) continue;
+        if (!pick || sl.field > pick->field) pick = &sl;
       }
-      SDL_UpdateTexture(tex, nullptr, f.pixels.data(), int(f.width * 4));
+      if (pick && pick->frame.width) {
+        const nuon::Frame& f = pick->frame;
+        if (!tex || tw != f.width || th != f.height) {
+          if (tex) SDL_DestroyTexture(tex);
+          tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, int(f.width), int(f.height));
+          SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
+          tw = f.width;
+          th = f.height;
+        }
+        SDL_UpdateTexture(tex, nullptr, f.pixels.data(), int(f.width * 4));
+        if (shown >= 0) {
+          hold_hist[std::min(presents_of_shown, 7)]++;
+          skipped += pick->field - shown - 1;
+        }
+        presents_of_shown = 0;
+        shown = pick->field;
+      }
     }
     int ww = 0, wh = 0;
     SDL_GetRenderOutputSize(ren, &ww, &wh);
@@ -343,9 +469,16 @@ int main(int argc, char** argv) {
       SDL_RenderTexture(ren, tex, nullptr, &dst);
     }
     SDL_RenderPresent(ren);
-    perf.Frame(frame++, t0, t1, SDL_GetTicksNS());
-    if (frames >= 0 && int64_t(frame) >= frames) running = false;
+    ++presents_of_shown;
+    if (!vsync_on) SDL_DelayNS(1000000);
+    if (frames >= 0 && fields_done >= frames) running = false;
   }
+  emu_quit = true;
+  emu.join();
+  std::fprintf(stderr, "fields shown for 0..7+ refreshes:");
+  for (auto n : hold_hist) std::fprintf(stderr, " %lld", (long long)n);
+  std::fprintf(stderr, "; fields never shown: %lld\n", (long long)skipped);
+  nuon::MakeContextCurrent();
   if (perf.csv) std::fclose(perf.csv);
   if (audio) SDL_DestroyAudioStream(audio);
   if (tex) SDL_DestroyTexture(tex);

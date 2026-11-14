@@ -25,7 +25,7 @@ struct RunStats {
   uint32_t pad;
   uint64_t mpe_packets[4]; // packets each MPE executed
   uint32_t vid_flips;      // VidChangeBase + VidConfig calls (cumulative): the game's own frame rate
-  uint32_t pad2;
+  uint32_t time_elapsed_calls;  // TimeElapsed BIOS calls (cumulative)
 };
 
 // RetroPad button bits (RETRO_DEVICE_ID_JOYPAD_*); the core maps A -> Nuon A, B -> B, START -> Start,
@@ -41,11 +41,18 @@ bool Load(const std::string& core_dll, const std::string& disc, const std::strin
           const std::string& save_dir, std::string* err);
 void Unload();
 void SetButtons(uint16_t buttons);
-void RunFrame();                // one retro_run (the core runs until its next video field by the PC clock)
+void RunFrame();                // one retro_run: one video field
 const Frame& LastFrame();
 double Fps();
 double SampleRate();
 std::vector<int16_t>& Audio();  // interleaved stereo int16 produced since the last clear
 bool GetRunStats(RunStats* out);
+// Emulated time (default): one RunFrame = exactly one field of `rounds` emulation rounds; the host paces at Fps().
+// Off: Nuance's own timing (the core runs by the PC clock). False if the core can't (another build).
+bool SetTiming(bool emulated, double rounds);
+// The core's OpenGL context is current on one thread at a time: release it before another thread runs frames
+// (RunFrame makes it current on the calling thread), and take it back before Unload.
+void ReleaseContext();
+void MakeContextCurrent();
 
 }  // namespace nuon
