@@ -383,6 +383,19 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   out for feedback / trail effects. Option 3 (slow every object's speed scale at 60 steps) rejected: timers,
   spawns and animations count steps.
 
+### High resolution: first map (2026-11-14; owner: picture_blend "excellent, we'll use that for now")
+- NUANCE_DEBUG_VIDCONFIG=1: display 720x480 (the video hardware scales up, 4-tap horizontal filter); main channel
+  dmaflags $002DC840 = 360 wide (45 x 8), 32-bit pixels; triple buffers at $40010000 / $40064600 / $400B8C00
+  (345600 bytes apart = 360 x 240 x 4). 720x480 would need ~4.1 MB of the main bus's 8 MB.
+- Candidate parameters (system RAM, play): $800BA3B0/B4 = 360.0 / 240.0 (16.16, a screen-size record);
+  $800B2E10/14 = 180.0 / 120.0 (screen centre = the projection origin); the job descriptor MPE3 sends the renderers
+  ($8004E040) holds 360 / 240 (16-bit at +4/+6) and a buffer base (+0x24) -> the renderers take the size from their
+  jobs; $800B1730 = channel dmaflags + a buffer base (video setup data). Plus 188 / 200 other 16-bit 360 / 240 hits.
+- Experiments next: (1) poke the projection centre / scale and see whether the renderers draw bigger (projection
+  parameter-driven?); (2) find where the buffers are allocated and the job descriptor filled; (3) a real 720x480
+  attempt: bigger buffers in free main-bus memory, job sizes, channel flags, projection x2, then fix what breaks
+  (text, sprites, clears, feedback effects).
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
