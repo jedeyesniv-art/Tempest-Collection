@@ -398,7 +398,18 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   360x240 x10). Halving all those centres (static data: poked once, stays) moved the web's LINES to centre
   (90,60): the renderers draw from parameters (go). The web's filled surface, the claw, enemies and stars did not
   move: their centre / origin comes from other parameters still to find.
-- Experiments next: (1b) find the remaining elements' parameters (same template region: other formats - 16.16,
+- Step 1b (2026-11-14): the job log now prints each job's 64-byte descriptor at hand-over (MPE start: r0; comm:
+  word 3). One picture in play = 13 MPE1 jobs + 1 MPE0 job. MPE1 = the 2D layer (HUD digits / icons, bars,
+  sprites, particles; modules 806AA120 / 806AE210 / 806AB458 / 8069E070): descriptor word 0 = position (x, y),
+  word 4 = size / scale, word 7 = template pointer. NUANCE_HR_TEST=1 (halve words 0 and 4 of MPE1 jobs at start)
+  moved the lives icon, the side bar and the floating glyphs exactly -> the 2D layer can be scaled by
+  transforming descriptors at hand-over. The 3D layer (web, claw, enemies, star) = MPE0's one job ($8004E040:
+  360x240, colours, target buffer at +0x24; comm words 0x332 + another frame buffer) run by MPE0 + MPE2 together
+  through modules 806A3108, 806A3F50 (between each), 806A5FB0, 806AD2B0, 806A8990, 806AF1E8, reading a display
+  list MPE3 builds (command-string parser $80012100?) whose entries reference the render templates.
+- Next: decode the 3D display list (where, entry format, which fields are centres / scales / sizes), then step 2
+  (buffers + frame job) and step 3 (720x480 attempt: 2D transform x2 + 3D templates / list x2 + buffers + channel).
+- Experiments next (earlier list): (1b) find the remaining elements' parameters (same template region: other formats - 16.16,
   separate x / y words, per-object camera data); (2) where the buffers are allocated and the 360x240 frame job is
   filled; (3) a real 720x480 attempt with all found parameters doubled.
 - (was:) (1) poke the projection centre / scale and see whether the renderers draw bigger (projection
