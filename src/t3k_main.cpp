@@ -92,13 +92,14 @@ vsync = 1
 # real = Nuance's own timing (follows the PC clock: uneven).
 timing = emulated
 # Rounds per video field (one block on each of the 4 processors a round): more = the game draws more pictures a
-# second (up to 60: flip_cap) but needs a faster PC. 300000 = a locked 60 everywhere seen so far (AOT + threads).
-nuon_rounds = 300000
+# second (up to the flip_cap rate) but needs a faster PC. 200000 holds 30 pictures/s everywhere seen so far.
+nuon_rounds = 200000
 # Fields the emulation may work ahead (1-3): 2 lets a slow field borrow time from fast ones, for one field
 # (16.7 ms) more input lag. 1 = lowest lag, but busy moments may show a field for 1 or 3 refreshes.
 buffer_fields = 2
-# 1 = at most one new picture a video field, as on the hardware (a flipped buffer shows from the next vblank).
-flip_cap = 1
+# Game speed. Tempest 3000 moves a fixed step per picture, so its speed is its picture rate: the minimum video
+# fields between two pictures. 2 = 30 pictures/s (likely the original speed), 1 = 60 (twice as fast), 3 = 20.
+flip_cap = 2
 )";
 
 struct Shot { int frame; std::string path; };
@@ -318,11 +319,11 @@ int main(int argc, char** argv) {
   if (!timing_arg.empty()) settings::Set("timing", timing_arg);
   if (!rounds_arg.empty()) settings::Set("nuon_rounds", rounds_arg);
   bool emulated = settings::Str("timing", "emulated") != "real";
-  if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 300000))) emulated = false;
+  if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 200000))) emulated = false;
   if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
-  nuon::SetFlipCap(settings::Num("flip_cap", 1) != 0);
+  nuon::SetFlipCap(int(settings::Num("flip_cap", 2)));
   std::fprintf(stderr, "timing: %s\n",
-               emulated ? ("emulated, " + settings::Str("nuon_rounds", "300000") + " rounds a field").c_str() : "real (PC clock)");
+               emulated ? ("emulated, " + settings::Str("nuon_rounds", "200000") + " rounds a field").c_str() : "real (PC clock)");
 
   Perf perf;
   perf.summary = std::getenv("T3K_PERF") != nullptr;
