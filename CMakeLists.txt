@@ -58,3 +58,16 @@ add_custom_target(t3k_runtime ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/build_nuance/nuance_libretro.dll"
           "${CMAKE_BINARY_DIR}"
   DEPENDS t3k)
+
+# TxK (PS Vita): the Vita3K libretro core is a separate DLL (tools\build_vita3k.bat -> build_vita3k\bin\Release\),
+# loaded at run time. Firmware comes from vita_firmware\ (txk.exe links it into system\vita3k\ on first start).
+add_executable(txk WIN32 src/txk_main.cpp src/vita_host.cpp src/settings.cpp)
+target_link_libraries(txk PRIVATE SDL3::SDL3-static opengl32)
+target_compile_definitions(txk PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
+if(WIN32)
+  target_link_libraries(txk PRIVATE winmm)
+endif()
+add_custom_target(txk_runtime ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/build_vita3k/bin/Release/vita3k_libretro.dll"
+          "${CMAKE_BINARY_DIR}"
+  DEPENDS txk)

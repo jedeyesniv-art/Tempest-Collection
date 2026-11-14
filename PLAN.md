@@ -516,6 +516,20 @@ libretro, external/CMakeLists.txt builds a static OpenSSL 3.6.1 from source and 
 (Strawberry; Git's perl is rejected). Blocked there: downloading portable Strawberry Perl was refused by the
 permission classifier; the owner then approved it (third_party\strawberry). OpenSSL also wanted NASM: patched to
 no-asm instead (branch llamasoft-vita). Step 1 DONE 2026-11-14: build_vita3k\bin\Release\vita3k_libretro.dll.
+Step 2 DONE 2026-11-14: build\txk.exe (src/txk_main.cpp, src/vita_host.cpp) boots TxK and plays level 1 (headless and
+window). Host: OpenGL 4.4 core context on a hidden SDL window (GET_PREFERRED_HW_RENDER = OPENGL_CORE), FBO at the
+core's max size (3840x2176), readback flipped (bottom-left origin); core options = any vita3k_* settings key or
+--opt=; headless runs are paced to real time (the emulator runs on its own threads). Firmware: vita_firmware\ PUPs
+hard-linked into build\system\vita3k\ as firmware.pup / font.pup (PSP2UPDAT.PUP was the font package, confirmed:
+sa0 installed). The preinst package (pd0) is missing and TxK runs without it.
+The offline "Network features are disabled" notice (sceMsgDialog, OK only; wants a touch on the Vita, and while it
+was up / after Cross closed Vita3K's overlay the game took no input) is answered OK without showing it: core patch
+on llamasoft-vita reads VITA3K_AUTO_OK_DIALOG (Win32 GetEnvironmentVariable: the core's CRT copy of the environment
+predates the host setting it), txk setting auto_ok_dialog (default: that text).
+Route: Start at 900 (title -> Level Select), Cross at 1300 -> level 1 by ~1800 (frames from boot, fresh userdata).
+Unhandled env (harmless so far): keyboard callback, core assets dir, sensors, VFS.
+Next: step 3 rest (window polish: aspect / filters), step 4 (shared Back menu, controls, packaging with the MSVC
+runtime DLLs), then TxK QoL with the owner.
 
 Route: the Vita3K libretro core (docs.libretro.com/library/vita3k, source github.com/WizzardSK/vita3k-libretro,
 `libretro` branch; upstream Vita3K v0.2.1 build 4123, GPL-2). It loads a game folder / eboot.bin directly. It needs
