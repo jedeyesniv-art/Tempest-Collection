@@ -261,6 +261,26 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   windows (latency W rounds; deterministic if the renderers don't race on shared memory). Needs a thread-safety
   audit of the core first (JIT, DMA, comm bus, BIOS handlers, statics).
 
+### Renderer job probe (2026-11-14; owner chose: probe before threading / recompiling)
+- NUANCE_JOBLOG=<abs file> (core): comm packets, MPE starts (pc, r0-3) / halts, overlay switches, and every DMA
+  into an MPE's instruction RAM ("codeload": target, source, destination, length). tools/t3k_modules.py merges
+  chunks into module loads.
+- Architecture: MPE3 sends jobs (comm packets 3>0 of 4 words, e.g. 0 / $782 / $40064600 / $8004E040; MPE1 is
+  started ~40x a field at $20300000 with a job pointer in r0, MPE2 with the comm words in r0-r3). Each renderer runs
+  a resident kernel ($20300000-$203002D0) that DMA-loads CODE MODULES from a library at $8069E000-$806B1000 (~76 KB)
+  into IRAM (at $203002D0 / $20B00000-style global addresses) plus parameter blocks from $8003Dxxx, then runs them.
+  30-40 module loads per renderer per field.
+- Library size: ~20 distinct full modules over boot -> title -> menus -> level 1 (0.9-4 KB of VLIW code each; e.g.
+  $806A3F50 3372 B loaded 5.9x a field, $806AA120 3620 B, $806AE210 4060 B, $806AF1E8 1856 B, $806AD2B0, $806A5FB0,
+  $806A8990 ~3 KB); later levels may add a few. No source for any of it.
+- Assessment: HLE (rewriting each module's effect natively / on the GPU, as T2K) means reverse engineering ~20
+  hand-optimised VLIW routines (~15-20k instructions) without source - weeks, effect by effect; worth it later for
+  high resolution, module by module. For SPEED the better fit is ahead-of-time recompilation of exactly this small,
+  fixed library: each module (keyed by source address + hash) compiled to a native function with its loops kept
+  native (no per-block dispatch, registers across packets), yielding to the scheduler at loop back-edges by packet
+  budget, verified against the interpreter in lockstep (deterministic runs). Pixel-exact, game-agnostic within T3K,
+  and it is ~75% of the cost.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
