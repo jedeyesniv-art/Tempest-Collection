@@ -346,6 +346,14 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
 - Cost at 30: 5-7 ms a field mean (the idle skip removes the waiting half), p95 13.5 ms at 150k rounds, no fields
   over budget in menus / play; default nuon_rounds 200000 for margin in busier levels.
 
+### Next: claw (hook) controls - stage 5 (2026-11-14, in progress)
+- Owner after testing: flip_cap 3 (20 pictures/s) "the best setting overall" - now the default; audio OK.
+- Started: the claw's state in memory. A first dump series (fields 2500-2620) was spoiled by the player dying;
+  the level starts ~field 2170 on the route and enemies stay far until ~2350, so redo it there: idle, right 30
+  fields, idle, left 30 fields, dumping every field with T3K_MEMDUMP_REGIONS=sys,mpe3 (new; keeps it to ~16 MB a
+  dump). Earlier candidate $800DC26C (16.16 lanes) still unconfirmed. Then: how the game reads the pad, the lane
+  count / open webs, and T2K-style lr (ramped speed) and aim modes.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
