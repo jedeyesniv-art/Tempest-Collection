@@ -20,7 +20,7 @@ The project is now a Tempest collection: one launcher, each game the best versio
    hook. Decide after a short survey; spinner -> stick / mouse controls as on T2K.
 Launcher: one exe with a game picker (or a front exe that starts each game); shared settings, controls and
 menu look. Neon Mode and Defender 2000 stay on the list after these.
-- 2026-11-14, decided: a front exe (build	empest.exe, src/launcher.cpp) that starts each game as its own process
+- 2026-11-14, decided: a front exe (build\tempest.exe, src/launcher.cpp) that starts each game as its own process
   (emulators keep lots of global state; separate processes stay independent, a crash can't take the others down).
   It hides while the game runs and comes back when it quits. Barebones: list (Tempest 1981 / TxK greyed "coming
   later"), keys + pad, F11 fullscreen (userdata\launcher_settings.txt), Tempest 4000 = steam://rungameid/688140
