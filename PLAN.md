@@ -522,9 +522,32 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   * Interpolation: the feedback is one step per game picture. At display rate it becomes continuous: zoom^(dt) and
     fade^(dt) per displayed frame with trail length matched per second, objects drawn at interpolated positions.
   * Speed: native pictures skip MPE0-2 (the bulk of the cost); MPE3 (game logic) stays emulated (4-12%).
-- Next: the display list census over long runs (attract demos for late levels): types, counts, fields, which module
-  draws each; then decode the play screen's types (00300004 first, then the web / claw / enemies) and a native
-  prototype checked against the emulated picture.
+- Census (2026-11-15; core fbprobe.cpp NUANCE_ENTRYLOG=<file>: every 16-word entry fetch into local $20100030,
+  grouped per flip (g_vid_flips) = per picture, readers, write-backs, code loads into IRAM as src@offset;
+  tools/t3k_census.py merges chunks into modules and prints types / words / screens). Runs: the 3800-field play route
+  with fire + 40000 fields of attract (press start once at 400, then idle: the menu cycles into demos of levels 74 /
+  ~120, bonus tunnel, high scores, credits, logo; WITHOUT that start press it stays on the title forever).
+  14559 pictures: **18 entry types, 18 code modules, nothing new in the attract demos.** Per picture MPE1 first runs a
+  pre-pass job (modules at local 0: 806AE210 projects 3D-placed objects and writes entries back, 806AA120 / 806A4F20 /
+  8069E070 / 806AB458 / 806AC638 2D-layer handlers, 8003DA50 its kernel copy), then MPE0-2 draw the list in
+  horizontal bands with modules at local $2D0.
+- What each type draws (NUANCE_SKIPTYPE=<type>: MPE0 / MPE2 pass over it; logs\t3k\rr\skip.sh + skip_sheet.png):
+  | type | module | draws |
+  | 00710001 | 806A3F50 | THE workhorse (90k entries): vector lines + 2D sprites - web outline, claw, enemies' lines, text, HUD, stars |
+  | 00000300 | 806A3108 | full-screen clear / fill (colour in word 2): menus and play background (blue on level 2) |
+  | 00300004 | 806A5280 | zoom feedback (previous picture zoomed, faded): warp / level start, play trails |
+  | 0000000F | 806B0B30 | feedback background (boot / title screens) |
+  | 0011000B | 806AD2B0 | the web's filled, textured surface |
+  | 0010000D | 806AF1E8 | big glowing text: TEMPEST logo, score digits |
+  | 00310008 | 806A5FB0 | point sprites (level-select sparkles) |
+  | 0031000E / 00310409 | 806AFA80 / 806A8990 | menu / title particle fields |
+  | 00310010 | 806A6E40 | background dot grid (level 3) |
+  | 0031020E, 00310209, 00310309, 00500005 | 806AFA80, 806A8990, 806A8990, 806A7DC0 | small objects: shots, enemy parts, particles, explosions |
+  | 000000FE, 003102FE, 00310108 | (pre-pass / none) | nothing visible: control / camera entries handled by MPE1's pre-pass |
+  | 000000FF | - | end of list |
+- Next: decode the play screen in order of payoff - 00710001 (via 806A3F50: line vs sprite sub-kinds, template at word 7),
+  00000300, 00300004, 0011000B, 0010000D - from the modules' disassembly and the entry words, then a native prototype of
+  one play picture checked against the emulated one.
 
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
