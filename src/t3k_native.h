@@ -22,6 +22,8 @@
 //   00310209 dot images (806A8990 mode 2, 806A8DB4; tools/t3k_dotfit.py: the emulator's dot calls to 0.003 px): an image
 //            (w8 columns / rows, YCrCbZ at w12, or one per copy from a list) as discs of size w9, intensity Z x w6,
 //            scaled / rotated / projected, repeated w13 & $7F times deeper by w5;
+//   0031020E disc shapes (806AFA80 mode 2, 806AFC52; tools/t3k_flowerfit.py: the emulator's disc calls to 0.001 px):
+//            a template at w10 (palette + packed records) as rings of discs, rotated / tilted / projected at w0;
 //   00310108 (806A5FB0 mode 1) draws nothing unless w4 bit 0 is set (a particle burst: not ported, never seen in play);
 //   000000FF end of list; 000000FE / 003102FE nothing drawn.
 // A picture holding any other type is not "complete": the emulated picture is shown instead.

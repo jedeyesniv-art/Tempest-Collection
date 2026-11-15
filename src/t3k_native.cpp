@@ -356,6 +356,61 @@ void Dots(const uint32_t* e, const Mem& mem, Picture* out) {
   }
 }
 
+// --- 0031020E disc shapes (806AFA80 mode 2; tools/t3k_flowerfit.py) ---
+
+void Flower(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t hdr[4] = {}, pal[16] = {};
+  for (int k = 0; k < 4; ++k) Read(mem, e[10] + 4 * uint32_t(k), &hdr[k]);
+  for (int k = 0; k < 16; ++k) Read(mem, hdr[0] + 4 * uint32_t(k), &pal[k]);
+  const int32_t r16 = int32_t(hdr[1]);
+  const uint32_t r17 = hdr[2];
+  const int32_t m0 = int32_t(r17 >> 16), n0 = int32_t(r17 & 0xFFFF);
+  const int32_t step_b = m0 ? (1 << 16) / m0 : 0, step_a = n0 ? (1 << 16) / n0 : 0;
+  const int32_t w1 = int32_t(e[1]);
+  int32_t c3, s3;
+  SinCos((e[14] + 0x2000) & 0xFFFF, &c3, &s3);
+  for (int ri = 0; ri < 64; ++ri) {
+    uint32_t rec = 0;
+    if (!Read(mem, e[10] + 16 + 4 * uint32_t(ri), &rec)) break;
+    const int32_t size_bits = int32_t((rec >> 8) & 0x7F);
+    if (!size_bits) break;
+    const int32_t r29 = size_bits << 16;
+    int32_t a = Mul(int32_t(((rec >> 24) & 0xFF) << 8), r16, 16);
+    const int32_t r28 = Mul(Mul(Sext(rec >> 16, 8) << 10, w1, 16), int32_t(e[12]), 15);
+    const int32_t inten = Mul(int32_t(((rec >> 4) & 15) << 13), S32(int64_t(0x100 - w1) << 21), 16);
+    const SDL_FColor colour = Colour(pal[rec & 15] | 0xFF, 1.f);
+    int32_t b = 0, n = n0, m = m0;
+    for (int guard = 0; guard < 4096; ++guard) {
+      int32_t c, s, c2, s2;
+      SinCos(uint32_t(a) & 0xFFFF, &c, &s);
+      int64_t x = int64_t(Mul(r28, c, 14)) + Mul(r28, S32(-int64_t(s)), 14);
+      int64_t y = int64_t(Mul(r28, s, 14)) + Mul(r28, c, 14);
+      SinCos(uint32_t(b + (w1 << 6)) & 0xFFFF, &c2, &s2);
+      const int32_t depth = Mul(S32(x), s2, 30);
+      x = Mul(c2, S32(x), 30);
+      const int64_t xr = int64_t(Mul(S32(x), c3, 30)) + Mul(S32(y), S32(-int64_t(s3)), 30);
+      const int64_t yr = int64_t(Mul(S32(x), s3, 30)) + Mul(S32(y), c3, 30);
+      const double d = double(std::max<int64_t>(int64_t(int32_t(e[9])) + (int64_t(depth) << 2), 0xA0000));
+      const int32_t k = int32_t(17592186044416.0 / d);   // 2^(28 + 16) / d
+      const double px = double(Mul(k, S32(xr), 19)) / 65536.0 + double(Sext(e[0] >> 16, 16));
+      const double py = double(Mul(k, S32(yr), 19)) / 65536.0 + double(Sext(e[0], 16));
+      const double size = double(std::min(Mul(r29, k, 19) + 0x10000, 0x80000)) / 65536.0;
+      Blob bl;   // (the position is the disc's centre; columns / rows as the other disc routines)
+      bl.x = float(px + 0.5);
+      bl.y = float(py - 0.5);
+      bl.r = float(size / 2.0);
+      bl.colour = colour;
+      bl.colour.a = std::clamp(float(inten) / 1073741824.f, 0.f, 1.f);
+      out->blobs.push_back(bl);
+      a += step_a;
+      if (--n > 0) continue;
+      b += step_b;
+      if (--m > 0) continue;
+      break;
+    }
+  }
+}
+
 }  // namespace
 
 uint32_t YccToXrgb(uint32_t ycc) {
@@ -444,6 +499,14 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
           out->webs.push_back(std::move(web));
           out->ops.push_back(op);
         }
+        break;
+      }
+      case 0x0031020E: {   // disc shapes
+        Op op{Op::kBlobs};
+        op.first = uint32_t(out->blobs.size());
+        Flower(e, cap.mem, out);
+        op.count = uint32_t(out->blobs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
         break;
       }
       case 0x00310209: {   // dot images
