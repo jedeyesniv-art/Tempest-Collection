@@ -631,11 +631,14 @@ Open, roughly in order:
    Init / LoadSettings / DrawPicture; SDL GPU renderer + DXIL shaders): use it in t81_main instead of SDL_CreateRenderer
    + SDL_RenderTexture, add crt.cpp to the t81 target, copy T2K's CRT menu section. A vector monitor has no scanlines
    or shadow mask: give t81 a "vector" preset (glow / bloom / CRT++ trails = phosphor persistence on, scanlines and
-   mask off), the full sliders still there. (Could serve T3K / TxK the same way later.) Also the vector look in MAME
+   mask off), the full sliders still there. Then the same CRT looks in T3K (owner: yes); not TxK (owner: not needed). Also the vector look in MAME
    itself (beam width / glow / flicker: ini options in system\mame\ini); the clones
    in tempest.zip (rev 1, rev 2, Tempest Tubes) not selectable; spinner: owner tuned it (1.0 = old 0.4).
 6. TxK: no save states (core stub, upstream has none); preinst firmware part missing but not needed; QoL ideas from
    the owner still to come. Vita3K storage_location.txt lesson: CLAUDE.md Lessons 2026-11-15.
+6b. Space Giraffe (Llamasoft, 2008; Steam app 27800, installed here in steamapps/common/Space Giraffe): a launcher
+   entry that starts it through Steam, same rules as Tempest 4000 (owner 2026-11-15): Kind::Steam, steam://rungameid,
+   the install check fixed for Proton as in item 1. Check whether it has a start-up dialog worth skipping like T4K's.
 7. Launcher: still the placeholder look (SDL debug font); the Minotaur Project launcher (C:\Gridios\Launcher) is the
    model for behaviour and features (settings screen, Steam shortcut).
 8. Then (owner's order): Neon Mode, Defender 2000.
