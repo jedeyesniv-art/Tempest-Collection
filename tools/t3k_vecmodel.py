@@ -72,8 +72,9 @@ def matrix(w4, w6):
     return mul(s_hi, a, 16), mul(s_lo, s32(-b), 16), mul(s_hi, b, 16), mul(s_lo, a, 16)
 
 
-def segment(e, cur, prev, lfsr, cf0=0):
-    """806A422A..806A43A8: one line segment prev -> cur. Returns (x0, y0, x1, y1) 16.16, sorted so y0 <= y1."""
+def segment(e, cur, prev, lfsr, cf0=0, raw=False):
+    """806A422A..806A43A8: one line segment prev -> cur. Returns (x0, y0, x1, y1) 16.16, sorted so y0 <= y1 (as the
+    module does); raw=True: unsorted, the current vertex first."""
     r20, r21, r22, r23 = matrix(e[4], e[6])
     r8, r9 = sext(cur, 16), sext(cur >> 16, 16)
     r10, r11 = sext(prev, 16), sext(prev >> 16, 16)
@@ -105,7 +106,7 @@ def segment(e, cur, prev, lfsr, cf0=0):
     r10, r11 = obj(r10, r11)
     ox, oy = s32((e[0] >> 16) << 16), s32((e[0] & 0xFFFF) << 16)
     r8, r9, r10, r11 = s32(r8 + ox), s32(r9 + oy), s32(r10 + ox), s32(r11 + oy)
-    if r11 < r9:
+    if r11 < r9 and not raw:
         r8, r9, r10, r11 = r10, r11, r8, r9
     return r8 & M32, r9 & M32, r10 & M32, r11 & M32
 

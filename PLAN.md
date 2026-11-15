@@ -574,6 +574,22 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   $20100630), colour A -> B along the line. GPU equivalent: a quad per segment with a distance-falloff shader and
   alpha blending. Next: model the coverage profile + gradient, check against emulated pixels, then the native
   prototype.
+- Raster model (2026-11-15; core NUANCE_SPANLOG=<type>: MPE0's read / write pixel rows per segment, after the
+  NUANCE_PCLOG line; tools/t3k_linefit.py): every drawn line in play AND the attract demos has w5 = 4FFF0002 (width
+  byte 2) and w12 = 0 (no base jitter). Coverage is a linear tent: alpha = 0.00888 x Z x (1 - d / 1.94), d = distance
+  from the INTEGER pixel coordinate (corner, not centre: rms 0.053 vs 0.129) to the segment, Z = the colours' 4th byte
+  (an opacity, $3F = 0.553 peak) interpolated from colour A at the segment's current vertex to B at the previous one,
+  like Y / Cr / Cb. Blend: dest + (colour - dest) x alpha in YCrCb. Display: Nuance's BT.601 (Y x 255/219 - 16/219,
+  Cr / Cb x 255/224 - 16/224, then the usual matrix).
+- Prototype (tools/t3k_vecrender.py; log: NUANCE_ENTRYLOG + NUANCE_ENTRYDATA=1 = each entry plus the shape streams /
+  palettes MPE0 fetched for it): redraws a picture's vector shapes from the display list alone at any scale. Play
+  picture 902 (f2741): web outline, claw, star, streaks, "WELCOME TO THE MACHINE", HUD all match the emulated picture
+  in place, colour and fade; the rest of that picture is other types + the zoom feedback trails. logs\t3k\rr\
+  proto_902.png (emulated | ours 2x), proto_902_x4_crop.png (4x).
+- Next: GPU version in t3k.exe - the core hands the host each picture's display list + fetched data (in memory, the
+  ENTRYLOG path), a line pass (quad per segment, tent shader, alpha blend in YCrCb, then the BT.601 conversion);
+  a debug view of the vector layer alone, interpolated between pictures; then the other play types (00000300 fill,
+  00300004 zoom feedback, 0011000B web surface, 0010000D text) for the first full native picture.
 
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
