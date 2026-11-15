@@ -26,6 +26,9 @@
 //            a template at w10 (palette + packed records) as rings of discs, rotated / tilted / projected at w0;
 //   00310010 disc grid (806A6E40 mode 0; tools/t3k_gridfit.py: the calls exactly): a 32 x 32 bitmask of 3D grid points
 //            (quadratic steps), each drawn with the 0031020E template;
+//   00500005 ring (806A7DC0; tools/t3k_ringfit.py: 0.5 a channel): an ellipse band about w0 (radii from w4 x w1 hi,
+//            band from w1 lo), strength peaking at w5 >> 2, coloured from the 16 x 8 texture at w12; drawn as a
+//            premultiplied image (the glyph path);
 //   00310108 (806A5FB0 mode 1) draws nothing unless w4 bit 0 is set (a particle burst: not ported, never seen in play);
 //   000000FF end of list; 000000FE / 003102FE nothing drawn.
 // A picture holding any other type is not "complete": the emulated picture is shown instead.

@@ -135,10 +135,10 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
 - Python models: tools/t3k_vecmodel.py, t3k_linefit.py, t3k_vecrender.py, t3k_zoomfit.py, t3k_webfit.py,
   t3k_census.py, t3k_interpcheck.py.
 - Ported + verified 2026-11-15 (later): 00310108 (draws nothing in play), 00310309 particles, 00310209 dot images,
-  0031020E disc shapes, 00310010 disc grid (all GPU discs, Op::kBlobs). Whole play pictures, no forcing: every
-  picture complete except an enemy explosion's 8 (00500005 ring, decoded in part: PLAN.md "The small types"),
-  mean error 2.84-2.87 against the full emulated pictures.
-- Next: 00500005 (optional), then step 3: switch emulated drawing off for complete pictures (the speed gain).
+  0031020E disc shapes, 00310010 disc grid (all GPU discs, Op::kBlobs), 00500005 ring (an image, the glyph path).
+  Whole play pictures, no forcing: every play picture tested is complete (2701-2960, 2881-2960 with an explosion,
+  3151-3299), mean error 2.80-2.86 against the full emulated pictures.
+- Next: step 3, switch emulated drawing off for complete pictures (the speed gain).
 - Workflow per type (tools from 2026-11-15): t3k --disasm=F:3:<lib>:N > m.dis; tools/t3k_annotate.py m.dis (local pcs,
   helpers); tools/t3k_logrun.py --state play_f2900 --span <type> --entries --out logs/t3k/<x>/run; a fit script on
   tools/t3k_spanlib.py (prepare / predict); unsure of a value -> --pc <local pcs> --interp <lib lo>-<hi> --pictures

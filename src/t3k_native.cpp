@@ -466,6 +466,69 @@ void Grid(const uint32_t* e, const Mem& mem, Picture* out) {
   }
 }
 
+// --- 00500005 ring (806A7DC0; tools/t3k_ringfit.py) ---
+
+void Ring(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t tex[128] = {};
+  for (int k = 0; k < 128; ++k) Read(mem, e[12] + 4 * uint32_t(k), &tex[k]);
+  const int cx = Sext(e[0] >> 16, 16), cy = Sext(e[0], 16);
+  const int64_t n = e[1] >> 16;
+  const int64_t rx = (int64_t(int32_t(e[4]) >> 8) * n) >> 16, ry = (int64_t((e[4] & 0xFFFF) << 8) * n) >> 16;
+  const double t = double(e[1] & 0xFFFF) / 65536.0;
+  if (rx <= 0 || ry <= 0 || t <= 0.0 || rx > 200 || ry > 200) return;
+  const double kx = double((int64_t(1) << 28) / (rx * rx)) / 268435456.0, ky = double((int64_t(1) << 28) / (ry * ry)) / 268435456.0;
+  const double r7 = double(int64_t(e[5] >> 2) / int64_t(e[1] & 0xFFFF) - 1);   // the peak: (w5 >> 2) / t (w5 unsigned)
+  const double uh = double(int32_t(e[13]) >> 16), vl = double(Sext(e[13], 16));
+  const double u0 = double(int32_t(e[2])), v0 = double(int32_t(e[3]));
+  // a texel lookup as the module's: 16 x 8, wrapping, texel i at coordinate i
+  auto texel = [&](double u, double v, float o[3]) {
+    const double fu = std::floor(u), fv = std::floor(v);
+    const int iu = int(fu), iv = int(fv);
+    const double a = u - fu, b = v - fv;
+    const uint32_t t00 = tex[(iv & 7) * 16 + (iu & 15)], t10 = tex[(iv & 7) * 16 + ((iu + 1) & 15)];
+    const uint32_t t01 = tex[((iv + 1) & 7) * 16 + (iu & 15)], t11 = tex[((iv + 1) & 7) * 16 + ((iu + 1) & 15)];
+    for (int k = 0; k < 3; ++k) {
+      const int sh = 24 - 8 * k;
+      const double c00 = double((t00 >> sh) & 255), c10 = double((t10 >> sh) & 255);
+      const double c01 = double((t01 >> sh) & 255), c11 = double((t11 >> sh) & 255);
+      const double top = c00 + (c10 - c00) * a, bot = c01 + (c11 - c01) * a;
+      o[k] = float(top + (bot - top) * b);
+    }
+  };
+  constexpr int S = 2;
+  Glyph g;
+  g.x = float(cx - rx - 2);
+  g.y = float(cy - ry - 2);
+  g.w = float(2 * rx + 4);
+  g.h = float(2 * ry + 4);
+  g.pw = int(g.w) * S;
+  g.ph = int(g.h) * S;
+  g.rgba.assign(size_t(g.pw) * size_t(g.ph), 0);
+  for (int q = 0; q < g.ph; ++q) {
+    // the module's row q' (pixel row) has row = q' - cy at its centre q' + 1/2; columns mirror about cx - 1/2:
+    // col = -(|X - cx| + 1/2) for the pixel centre X (the computed left half, mirrored to the right)
+    const double Y = double(g.y) + (double(q) + 0.5) / S;
+    const double row = Y - 0.5 - double(cy);
+    for (int p = 0; p < g.pw; ++p) {
+      const double X = double(g.x) + (double(p) + 0.5) / S;
+      const double col = -(std::fabs(X - double(cx)) + 0.5);
+      const double d = col * col * kx + row * row * ky;
+      if (d <= 1.0 - 2.0 * t) continue;
+      const double ev = t - std::fabs(d - (1.0 - t));
+      if (ev <= 0.0) continue;
+      const double k = std::clamp(ev * 65536.0 * r7 / 1073741824.0, 0.0, 1.0);
+      float T[3];
+      texel(std::fabs(uh * col + u0) / 65536.0, std::fabs(vl * row + v0) / 65536.0, T);
+      auto byte = [](float v) { return uint32_t(std::clamp(v, 0.f, 255.f) + 0.5f); };
+      const SDL_FColor c = Colour(byte(T[0]) << 24 | byte(T[1]) << 16 | byte(T[2]) << 8 | 0xFF, 1.f);
+      const float a = float(k);
+      g.rgba[size_t(q) * size_t(g.pw) + size_t(p)] = uint32_t(a * 255.f + 0.5f) << 24 |
+          uint32_t(c.r * a * 255.f + 0.5f) << 16 | uint32_t(c.g * a * 255.f + 0.5f) << 8 | uint32_t(c.b * a * 255.f + 0.5f);
+    }
+  }
+  out->glyphs.push_back(std::move(g));
+}
+
 }  // namespace
 
 uint32_t YccToXrgb(uint32_t ycc) {
@@ -554,6 +617,14 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
           out->webs.push_back(std::move(web));
           out->ops.push_back(op);
         }
+        break;
+      }
+      case 0x00500005: {   // ring (drawn as an image, as the glowing number's digits)
+        Op op{Op::kText};
+        op.first = uint32_t(out->glyphs.size());
+        Ring(e, cap.mem, out);
+        op.count = uint32_t(out->glyphs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
         break;
       }
       case 0x00310010: {   // disc grid
