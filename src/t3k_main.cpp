@@ -157,6 +157,16 @@ struct Shot { int frame; std::string path; };
 // The draw gate (native renderer step 3, PLAN.md "Native renderer status"): the core asks once per picture, when the
 // renderers start drawing it; we build it from the emulator's memory and, when every entry type is ours, the
 // renderers skip it (the CPU saving). Pictures are filed under the flip that will show them.
+// What each native_view (F7) setting does, for the toast and the corner label.
+const char* NativeViewName(int v, bool skip) {
+  switch (v) {
+    case 0: return "F7 native: OFF";
+    case 1: return skip ? "F7 native: ON, emulator skips" : "F7 native: ON, emulator draws too";
+    case 2: return "F7 native: lines over emulated";
+    default: return "F7 native: lines alone";
+  }
+}
+
 namespace gate {
 std::mutex mu;
 std::map<uint32_t, std::shared_ptr<t3knative::Picture>> built;
@@ -1162,6 +1172,7 @@ int main(int argc, char** argv) {
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F7) {
         native_view = (native_view + 1) % 4;
         gate::mode = (native_view == 1 && native_skip) ? 2 : 0;
+        menu::Toast(NativeViewName(native_view, native_skip), SDL_GetTicksNS());
         settings::Save("native_view", std::to_string(native_view));
         std::fprintf(stderr, "native view %d\n", native_view);
       }
@@ -1380,6 +1391,28 @@ int main(int argc, char** argv) {
         SDL_RenderDebugText(ren, 8.f, 8.f, rates_text.c_str());
         SDL_SetRenderScale(ren, 1.f, 1.f);
       }
+    }
+    if (native_view != 0) {   // which renderer drew this picture (testing aid while the native renderer is in development)
+      std::string tag = NativeViewName(native_view, native_skip);
+      if (native_view == 1) {
+        if (shown_vec && shown_vec->complete) {
+          tag += " | NATIVE";
+        } else {
+          char buf[64];
+          std::snprintf(buf, sizeof buf, " | EMULATED (%08X)",
+                        shown_vec ? shown_vec->first_unknown : 0u);
+          tag += buf;
+        }
+      }
+      SDL_SetRenderScale(ren, 2.f, 2.f);
+      const float ty = float(wh) / 2.f - 14.f;
+      SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+      const SDL_FRect bg{4.f, ty - 3.f, 8.f * float(tag.size()) + 8.f, 14.f};
+      SDL_RenderFillRect(ren, &bg);
+      if (native_view == 1 && shown_vec && shown_vec->complete) SDL_SetRenderDrawColor(ren, 80, 255, 120, 255);
+      else SDL_SetRenderDrawColor(ren, 255, 160, 60, 255);
+      SDL_RenderDebugText(ren, 8.f, ty, tag.c_str());
+      SDL_SetRenderScale(ren, 1.f, 1.f);
     }
     if (menu::Shown()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, SDL_GetTicksNS());
