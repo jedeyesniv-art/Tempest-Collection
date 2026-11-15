@@ -292,13 +292,67 @@ void Particles(const uint32_t* e, const Mem& mem, Picture* out) {
     const double I = hi ? double(hi) * 65536.0 * kk / 524288.0 / 1073741824.0 : double(0x3FFF0000) / 1073741824.0;
     if (size <= 0.0) continue;
     Blob b;
-    // the module evaluates pixel p at its corner p: our centres sit half a pixel on
+    // the disc routine evaluates pixel column p at p (our pixel centres: +1/2) and row q at q + 1 (-1/2): measured
+    // with --nativecheck + T3K_CHECK_MASK, the y optimum is exactly one pixel above the corner reading
     b.x = float(X * kk / 524288.0 / 65536.0 + 180.5 + 0.5);
-    b.y = float(Y * kk / 524288.0 / 65536.0 + 120.5 + 0.5);
+    b.y = float(Y * kk / 524288.0 / 65536.0 + 120.5 - 0.5);
     b.r = float(size / 2.0);
     b.colour = Colour(w[2] | 0xFF, 1.f);
     b.colour.a = std::clamp(float(I), 0.f, 1.f);
     out->blobs.push_back(b);
+  }
+}
+
+// --- 00310209 dot images (806A8990 mode 2; tools/t3k_dotfit.py) ---
+
+int32_t KOfDepth(int64_t depth) {   // 806A9566 + $C000: 0.75 x 2^44 / (depth + $800000), as 16.16-ish fixed point
+  return int32_t(int64_t(0xC000) * int64_t(17592186044416.0 / double(depth + 0x800000)) >> 16);
+}
+
+void Dots(const uint32_t* e, const Mem& mem, Picture* out) {
+  const uint32_t w13 = e[13];
+  uint32_t lst = (w13 & 0x80) ? e[12] : 0;
+  int copies = int(w13 & 0x7F);
+  if (!copies) copies = 1;
+  int64_t depth = int32_t(e[4]);
+  uint32_t angle = e[1];
+  const uint32_t cols = e[8] >> 16, rows = e[8] & 0xFFFF;
+  if (cols * rows > 4096) return;
+  const float size = float(e[9]);
+  for (int n = copies; n > 0; --n) {
+    const int32_t k = KOfDepth(depth);
+    uint32_t img = e[12];
+    if (lst) {
+      Read(mem, lst, &img);
+      lst += 4;
+    }
+    const int32_t grow = int32_t(int64_t(n) * int32_t(e[11]));
+    const int32_t s16 = Mul(k, -int32_t(e[2]), 19) + grow, s17 = Mul(k, -int32_t(e[3]), 19) + grow;
+    const int32_t cx = Mul(k, Sext(e[0] >> 16, 16) >> 1, 19) + 0xB4, cy = Mul(k, Sext(e[0], 16) >> 1, 19) + 0x78;
+    const int32_t r2 = Mul(grow, Sext(e[14] >> 16, 16), 16), r3 = Mul(grow, Sext(e[14], 16), 16);
+    const int32_t r10 = -int32_t((int32_t(cols >> 1) << 16) + r2), r11 = -int32_t((int32_t(rows >> 1) << 16) + r3);
+    int32_t c, s;
+    SinCos(angle & 0xFFFF, &c, &s);
+    uint32_t a = img;
+    for (uint32_t row = rows; row > 0; --row)
+      for (uint32_t col = cols; col > 0; --col, a += 4) {
+        uint32_t p = 0;
+        if (!Read(mem, a, &p) || (p & 0xFF) == 0) continue;
+        const int32_t I = Mul(int32_t((p & 0xFF) << 22), int32_t(e[6]), 16);
+        const int32_t x = Mul(s16, r10 + int32_t(col << 16), 16), y = Mul(s17, r11 + int32_t(row << 16), 16);
+        const int64_t xr = int64_t(Mul(x, c, 30)) + Mul(y, S32(-int64_t(s)), 30) + (int64_t(cx) << 16);
+        const int64_t yr = int64_t(Mul(x, s, 30)) + Mul(y, c, 30) + (int64_t(cy) << 16);
+        Blob b;   // the call passes the top-left; the module's pixel p is its corner p (+1/2 for pixel centres)
+        b.x = float(double(xr) / 65536.0) + size / 2.f + 0.5f;
+        b.y = float(double(yr) / 65536.0) + size / 2.f - 0.5f;   // (rows: as Particles)
+        b.r = size / 2.f;
+        b.colour = Colour(p | 0xFF, 1.f);
+        b.colour.a = std::clamp(float(I) / 1073741824.f, 0.f, 1.f);
+        out->blobs.push_back(b);
+      }
+    angle += uint32_t(int32_t(angle) >> 16);
+    depth -= int32_t(e[5]);
+    if (depth <= 0) break;
   }
 }
 
@@ -390,6 +444,14 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
           out->webs.push_back(std::move(web));
           out->ops.push_back(op);
         }
+        break;
+      }
+      case 0x00310209: {   // dot images
+        Op op{Op::kBlobs};
+        op.first = uint32_t(out->blobs.size());
+        Dots(e, cap.mem, out);
+        op.count = uint32_t(out->blobs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
         break;
       }
       case 0x00310309: {   // particles
