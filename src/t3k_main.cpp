@@ -704,6 +704,41 @@ int main(int argc, char** argv) {
         static SDL_Texture *ck_out = nullptr, *ck_seed = nullptr;
         static double ck_sum = 0;
         static int ck_n = 0, ck_saved = 0;
+        // T3K_CHECK_MASK=<span log> (NUANCE_SPANLOG of one type, same run or a run from the same state): also the error
+        // over just the pixels that type wrote in each picture (MPE0's bands), so the rest of the picture can't swamp
+        // it. The span log numbers pictures by the flip count while they are drawn: picture = that + T3K_CHECK_MASK_OFS
+        // (default 1).
+        static std::unordered_map<uint32_t, std::vector<uint8_t>> ck_mask;
+        static bool ck_mask_loaded = false;
+        static double ck_msum = 0;
+        static int ck_mn = 0;
+        if (!ck_mask_loaded) {
+          ck_mask_loaded = true;
+          if (const char* mp = std::getenv("T3K_CHECK_MASK")) {
+            const int ofs = std::getenv("T3K_CHECK_MASK_OFS") ? std::atoi(std::getenv("T3K_CHECK_MASK_OFS")) : 1;
+            std::ifstream in(mp);
+            std::string line;
+            uint32_t pic = 0;
+            size_t marked = 0;
+            while (std::getline(in, line)) {
+              if (line.rfind("spanentry", 0) == 0) {
+                const size_t k = line.find(" p", 9 * 17);
+                if (k != std::string::npos) pic = uint32_t(std::atoi(line.c_str() + k + 2) + ofs);
+              } else if (line.rfind("span wr ", 0) == 0 || line.rfind("spanb wr ", 0) == 0) {
+                const bool blk = line[4] == 'b';
+                int x = 0, y = 0, n = 0, rows = 1;
+                if (blk) std::sscanf(line.c_str() + 9, "%d %d %d %d", &x, &y, &n, &rows);
+                else std::sscanf(line.c_str() + 8, "%d %d %d", &x, &y, &n);
+                auto& m = ck_mask[pic];
+                if (m.empty()) m.assign(360 * 240, 0);
+                for (int r = 0; r < rows; ++r)
+                  for (int i = 0; i < n; ++i)
+                    if (x + i < 360 && y + r < 240) m[size_t(y + r) * 360 + size_t(x + i)] = 1, ++marked;
+              }
+            }
+            std::printf("check mask %s: %zu pictures, %zu pixels\n", mp, ck_mask.size(), marked);
+          }
+        }
         if (check_f0 >= 0 && ncap.flip != check_flip && !ncap.frame.empty()) {
           check_flip = ncap.flip;
           std::vector<uint32_t> truth(ncap.frame.size());
@@ -741,8 +776,31 @@ int main(int argc, char** argv) {
               const double mean = sum / (360.0 * 240.0);
               ck_sum += mean;
               ++ck_n;
-              std::printf("check field %d flip %u: mean error %.2f, %.1f%% of pixels off by > 24\n", f, pic.flip, mean,
-                          100.0 * big / (360.0 * 240.0));
+              std::string masked;
+              if (auto it = ck_mask.find(pic.flip); it != ck_mask.end()) {
+                double ms = 0;
+                int mn = 0, mbig = 0;
+                for (size_t i = 0; i < it->second.size(); ++i)
+                  if (it->second[i]) {
+                    const uint32_t a = truth[i];
+                    const uint32_t b = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(cv->pixels) +
+                                                                         (i / 360) * cv->pitch)[i % 360];
+                    int e = 0;
+                    for (int k = 0; k < 24; k += 8) e += std::abs(int((a >> k) & 0xFF) - int((b >> k) & 0xFF));
+                    ms += e / 3.0;
+                    mbig += e / 3 > 24;
+                    ++mn;
+                  }
+                if (mn) {
+                  ck_msum += ms / mn;
+                  ++ck_mn;
+                  char buf[96];
+                  std::snprintf(buf, sizeof buf, "; type's pixels: %d, mean error %.2f, %d off by > 24", mn, ms / mn, mbig);
+                  masked = buf;
+                }
+              }
+              std::printf("check field %d flip %u: mean error %.2f, %.1f%% of pixels off by > 24%s\n", f, pic.flip, mean,
+                          100.0 * big / (360.0 * 240.0), masked.c_str());
               // images: truth | native | difference, for the first pictures and then every 50th
               if (ck_saved < 6 || ck_n % 50 == 0) {
                 ++ck_saved;
@@ -768,8 +826,10 @@ int main(int argc, char** argv) {
           }
           check_prev = std::move(truth);
         }
-        if (check_f0 >= 0 && f == check_f1 && ck_n)
+        if (check_f0 >= 0 && f == check_f1 && ck_n) {
           std::printf("check: %d pictures, mean error %.2f\n", ck_n, ck_sum / ck_n);
+          if (ck_mn) std::printf("check: type's pixels in %d pictures, mean error %.2f\n", ck_mn, ck_msum / ck_mn);
+        }
         for (auto& s : nativeshots)
           if (s.frame == f) {
             SDL_SetRenderTarget(nren, nout);
