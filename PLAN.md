@@ -689,6 +689,30 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   and skip ahead (must keep the interleaving the game depends on); profile-guided build. Target: 220k rounds in
   ~10 ms, then raise the default toward hardware speed.
 
+### Native renderer status (end of 2026-11-15; the ordered to-do - start here)
+Done (each verified; details in the sections above): research (picture = display list + feedback; 18 types / 18
+modules; cost without emulated drawing 3.3-3.6x less in play, ~6x in menus), vector shapes 00710001, fill 00000300,
+zoom feedback 00300004, web surface 0011000B, t3k.exe native view (F7) + interpolation (F6) + mixed-mode seeding, ground
+truth check (--nativecheck: 218 play pictures with those four types, mean error 3.8).
+Next, in order:
+1. 0010000D glowing text (module 806AF1E8: score digits, big text; in nearly every play picture). Census words: w8 =
+   002DE840 (pixel DMA flags), w9 = 40000000, w10 = 80106DA0 (font / table?), w11 = 800B1CE0; position w0, 16.16 scales
+   w2 / w3 (hi-res notes). Decode with --disasm + NUANCE_SPANLOG=0010000D, verify with --nativecheck.
+2. The small types: 00310309 / 00310209 (806A8990: object path, enemy parts), 0031020E (806AFA80), 00500005
+   (806A7DC0: explosions), 00310010 (806A6E40: level-3 dot grid), 00310108 (806A5FB0: points; often draws nothing).
+   Then play pictures are complete (check with --nativecheck WITHOUT T3K_NATIVE_FORCE).
+3. Switch the emulated drawing off for complete pictures (the speed gain). The core must decide before drawing (scan
+   the list at the head fetch for ported types) AND gather the data itself (today the capture records what MPE0
+   fetches while drawing: follow shape pointers / palettes / web records + texture itself, or copy the runtime-shape
+   region of main-bus RAM). MPE1's compute jobs (pre-pass) must keep running. Measure with the Deck defaults.
+4. Interpolation for everything: matching by type + shape + nearest (3D-placed objects: game-space w8 / w9 before the
+   pre-pass), velocity prediction, step what's ambiguous; continuous feedback is done.
+5. Save states (retro_serialize) + run-ahead to cancel the interpolation delay (one game step, up to 50 ms at 20/s).
+6. Menus / title / attract: 0000000F feedback background, 0031000E / 00310409 / 00310008 particle fields.
+7. Polish: YCrCb fade shader for the zoom's brightening phase; wide screen; CRT looks; the web module's per-lane
+   colour pulses / special lane mode if any picture needs them.
+8. Endgame add-on (owner: later): the web texture's lightsynth generator natively (find its writer with NUANCE_WATCH).
+
 ## TxK plan (2026-11-11; after Tempest 3000)
 Game: `PCSB00494\` = EU Llamasoft TxK v01.03 (EP4461-PCSB00494_00-LLAMASOFTTXK0001), a decrypted folder dump
 (plain eboot.bin + sce_module\*.suprx), 104 MB. Never in git. The owner has run it well on the Deck in Vita3K.

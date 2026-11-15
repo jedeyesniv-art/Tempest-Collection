@@ -114,14 +114,28 @@ Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
 
-## T3K native renderer research (2026-11-15; current focus)
-Owner: decouple game speed from frame rate, Steam Deck = min spec -> a native renderer of T3K's display list.
-Findings + design so far: PLAN.md "Native renderer research" (every picture = feedback of the previous one + blended
-primitives; takeover must be per whole picture, not T2K's per-primitive overlay). In t3k.exe: src/t3k_native.cpp
-draws the vector shapes (00710001) from the core's per-picture capture (core src/capture.cpp); F7 = native_view
-(off / native vectors alone / over the emulated picture), F6 = native_interpolate.
+## T3K native renderer (start here; current focus, state end of 2026-11-15)
+Owner: decouple game speed from frame rate, Steam Deck = min spec -> draw T3K's display lists natively on the GPU
+instead of emulating its renderer MPEs; the renderer work is the priority. Ordered to-do: PLAN.md "Native renderer
+status" (end of the T3K section); per-type details in the PLAN sections above it.
+- Model: every picture = a display list (64-byte entries at $8004E040, type = last word) drawn by MPE0-2 in bands after
+  an MPE1 pre-pass; often feedback of the previous picture. 18 entry types in all. Takeover is per WHOLE picture:
+  a picture is native only if every entry type in it is ported, else the emulated picture is shown.
+- Code: core third_party\NuanceResurrection (branch llamasoft-nuon) src/capture.cpp publishes each picture's entries
+  + the bus words MPE0 read (+ mode 2: its frame buffer = ground truth) at the flip; host src/t3k_native.{h,cpp}
+  (BuildPicture -> ops; Renderer with two window-sized feedback textures; Interpolate). t3k.exe keys: F7 native_view
+  (0 off, 1 native pictures, 2 vectors over emulated, 3 vectors alone), F6 native_interpolate.
+- Ported + verified: 00710001 vector shapes, 00000300 fill, 00300004 zoom feedback, 0011000B web surface.
+- VERIFY every type with ground truth, never with screenshots: NUANCE_ONLYTYPES=<done types> T3K_NATIVE_FORCE=1
+  t3k.exe --headless ... --nativecheck=F0:F1:<dir> (per-picture mean error + truth | native | diff images). Decode
+  a module with --disasm=F:3:<lib addr>:N, NUANCE_SPANLOG=<type> (pixel rows read / written + entry words, job word),
+  NUANCE_PCLOG=<local pc> + NUANCE_NOJIT=1 + NUANCE_AOT_SKIP=<module prefix> (registers inside one module), NUANCE_ENTRYLOG
+  + NUANCE_ENTRYDATA=1 (lists + data per picture), NUANCE_SKIPTYPE (what a type draws), NUANCE_NODRAW (cost).
+- Python models: tools/t3k_vecmodel.py, t3k_linefit.py, t3k_vecrender.py, t3k_zoomfit.py, t3k_webfit.py,
+  t3k_census.py, t3k_interpcheck.py.
+- Next: 0010000D glowing text (806AF1E8), then the small types, then switch emulated drawing off for native pictures.
 
-## Collection state (2026-11-15; start here next time)
+## Collection state (2026-11-15)
 All five entries run from the launcher (tempest.exe; TempestCollection.exe in the play folder): Tempest (1981, t81 /
 MAME), Tempest 2000 (t2k), Tempest 3000 (t3k / Nuance), TxK (txk / Vita3K), Tempest 4000 (Steam, + helper DLL).
 The owner played the play folder on the Steam Deck: all good. Open items, in order: PLAN.md "Collection status and
