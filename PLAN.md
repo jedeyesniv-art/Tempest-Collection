@@ -627,7 +627,12 @@ Open, roughly in order:
    (measured 2026-11-14: FLAC lossless 69% -> saves ~230 MB; lossy ~630 MB, needs a map of music vs data first).
    Tool in the core: NUANCE_MEDIALOG=<file> logs every disc read (third_party\NuanceResurrection, media.cpp; not run
    yet). Nothing else in the folder compresses usefully (cores are code; TxK assets already compressed).
-5. Arcade Tempest (t81): vector look (beam width / glow / flicker: MAME ini options in system\mame\ini); the clones
+5. Arcade Tempest (t81): the CRT looks (owner asked 2026-11-15). src/crt.cpp is self-contained (crt::CreateRenderer /
+   Init / LoadSettings / DrawPicture; SDL GPU renderer + DXIL shaders): use it in t81_main instead of SDL_CreateRenderer
+   + SDL_RenderTexture, add crt.cpp to the t81 target, copy T2K's CRT menu section. A vector monitor has no scanlines
+   or shadow mask: give t81 a "vector" preset (glow / bloom / CRT++ trails = phosphor persistence on, scanlines and
+   mask off), the full sliders still there. (Could serve T3K / TxK the same way later.) Also the vector look in MAME
+   itself (beam width / glow / flicker: ini options in system\mame\ini); the clones
    in tempest.zip (rev 1, rev 2, Tempest Tubes) not selectable; spinner: owner tuned it (1.0 = old 0.4).
 6. TxK: no save states (core stub, upstream has none); preinst firmware part missing but not needed; QoL ideas from
    the owner still to come. Vita3K storage_location.txt lesson: CLAUDE.md Lessons 2026-11-15.
