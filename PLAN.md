@@ -719,7 +719,7 @@ modules; cost without emulated drawing 3.3-3.6x less in play, ~6x in menus), vec
 zoom feedback 00300004, web surface 0011000B, t3k.exe native view (F7) + interpolation (F6) + mixed-mode seeding, ground
 truth check (--nativecheck: 218 play pictures with those four types, mean error 3.8).
 Next, in order (owner 2026-11-15: tools first, then the work; estimate steps 2-4 ~5-8 sessions):
-0. TOOLS FIRST (next session starts here):
+0. TOOLS (done 2026-11-15; how to use them: CLAUDE.md "T3K native renderer"):
    a. Before guessing an instruction's semantics (pixel load formats, mul_p / mul_sv shifts), read Nuance's own
       implementation in third_party\NuanceResurrection (two wrong guesses cost a third of the 0010000D session).
    b. DONE (2026-11-15): t3k save states. Core (llamasoft-nuon 6f65735..): retro_serialize walks RAM (16 + 8 MB),
@@ -737,12 +737,19 @@ Next, in order (owner 2026-11-15: tools first, then the work; estimate steps 2-4
       the next field. Play states: logs\t3k\states\play_f2700 (level 1 start), f2900 (level 1 play), f3000 (level 2,
       green), f3150 (busier play), each with a .bmp. Payoff: the 0010000D register log from play_f2900 under NOJIT
       takes 1.5 s / 5 MB (was 56 s / 2.4 GB from boot, and the slipped timeline).
-   c. PCLOG upgrades: several pcs in one run, a picture / field window (logs reached 2.4 GB), pixel registers printed
-      decoded (Y / Cr / Cb / Z), NUANCE_AOT_SKIP matching every chunk-start module of a library range.
-   d. tools/t3k_spanlib.py: shared parsing of spanentry / span / ENTRYDATA logs + a model-vs-register checker, so each
-      type's fit script is only its model (refactor webfit / textfit onto it).
-   e. Per-type ground truth: error over the pixels that type wrote (from the span log), not the whole picture.
-   f. Annotated --disasm: labels for entry words w0-w15 ($20100030..), DMA helpers, local -> lib addresses, jump tables.
+   c. DONE: NUANCE_PCLOG=pc,pc.. + NUANCE_PCLOG_PICTURES=P0:P1 + NUANCE_PCLOG_MPE + NUANCE_PCLOG_PIX (v0-v7 in byte
+      units); NUANCE_AOT_SKIP=<lo>-<hi> library range (core 40737de). From a play state: 1.7 s, 4.7 MB.
+   d. DONE: tools/t3k_spanlib.py (load_entries, entry_for, events = Entry / Pixels / Pc, fit(prepare, predict),
+      bilinear16, as_loaded = what a pixel load puts in a register) + tools/t3k_logrun.py (one command: state, fields,
+      span / entries / pc / interp / pictures / pix / only / shots / nativecheck). t3k_textfit.py moved onto it (same
+      result: 2616 entries, 0.37); webfit / linefit / zoomfit still have their own parsers.
+   e. DONE: T3K_CHECK_MASK=<span log> with --nativecheck: also the error over just that type's written pixels (MPE0's
+      bands; a span log from an earlier run off the same state works - loads replay identically). First use showed
+      0010000D's port at 9.2 there: all of MPE0's pixels of the score lie below a band start inside the cell, where
+      the original repeats a row (806AF5A0); the Python model with the quirk fits 0.38, without it 2.5 / 1.5 / 4.7 -
+      the port's continuous rows are deliberate (no seam).
+   f. DONE: tools/t3k_annotate.py <disasm>: each line's local pc (for PCLOG), entry words, the standard prologue
+      helpers (identical in every module: +$54 DMA write, +$A4 DMA read, +$24 wait, ...), call targets as lib addresses.
 1. DONE: 0010000D glowing number (section above).
 2. The small types (survey 2026-11-15, play fields 2300-2955, 217 pictures: 00310108 in 127 - tiny points;
    00310309 in 126 - particle dots; 00310209 in 26 - enemy parts; 0031020E in 24 - particle clouds; 00500005 in 8 -

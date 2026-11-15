@@ -134,8 +134,12 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
   + NUANCE_ENTRYDATA=1 (lists + data per picture), NUANCE_SKIPTYPE (what a type draws), NUANCE_NODRAW (cost).
 - Python models: tools/t3k_vecmodel.py, t3k_linefit.py, t3k_vecrender.py, t3k_zoomfit.py, t3k_webfit.py,
   t3k_census.py, t3k_interpcheck.py.
-- Next: TOOLS FIRST (PLAN.md "Native renderer status" step 0: save states DONE, then PCLOG upgrades, spanlib), then
-  the small types (step 2), then switch emulated drawing off for native pictures.
+- Next: the small types (PLAN.md "Native renderer status" step 2), then switch emulated drawing off for native pictures.
+- Workflow per type (tools from 2026-11-15): t3k --disasm=F:3:<lib>:N > m.dis; tools/t3k_annotate.py m.dis (local pcs,
+  helpers); tools/t3k_logrun.py --state play_f2900 --span <type> --entries --out logs/t3k/<x>/run; a fit script on
+  tools/t3k_spanlib.py (prepare / predict); unsure of a value -> --pc <local pcs> --interp <lib lo>-<hi> --pictures
+  P0:P1 --pix; port; --only <done types> --nativecheck with T3K_CHECK_MASK=<span log>. Read Nuance's instruction code
+  before guessing semantics.
 - Save states: t3k --savestate=F:file / --loadstate=F:file (continues at F + 1); play states in logs\t3k\states\
   (play_f2700 / 2900 / 3000 / 3150). Start investigation runs from these, not from boot.
 - Pixel loads in the MPE modules: Y byte << 22, Cr / Cb signed (byte - 128) << 22, Z byte << 24. PCLOG inside a module:
