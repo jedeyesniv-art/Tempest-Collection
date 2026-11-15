@@ -150,7 +150,7 @@ def parse_pc(tk):
 
 
 def events(path, min_picture=0):
-    """Entry / Pixels / Pc events in log order. Pixels pairs each write with the read of the same place before it."""
+    """Entry / Pixels / Pc events in log order. Pixels pairs each write with the latest read of that row covering it."""
     pend = {}
     cur_pic = 0
     for line in open(path):
@@ -173,11 +173,15 @@ def events(path, min_picture=0):
             for r in range(rows):
                 row = px[r * n:(r + 1) * n]
                 if tk[1] == 'rd':
-                    pend[(x, y + r, n)] = row
+                    pend.setdefault(y + r, []).append((x, n, row))
+                    del pend[y + r][:-8]
                 else:
-                    before = pend.pop((x, y + r, n), None)
-                    if before is not None:
-                        yield Pixels(x, y + r, before, row)
+                    # the latest read of this row covering the written range (modules may read a 32-pixel row and
+                    # write shorter pieces of it)
+                    for rx, rn, rpx in reversed(pend.get(y + r, [])):
+                        if rx <= x and x + n <= rx + rn:
+                            yield Pixels(x, y + r, rpx[x - rx:x - rx + n], row)
+                            break
         elif k == 'pc':
             yield parse_pc(tk)
 

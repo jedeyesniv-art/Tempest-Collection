@@ -722,9 +722,24 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   (I 2.30; $B30 = R^2, $B34 = 1 / R^2), skipped where d >= R, out = dest + (colour - dest) x k; the box is size + 2
   wide, size + 1 high. Logged (logs\t3k\s309\pcs_span.txt, play_f3150, picture 1041): sprite calls at local
   20300578 (r4 / r5 top-left 16.16, r6 size, r13 I) next to the records (pc 203004C2: v7 = the PREVIOUS record).
-  Next: the exact projection integers (read 806A9566, fit k on the logged pairs), the blob fit on spans
-  (--span 00310309 from play_f3150), port as GPU blobs (a radial-falloff quad: k = I (1 - d^2/R^2)), then
-  00310209 (same module, mode 2), 0031020E (806AFA80), 00500005 (806A7DC0).
+  DONE: projection exact against the module's calls (raw intensity = hi << 16 exactly); tools/t3k_partfit.py.
+  Ported as GPU discs (Op::kBlobs: a quad textured alpha = 1 - r^2, vertex colour = colour, alpha = I). The disc
+  routine's rows sit one pixel above the corner reading (measured: y offset sweep, optimum exactly -1, columns 0):
+  centres at (cx + 1/2, cy - 1/2). Residual: overlapping trail blobs - the list is rewritten by the game while
+  the three renderers draw their bands, so the emulator's own result mixes two versions (the right picture's
+  records fit 0.38-1.9; ~8% intensity differences between bands).
+- 00310209 (806A8990 mode 2, 806A8DB4): an image as discs - DONE, tools/t3k_dotfit.py (the call list exact to
+  0.003 px: count, intensity), 3.6 on its pixels.
+- 0031020E (806AFA80 mode 2, 806AFC52): template rings of discs - DONE, tools/t3k_flowerfit.py (calls to 0.001 px,
+  modelled literally from the code on the first try), 2.9 on its pixels.
+- State play_f2880 (just before an enemy explosion: 00310209 / 0031020E / 00500005 at pictures 951-962).
+- Whole play pictures (no forcing, no type filter, full emulated truth): fields 2701-2960 from play_f2700: 85 of 85
+  complete, mean error 2.86; 2881-2960 from play_f2880: 17 complete (2.87), 8 not (00500005); 3151-3299 from
+  play_f3150: 39 complete (2.84), 10 not (00310010, the level-2 dot grid, 806A6E40).
+- Left for play: 00500005 (806A7DC0: a texture-mapped ring, radius ~ w1 / 2, width w8, bilinear lookups of the
+  128-word texture at w12 (u from w13 hi x column + w2, v from the row), blended by a radial tent; drawn as one half
+  plus a mirrored half from a row buffer at local $E40; writes Z too) and 00310010 (806A6E40, dot grid).
+  spanlib now pairs a write with the latest read of that row covering it (this module reads 32 px, writes pieces).
 
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
