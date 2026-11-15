@@ -607,3 +607,30 @@ Verified: attract -> coin -> start -> rate yourself -> play; spinner moves the c
 restores at a scheduler-safe point: 1-2 frames off a plain run, fine for players); window keeps 3:4 (core aspect).
 Open: tune the spinner feel with the owner; vector look (beam width / glow: MAME ini options); clones (tempest1..3,
 temptube) not selectable yet.
+
+## Collection status and open items (2026-11-15, after the owner's Steam Deck test)
+Owner tested the play folder (dist\TempestCollection, built by tools\package_collection.ps1) on the Steam Deck: all our
+games "work really well indeed". Tempest 3000 runs "just about at frame rate" (little headroom).
+
+Open, roughly in order:
+1. Tempest 4000 on the Deck is not listed as playable: the launcher's install check (src/launcher.cpp MakeGames)
+   reads Windows Steam's registry (HKCU\Software\Valve\Steam\Apps\688140\Installed), which a Proton prefix does not
+   have. Fix: under Wine (ntdll exports wine_get_version) don't trust the registry - check the Linux Steam library
+   instead (Z:\home\deck\.local\share\Steam\steamapps\appmanifest_688140.acf, and the libraryfolders.vdf paths for SD
+   cards) or just offer it. Then test that steam://rungameid/688140 from inside Proton reaches the Deck's Steam
+   (SDL_OpenURL -> ShellExecute; Proton may need winebrowser / "start /unix xdg-open"). Untested so far.
+2. Tempest 4000 helper on the Deck (Tempest 4000 helper\ in the play folder: two DLLs into Win10\ and Win7-8\, launch
+   option WINEDLLOVERRIDES="xinput1_3,xinput1_4=n,b" %command%) - not tried there yet. Verified on Windows only.
+3. Tempest 3000 speed on the Deck: at the edge. Options: the T3K performance items above (AOT coverage, MPE0-2
+   renderer work), a Deck default (high_res off is already the default; flip_cap 3), measure with F4 on the Deck.
+4. Size: the Tempest 3000 .iso is 743 MB of the 1.14 GB folder, almost all raw 16-bit BE stereo PCM in nuon.dat
+   (measured 2026-11-14: FLAC lossless 69% -> saves ~230 MB; lossy ~630 MB, needs a map of music vs data first).
+   Tool in the core: NUANCE_MEDIALOG=<file> logs every disc read (third_party\NuanceResurrection, media.cpp; not run
+   yet). Nothing else in the folder compresses usefully (cores are code; TxK assets already compressed).
+5. Arcade Tempest (t81): vector look (beam width / glow / flicker: MAME ini options in system\mame\ini); the clones
+   in tempest.zip (rev 1, rev 2, Tempest Tubes) not selectable; spinner: owner tuned it (1.0 = old 0.4).
+6. TxK: no save states (core stub, upstream has none); preinst firmware part missing but not needed; QoL ideas from
+   the owner still to come. Vita3K storage_location.txt lesson: CLAUDE.md Lessons 2026-11-15.
+7. Launcher: still the placeholder look (SDL debug font); the Minotaur Project launcher (C:\Gridios\Launcher) is the
+   model for behaviour and features (settings screen, Steam shortcut).
+8. Then (owner's order): Neon Mode, Defender 2000.

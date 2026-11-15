@@ -114,6 +114,13 @@ Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
 
+## Collection state (2026-11-15; start here next time)
+All five entries run from the launcher (tempest.exe; TempestCollection.exe in the play folder): Tempest (1981, t81 /
+MAME), Tempest 2000 (t2k), Tempest 3000 (t3k / Nuance), TxK (txk / Vita3K), Tempest 4000 (Steam, + helper DLL).
+The owner played the play folder on the Steam Deck: all good. Open items, in order: PLAN.md "Collection status and
+open items" (first: Tempest 4000 not offered on the Deck - the launcher's install check reads Windows Steam's
+registry, absent under Proton).
+
 ## Where we are (end of 2026-11-09 morning; start here next time)
 - Done: stage 1 host, stick controls (owner's lr tuning 0.41, aim as alternate), owner's button layout + remapping,
   Back menu (settings, save states, return to title), quit to title on the pause screen in the game font, EEPROM
