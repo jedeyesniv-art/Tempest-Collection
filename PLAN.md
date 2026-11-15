@@ -736,9 +736,19 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
 - Whole play pictures (no forcing, no type filter, full emulated truth): fields 2701-2960 from play_f2700: 85 of 85
   complete, mean error 2.86; 2881-2960 from play_f2880: 17 complete (2.87), 8 not (00500005); 3151-3299 from
   play_f3150: 39 complete (2.84), 10 not (00310010, the level-2 dot grid, 806A6E40).
-- Left for play: 00500005 (806A7DC0: a texture-mapped ring, radius ~ w1 / 2, width w8, bilinear lookups of the
-  128-word texture at w12 (u from w13 hi x column + w2, v from the row), blended by a radial tent; drawn as one half
-  plus a mirrored half from a row buffer at local $E40; writes Z too) and 00310010 (806A6E40, dot grid).
+- 00310010 (806A6E40 mode 0, 806A7012): DONE, tools/t3k_gridfit.py (318 of 318 calls exact): a 32 x 32 bitmask
+  (w11) of 3D grid points walked from the middle out (rows and row words in two halves), quadratic steps (w2 / w4 per
+  point, w3 / w5 per row, w13 hi / lo the first steps), each a 0031020E template (FlowerAt grid = true: start angle
+  + w1 << 8, last rotation (x + y) >> 12, point added before the perspective, depth = point z, cap 30 px, at
+  (192, 120)). Play from play_f3150 fields 3151-3299: 48 of 48 pictures complete, mean error 2.85.
+- Left for play: 00500005 only (8 pictures an enemy explosion; those pictures stay emulated). 806A7DC0, set-up
+  806A7EDA: v1 = w0..w3 (r4..r7), v3 = w4..w7 (r12..r15); r11 = w1 >> 16 (radius px), r28 = w1 & $FFFF, r8 = w5 >> 2,
+  r18 / r19 = w4 hi / lo x radius; per pixel (806A81D0..806A82A8): T = bilinear lookup of the 128-word texture at w12
+  (DMA'd to local $330, uvctl 104CD010) at u = |w13 hi x column + w2|, v = |w13 lo x row + w3|; d = column^2 x r17 >>
+  12 + row term (r24); k = r8 x (r28 - |d - (1 - r28)|) (r23 bit 0: ring; else a disc?); out = dest + (T - dest) k,
+  Z written too. Drawn as a right half, then the left half mirrored from a row buffer at local $E40, with edge flags
+  in r23. Logs: logs\t3k\s505 (sp_span / sp_ent from play_f2880). Next step for it: PCLOG at local 20300790 (the
+  blend) with --pix for T / dest / r7, then the set-up integers.
   spanlib now pairs a write with the latest read of that row covering it (this module reads 32 px, writes pieces).
 
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)

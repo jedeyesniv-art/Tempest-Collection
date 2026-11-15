@@ -134,7 +134,11 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
   + NUANCE_ENTRYDATA=1 (lists + data per picture), NUANCE_SKIPTYPE (what a type draws), NUANCE_NODRAW (cost).
 - Python models: tools/t3k_vecmodel.py, t3k_linefit.py, t3k_vecrender.py, t3k_zoomfit.py, t3k_webfit.py,
   t3k_census.py, t3k_interpcheck.py.
-- Next: the small types (PLAN.md "Native renderer status" step 2), then switch emulated drawing off for native pictures.
+- Ported + verified 2026-11-15 (later): 00310108 (draws nothing in play), 00310309 particles, 00310209 dot images,
+  0031020E disc shapes, 00310010 disc grid (all GPU discs, Op::kBlobs). Whole play pictures, no forcing: every
+  picture complete except an enemy explosion's 8 (00500005 ring, decoded in part: PLAN.md "The small types"),
+  mean error 2.84-2.87 against the full emulated pictures.
+- Next: 00500005 (optional), then step 3: switch emulated drawing off for complete pictures (the speed gain).
 - Workflow per type (tools from 2026-11-15): t3k --disasm=F:3:<lib>:N > m.dis; tools/t3k_annotate.py m.dis (local pcs,
   helpers); tools/t3k_logrun.py --state play_f2900 --span <type> --entries --out logs/t3k/<x>/run; a fit script on
   tools/t3k_spanlib.py (prepare / predict); unsure of a value -> --pc <local pcs> --interp <lib lo>-<hi> --pictures
