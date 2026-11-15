@@ -165,21 +165,161 @@ void Shape(const uint32_t* entry, const Mem& mem, std::vector<Seg>* segs) {
 
 }  // namespace
 
-void BuildVectors(const nuon::Capture& cap, Vectors* out) {
+void BuildPicture(const nuon::Capture& cap, Picture* out) {
   out->flip = cap.flip;
   out->segs.clear();
   out->items.clear();
+  out->ops.clear();
+  out->complete = true;
+  out->first_unknown = 0;
   for (size_t i = 0; i + 17 <= cap.entries.size(); i += 17) {
     const uint32_t* e = &cap.entries[i + 1];
-    if (e[15] != 0x00710001) continue;
-    const uint32_t first = uint32_t(out->segs.size());
-    Shape(e, cap.mem, &out->segs);
-    out->items.push_back({e[7], float(Sext(e[0] >> 16, 16)), float(Sext(e[0], 16)), first,
-                          uint32_t(out->segs.size()) - first});
+    switch (e[15]) {
+      case 0x00710001: {   // vector shape
+        const uint32_t first = uint32_t(out->segs.size());
+        Shape(e, cap.mem, &out->segs);
+        const uint32_t n = uint32_t(out->segs.size()) - first;
+        out->items.push_back({e[7], float(Sext(e[0] >> 16, 16)), float(Sext(e[0], 16)), first, n});
+        Op op{Op::kSegs};
+        op.first = first;
+        op.count = n;
+        if (n) out->ops.push_back(op);
+        break;
+      }
+      case 0x00000300: {   // fill
+        Op op{Op::kFill};
+        op.x = float(e[0] >> 16);
+        op.y = float(e[0] & 0xFFFF);
+        op.w = float(e[1] >> 16);
+        op.h = float(e[1] & 0xFFFF);
+        op.colour = Colour(e[2] | 0xFF, 1.f);
+        op.colour.a = 1.f;
+        out->ops.push_back(op);
+        break;
+      }
+      case 0x00300004: {   // zoom feedback
+        Op op{Op::kZoom};
+        op.cx = float(e[0] >> 16);
+        op.cy = float(e[0] & 0xFFFF);
+        op.zx = float(e[4]) / 65536.f;
+        op.zy = float(e[5]) / 65536.f;
+        op.angle = float(e[6] & 0xFFFF) * 6.2831853f / 65536.f;
+        op.fade = float(e[7] >> 16) / 16384.f;
+        out->ops.push_back(op);
+        break;
+      }
+      case 0x000000FF: case 0x000000FE: case 0x003102FE:   // end of list; entries that draw nothing
+        break;
+      default:
+        if (out->complete) out->first_unknown = e[15];
+        out->complete = false;
+        break;
+    }
   }
 }
 
-void Interpolate(const Vectors& prev, const Vectors& cur, float t, std::vector<Seg>* out, float max_move) {
+Renderer::~Renderer() {
+  for (SDL_Texture* t : tex_)
+    if (t) SDL_DestroyTexture(t);
+}
+
+void Renderer::Redraw(SDL_Renderer* ren, const SDL_FRect& dst) {
+  if (tex_[cur_]) SDL_RenderTexture(ren, tex_[cur_], nullptr, &dst);
+}
+
+void Renderer::Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& dst) {
+  if (!picture) return;
+  Resize(ren, dst);
+  SDL_Texture* keep = SDL_GetRenderTarget(ren);
+  SDL_SetRenderTarget(ren, tex_[cur_]);
+  SDL_BlendMode mode;
+  SDL_GetTextureBlendMode(picture, &mode);
+  SDL_SetTextureBlendMode(picture, SDL_BLENDMODE_NONE);
+  SDL_RenderTexture(ren, picture, nullptr, nullptr);
+  SDL_SetTextureBlendMode(picture, mode);
+  SDL_SetRenderTarget(ren, keep);
+}
+
+void Renderer::Resize(SDL_Renderer* ren, const SDL_FRect& dst) {
+  const int w = std::max(1, int(dst.w + 0.5f)), h = std::max(1, int(dst.h + 0.5f));
+  if (w == w_ && h == h_ && tex_[0]) return;
+  for (SDL_Texture*& t : tex_) {
+    if (t) SDL_DestroyTexture(t);
+    t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+  }
+  w_ = w;
+  h_ = h;
+  SDL_Texture* keep = SDL_GetRenderTarget(ren);
+  for (SDL_Texture* t : tex_) {
+    SDL_SetRenderTarget(ren, t);
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_RenderClear(ren);
+  }
+  SDL_SetRenderTarget(ren, keep);
+}
+
+void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg>& segs, const SDL_FRect& dst,
+                    float step) {
+  Resize(ren, dst);
+  const int w = w_, h = h_;
+  SDL_Texture* prev = tex_[cur_];
+  SDL_Texture* next = tex_[cur_ ^ 1];
+  SDL_Texture* keep = SDL_GetRenderTarget(ren);
+  SDL_SetRenderTarget(ren, next);
+  SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+  SDL_RenderClear(ren);
+  const SDL_FRect full{0, 0, float(w), float(h)};
+  const float sx = float(w) / 360.f, sy = float(h) / 240.f;
+  std::vector<Seg> part;
+  for (const Op& op : pic.ops) {
+    switch (op.kind) {
+      case Op::kFill: {
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawColorFloat(ren, op.colour.r, op.colour.g, op.colour.b, 1.f);
+        const SDL_FRect r{op.x * sx, op.y * sy, op.w * sx, op.h * sy};
+        SDL_RenderFillRect(ren, &r);
+        break;
+      }
+      case Op::kZoom: {
+        // Each output point p samples the previous picture at c + R(-a) (p - c) / z (game pixels); for an in-between
+        // frame the step's share: z^step, a x step, fade^step.
+        const float zx = std::pow(op.zx, step), zy = std::pow(op.zy, step), a = -op.angle * step;
+        const float fade = std::pow(std::max(op.fade, 0.f), step);
+        const float ca = std::cos(a), sa = std::sin(a);
+        auto uv = [&](float px, float py) {
+          const float dx = px - op.cx, dy = py - op.cy;
+          const float rx = (dx * ca - dy * sa) / zx, ry = (dx * sa + dy * ca) / zy;
+          // (the module takes the nearest source pixel, floor(S) + 1/2, whose average is S itself)
+          return SDL_FPoint{(op.cx + rx) / 360.f, (op.cy + ry) / 240.f};
+        };
+        const float f1 = std::min(fade, 1.f), f2 = std::max(fade - 1.f, 0.f);
+        auto quad = [&](float k, SDL_BlendMode mode) {
+          const SDL_FColor c{k, k, k, 1.f};
+          const SDL_Vertex v[4] = {{{0, 0}, c, uv(0, 0)}, {{float(w), 0}, c, uv(360, 0)},
+                                   {{0, float(h)}, c, uv(0, 240)}, {{float(w), float(h)}, c, uv(360, 240)}};
+          const int idx[6] = {0, 1, 2, 1, 3, 2};
+          SDL_SetTextureBlendMode(prev, mode);
+          SDL_RenderGeometry(ren, prev, v, 4, idx, 6);
+        };
+        quad(f1, SDL_BLENDMODE_NONE);
+        if (f2 > 0.f) quad(std::min(f2, 1.f), SDL_BLENDMODE_ADD);   // brightening (level start): add the excess
+        break;
+      }
+      case Op::kSegs: {
+        part.assign(segs.begin() + op.first, segs.begin() + op.first + op.count);
+        DrawVectors(ren, part, full);
+        break;
+      }
+    }
+  }
+  SDL_SetRenderTarget(ren, keep);
+  SDL_SetTextureBlendMode(next, SDL_BLENDMODE_NONE);
+  SDL_RenderTexture(ren, next, nullptr, &dst);
+  cur_ ^= 1;
+}
+
+void Interpolate(const Picture& prev, const Picture& cur, float t, std::vector<Seg>* out, float max_move) {
   out->assign(cur.segs.begin(), cur.segs.end());
   if (t >= 1.f) return;
   t = std::max(t, 0.f);

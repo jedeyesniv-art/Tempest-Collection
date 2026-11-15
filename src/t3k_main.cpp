@@ -7,6 +7,8 @@
 //   --timing=emulated|real --rounds=N     override settings timing / nuon_rounds
 //   --hires[=0|1]                         override settings high_res (render at 720x480)
 //   --shot=F:<file.bmp>                   save the picture after frame F (repeatable)
+//   --nativeshot=F:<file.bmp>             headless: the native renderer's picture after frame F, 1440x1080 (one
+//                                         feedback step per game picture; emulated pictures where it can't yet)
 //   --press=F:<btn>[:len]                 hold a RetroPad button from frame F (default 6 frames)
 //   --wav=<file.wav>                      dump the audio
 //   --disasm=F:mpe:hexaddr:count          print count packets of MPE code after field F (headless)
@@ -117,8 +119,8 @@ flip_cap = 3
 # 1 = cross-fade between the game's pictures (smooth-looking motion at any display rate, ~one picture more lag;
 # F3 toggles). 0 = each picture shown as it is.
 picture_blend = 1
-# Native renderer (in development, F7 cycles): 0 = off, 1 = the native vector layer alone, 2 = it over the emulated
-# picture (an alignment check).
+# Native renderer (in development, F7 cycles): 0 = off, 1 = native pictures (where every part is done; others stay
+# emulated), 2 = the native vector layer over the emulated picture (an alignment check), 3 = the vector layer alone.
 native_view = 0
 # 1 = the native layer moves smoothly between the game's pictures (F6), 0 = it steps with them.
 native_interpolate = 1
@@ -386,7 +388,7 @@ int main(int argc, char** argv) {
   bool headless = false, novsync = false, from_launcher = false;
   int menu_test = 0, winshot_at = -1;
   int frames = -1;   // headless default 600; the window runs until closed unless given
-  std::vector<Shot> shots, memdumps;   // memdumps: --memdump=F:<prefix>
+  std::vector<Shot> shots, memdumps, nativeshots;   // memdumps: --memdump=F:<prefix>
   std::vector<std::string> disasms;      // --disasm=F:mpe:hexaddr:count
   std::vector<std::string> aotdumps;     // --aotdump=F:mpe:hexsrc:len:hexbase:file
   std::vector<Press> presses;
@@ -436,7 +438,10 @@ int main(int argc, char** argv) {
       memdumps.push_back({std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)});
     }
     else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
-    else if (a.rfind("--shot=", 0) == 0) {
+    else if (a.rfind("--nativeshot=", 0) == 0) {
+      auto v = val("--nativeshot="), c = v.substr(0, v.find(':'));
+      nativeshots.push_back({std::atoi(c.c_str()), v.substr(v.find(':') + 1)});
+    } else if (a.rfind("--shot=", 0) == 0) {
       auto v = val("--shot="), c = v.substr(0, v.find(':'));
       shots.push_back({std::atoi(c.c_str()), v.substr(v.find(':') + 1)});
     } else if (a.rfind("--press=", 0) == 0) {
@@ -454,6 +459,7 @@ int main(int argc, char** argv) {
   if (!wav.empty()) wav = fs::absolute(wav).string();
   if (!perflog.empty()) perflog = fs::absolute(perflog).string();
   for (auto& s : shots) s.path = fs::absolute(s.path).string();
+  for (auto& s : nativeshots) s.path = fs::absolute(s.path).string();
   if (!winshot_file.empty()) winshot_file = fs::absolute(winshot_file).string();
   for (auto& s : memdumps) s.path = fs::absolute(s.path).string();
   const std::string sample_out = std::getenv("T3K_SAMPLE") ? fs::absolute(std::getenv("T3K_SAMPLE")).string() : "";
@@ -570,6 +576,26 @@ int main(int argc, char** argv) {
     if (!analogs.empty()) nuon::SetAnalog(x, y, 0, 0);
   };
   ClawControl headless_claw;
+  // --nativeshot: the native renderer on a hidden window, one full feedback step per game picture.
+  SDL_Window* nwin = nullptr;
+  SDL_Renderer* nren = nullptr;
+  SDL_Texture *nout = nullptr, *nemu = nullptr;
+  t3knative::Renderer nnative;
+  uint32_t nflip = 0;
+  nuon::Frame nprev_frame;
+  int ncomplete = 0, nincomplete = 0;
+  const SDL_FRect ndst{0, 0, 1440, 1080};
+  if (headless && !nativeshots.empty()) {
+    nwin = SDL_CreateWindow("t3k native", 64, 64, SDL_WINDOW_HIDDEN);
+    nren = nwin ? SDL_CreateRenderer(nwin, nullptr) : nullptr;
+    if (nren) {
+      nout = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, 1440, 1080);
+      nemu = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 360, 240);
+      SDL_SetTextureScaleMode(nemu, SDL_SCALEMODE_LINEAR);
+    } else {
+      std::fprintf(stderr, "nativeshot: no renderer (%s)\n", SDL_GetError());
+    }
+  }
   if (headless) {
     if (frames < 0) frames = 600;
     for (int f = 0; f < frames; ++f) {
@@ -596,6 +622,61 @@ int main(int argc, char** argv) {
       auto& au = nuon::Audio();
       if (!wav.empty()) wav_samples.insert(wav_samples.end(), au.begin(), au.end());
       au.clear();
+      if (nren) {   // --nativeshot: each new game picture, natively where it can be
+        static nuon::Capture ncap;
+        if (nuon::GetCapture(&ncap) && ncap.flip != nflip) {
+          nflip = ncap.flip;
+          t3knative::Picture pic;
+          t3knative::BuildPicture(ncap, &pic);
+          SDL_SetRenderTarget(nren, nout);
+          if (pic.complete) {
+            // T3K_NATIVE_RESEED=1 (tests): every native picture builds on the emulated previous one (one-step error)
+            static const bool reseed = std::getenv("T3K_NATIVE_RESEED") != nullptr;
+            if (reseed && nprev_frame.width) {
+              float tw = 0, th = 0;
+              SDL_GetTextureSize(nemu, &tw, &th);
+              if (int(tw) != int(nprev_frame.width) || int(th) != int(nprev_frame.height)) {
+                SDL_DestroyTexture(nemu);
+                nemu = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING,
+                                         int(nprev_frame.width), int(nprev_frame.height));
+                SDL_SetTextureScaleMode(nemu, SDL_SCALEMODE_LINEAR);
+              }
+              SDL_UpdateTexture(nemu, nullptr, nprev_frame.pixels.data(), int(nprev_frame.width * 4));
+              nnative.Seed(nren, nemu, ndst);
+            }
+            nnative.Draw(nren, pic, pic.segs, ndst, 1.f);
+            ++ncomplete;
+          } else {   // the emulated picture (and what the next native one's feedback builds on)
+            const nuon::Frame& fr = nuon::LastFrame();
+            if (fr.width) {
+              float tw = 0, th = 0;
+              SDL_GetTextureSize(nemu, &tw, &th);
+              if (int(tw) != int(fr.width) || int(th) != int(fr.height)) {
+                SDL_DestroyTexture(nemu);
+                nemu = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, int(fr.width),
+                                         int(fr.height));
+              }
+              SDL_UpdateTexture(nemu, nullptr, fr.pixels.data(), int(fr.width * 4));
+              nnative.Seed(nren, nemu, ndst);
+              SDL_SetTextureBlendMode(nemu, SDL_BLENDMODE_NONE);
+              SDL_RenderTexture(nren, nemu, nullptr, &ndst);
+            }
+            ++nincomplete;
+          }
+          SDL_SetRenderTarget(nren, nullptr);
+          nprev_frame = nuon::LastFrame();   // this picture, emulated (T3K_NATIVE_RESEED: the next one builds on it)
+        }
+        for (auto& s : nativeshots)
+          if (s.frame == f) {
+            SDL_SetRenderTarget(nren, nout);
+            if (SDL_Surface* sf = SDL_RenderReadPixels(nren, nullptr)) {
+              SDL_SaveBMP(sf, s.path.c_str());
+              SDL_DestroySurface(sf);
+            }
+            SDL_SetRenderTarget(nren, nullptr);
+            std::fprintf(stderr, "nativeshot %d: %d native pictures, %d emulated so far\n", f, ncomplete, nincomplete);
+          }
+      }
       for (auto& spec : disasms) {   // F:mpe:hexaddr:count -> stdout
         int df = 0, dm = 0, dn = 0;
         unsigned da = 0;
@@ -790,6 +871,10 @@ int main(int argc, char** argv) {
   std::shared_ptr<const t3knative::Vectors> shown_vec, prev_vec;   // the shown picture's layer and the one before
   bool native_interp = settings::Num("native_interpolate", 1) != 0;
   std::vector<t3knative::Seg> native_segs;
+  t3knative::Renderer native;
+  uint64_t native_last_ns = 0;
+  float native_step_left = 0.f;   // the shown picture's zoom-feedback step not yet applied
+  std::shared_ptr<const t3knative::Vectors> native_last_pic;
   int presents = 0;
   while (running) {
     SDL_Event e;
@@ -807,7 +892,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "native interpolation %s\n", native_interp ? "on" : "off");
       }
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F7) {
-        native_view = (native_view + 1) % 3;
+        native_view = (native_view + 1) % 4;
         settings::Save("native_view", std::to_string(native_view));
         std::fprintf(stderr, "native view %d\n", native_view);
       }
@@ -950,8 +1035,49 @@ int main(int argc, char** argv) {
       SDL_FRect dst{(ww - w) / 2, (wh - h) / 2, w, h};
       // picture_blend (F3): cross-fade from the previous picture to this one over its time slot - smooth-looking
       // motion between the game's steps, at the price of about one picture more lag.
-      if (native_view == 1) {
-        // native vector layer alone (on black)
+      // Native renderer (F7): 1 = whole native pictures where every entry type is done (else the emulated picture),
+      // 2 = the native vector layer over the emulated picture, 3 = the vector layer alone. native_interpolate (F6):
+      // moving things between the previous picture and this one over its time slot (as picture_blend), and the zoom
+      // feedback advanced by the time since the last present.
+      const uint64_t now_ns = SDL_GetTicksNS();
+      const double native_t = (native_interp && prev_vec && picture_ns)
+          ? std::clamp(double(int64_t(now_ns + refresh_ns / 2 - blend_from)) / double(picture_ns), 0.0, 1.0) : 1.0;
+      auto native_segments = [&]() -> const std::vector<t3knative::Seg>& {
+        if (native_t >= 1.0 || !prev_vec) return shown_vec->segs;
+        t3knative::Interpolate(*prev_vec, *shown_vec, float(native_t), &native_segs);
+        return native_segs;
+      };
+      const bool native_whole = native_view == 1 && shown_vec && shown_vec->complete;
+      if (native_whole) {
+        // coming from emulated pictures: their last one is what this picture's feedback builds on
+        if (!native_last_ns) {
+          native.Seed(ren, (picture_ns && tex_prev) ? tex_prev : tex, dst);
+          native_last_ns = std::min(now_ns, blend_from ? blend_from : now_ns);   // the step so far: since this slot began
+          native_last_pic = shown_vec;
+          native_step_left = 1.f;
+        }
+        if (native_interp && picture_ns) {
+          // Exactly one zoom-feedback step per game picture, spread over its time on screen: a new picture first
+          // finishes what is left of the previous one's step; a picture that stays up longer than its slot (the
+          // game slowed down) stops advancing once its step is used.
+          float carry = 0.f;
+          if (shown_vec != native_last_pic) {
+            carry = native_last_pic ? native_step_left : 0.f;
+            native_step_left = 1.f;
+          }
+          const float due = float(std::clamp(double(now_ns - native_last_ns) / double(picture_ns), 0.0, 1.0));
+          const float take = std::min(native_step_left, due);
+          native_step_left -= take;
+          native.Draw(ren, *shown_vec, native_segments(), dst, carry + take);
+        } else if (shown_vec != native_last_pic) {
+          native.Draw(ren, *shown_vec, shown_vec->segs, dst, 1.f);
+        } else {
+          native.Redraw(ren, dst);
+        }
+        native_last_ns = now_ns;
+        native_last_pic = shown_vec;
+      } else if (native_view == 3) {
+        // the native vector layer alone (on black)
       } else if (picture_blend && picture_ns && tex_prev) {
         const double t = std::clamp(double(int64_t(SDL_GetTicksNS() + refresh_ns / 2 - blend_from)) / double(picture_ns),
                                     0.0, 1.0);
@@ -965,17 +1091,8 @@ int main(int argc, char** argv) {
       } else {
         SDL_RenderTexture(ren, tex, nullptr, &dst);
       }
-      if (native_view && shown_vec) {
-        // native_interpolate (F6): between the previous picture and this one over its time slot (as picture_blend)
-        if (native_interp && prev_vec && picture_ns) {
-          const double t = std::clamp(double(int64_t(SDL_GetTicksNS() + refresh_ns / 2 - blend_from)) / double(picture_ns),
-                                      0.0, 1.0);
-          t3knative::Interpolate(*prev_vec, *shown_vec, float(t), &native_segs);
-          t3knative::DrawVectors(ren, native_segs, dst);
-        } else {
-          t3knative::DrawVectors(ren, shown_vec->segs, dst);
-        }
-      }
+      if ((native_view == 2 || native_view == 3) && shown_vec) t3knative::DrawVectors(ren, native_segments(), dst);
+      if (!native_whole) native_last_ns = 0;   // (the feedback restarts from our last native picture)
     }
     if (show_rates) {
       const uint64_t now = SDL_GetTicksNS();

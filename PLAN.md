@@ -637,6 +637,29 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   (spawns, big moves).
 - Not yet: the emulated renderers still run (no speed gain until whole pictures are native); the other types.
 
+### Whole native pictures: fill + zoom feedback (2026-11-15)
+- 00000300 (806A3108) = a plain fill: rectangle w0 (x, y) / w1 (w, h) in colour w2 (dup-mode pixel DMA of the one
+  word, 8x4 tiles, no reads). In play after the level start every picture begins with it (black): no feedback trails.
+- 00300004 (806A5280; tools/t3k_zoomfit.py on NUANCE_SPANLOG=00300004, which now also prints "spanentry" words and
+  multi-row "spanb" blocks): out pixel p = previous picture at c + R(-a) (p - c + 1/2) / z, nearest pixel; c = w0,
+  z = w4 / w5 (16.16; 1.0625 steady, 1.4 -> 1.06 in transitions: free fits land on 1 / w4 wherever the source has
+  detail), a = w6 (16 bits a turn), fade = w7 >> 16 as 2.14 (0.969 steady; > 1 = brightening at transition starts,
+  clipped).
+- t3knative::Picture = ops in list order (kFill, kZoom, kSegs); complete = every entry type known (FF / FE / 2FE draw
+  nothing). Renderer: two window-sized target textures; zoom = the previous texture as one quad (uv per corner from
+  the mapping, vertex colour = fade; > 1: an extra ADD pass). Mixed mode: when a native picture follows an emulated
+  one, Seed() copies the emulated previous picture in. In the window (native_view 1): exactly one feedback step per
+  game picture spread over its time on screen (native_step_left; a new picture first finishes the old step) - a
+  fixed step per present ran ahead when the game slowed in transitions.
+- Test: headless --nativeshot=F:<bmp> (hidden window renderer, one full step per picture, emulated pictures where not
+  complete; T3K_NATIVE_RESEED=1 = every native picture builds on the emulated previous one). Title -> menu zoom:
+  one step diff 1.1-1.3 (720x480 mean abs), no shift (after removing a wrong +1/2 texel: floor(S) + 1/2 averages
+  to S); chained 5.0 after 5 steps, 14.5 after 25 (bilinear at 4x vs nearest at 1x, and the brightening clips per
+  RGB channel instead of in YCrCb -> slightly greyer letters; a YCrCb fade shader would fix it).
+- Complete pictures today: menu transitions (zoom + vectors) and some menu screens (fill + vectors). Play still needs
+  0011000B (web surface), 0010000D (glowing text), 00310309 / 00310209 / 0031020E / 00500005 / 00310010 / 00310108
+  (small objects, particles).
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
