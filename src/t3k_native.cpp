@@ -99,7 +99,8 @@ void Segment(const uint32_t* e, const Matrix& m, uint32_t cur, uint32_t prev, ui
 
 // --- the line look ---
 
-constexpr float kRadius = 1.94f;      // game pixels from the centre line to zero coverage (width byte 2)
+// The tent's radius (game pixels from the centre line to zero coverage) is the width byte (w5 low) less ~0.06:
+// width 2 -> 1.94 (all play lines), 13 -> 12.96, 14 -> 14.2 (the bonus screen's big numbers; tools/t3k_linefit.py).
 constexpr float kZPeak = 0.00888f;    // centre opacity per unit of the colour's 4th byte
 
 // A YCrCbZ colour word -> RGB as Nuance shows it (BT.601, video range), alpha = the line's centre opacity.
@@ -184,6 +185,7 @@ void Shape(const uint32_t* entry, const Mem& mem, std::vector<Seg>* segs) {
       const float strength = float((e[5] >> 2) & 0x3FFFFFFF) / float(0x13FFC000) * (1.f - float(t) / 65536.f);
       Seg sg{float(p[0]) / 65536.f, float(p[1]) / 65536.f, float(p[2]) / 65536.f, float(p[3]) / 65536.f,
              Colour(e[2], strength), Colour(e[3], strength)};
+      sg.r = std::max(float(e[5] & 0xFF) - 0.06f, 0.5f);
       segs->push_back(sg);
     }
     prev = w;
@@ -1162,7 +1164,7 @@ void Interpolate(const Picture& prev, const Picture& cur, float t, std::vector<S
     for (uint32_t k = 0; k < ic.count; ++k) {
       const Seg &a = prev.segs[ip.first + k], &b = cur.segs[ic.first + k];
       (*out)[ic.first + k] = {lerp(a.x0, b.x0), lerp(a.y0, b.y0), lerp(a.x1, b.x1), lerp(a.y1, b.y1),
-                              lerpc(a.c0, b.c0), lerpc(a.c1, b.c1)};
+                              lerpc(a.c0, b.c0), lerpc(a.c1, b.c1), lerp(a.r, b.r)};
     }
   }
 }
@@ -1179,8 +1181,8 @@ void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRec
     float dx = s.x1 - s.x0, dy = s.y1 - s.y0;
     const float len = std::sqrt(dx * dx + dy * dy);
     if (len > 1e-4f) { dx /= len; dy /= len; } else { dx = 1.f; dy = 0.f; }
-    const float nx = -dy * kRadius, ny = dx * kRadius;      // perpendicular, in game pixels
-    const float ex = dx * kRadius, ey = dy * kRadius;       // along, for the end caps
+    const float nx = -dy * s.r, ny = dx * s.r;      // perpendicular, in game pixels
+    const float ex = dx * s.r, ey = dy * s.r;       // along, for the end caps
     SDL_FColor e0 = s.c0, e1 = s.c1;
     e0.a = 0.f;
     e1.a = 0.f;

@@ -757,6 +757,35 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   blend) with --pix for T / dest / r7, then the set-up integers.
   spanlib now pairs a write with the latest read of that row covering it (this module reads 32 px, writes pieces).
 
+### Step 3: the draw gate - emulated drawing off for native pictures (2026-11-15)
+- Core (capture.cpp, 91189ae): nuance_set_picture_callback(cb(mpe, flips)). The first drawing fetch of a picture (MPE0 /
+  MPE2: any display list entry fetch; MPE1: from its fetch of the list head $8004E040, i.e. after its pre-pass jobs
+  rewrote the entries, to the end of the list) calls the frontend once; non-zero = skip: every drawing fetch until the
+  flip reads the end of the list (as NUANCE_NODRAW). Reset at each flip. MPE1's compute jobs and the game logic run as
+  before. nuance_gate_stats.
+- Host: t3knative::BuildPictureLive walks the list from $8004E040 in live memory (nuon::Memory: system / main bus, the
+  fetching MPE's local memory for the job word) - the same builders, Read() over a Mem that is either the capture's
+  word map or live memory. t3k gate::Callback files the picture under flip + 1; the window's emulation thread and the
+  headless native paths take it at that flip (Take). Building costs 0.26-0.82 ms a picture.
+- Checks: --gate=1 (build live, renderers still draw): live == captured for 151 of 151 play pictures. --gate=2: game
+  logic unchanged (the native picture 150 fields on is byte-identical with and without skipping; same flip counts).
+  Cost, play from play_f3150: emulation 3.71 -> 1.56 ms a field (p95 9.56 -> 3.96) headless; in the window
+  (native_view 1, native_skip 0 / 1) 4.05 -> 1.88 (p95 10.35 -> 4.50).
+- Window: native_skip = 1 (default) skips whenever native_view = 1 (F7 cycles; the gate follows). --loadstate works
+  in the window too.
+- Native -> emulated switches build the emulated picture's feedback on a buffer that was never drawn (seen at the level
+  end and the warp before their types were ported). Fixed by porting what blocked them: 007100FE (a disabled entry: low
+  byte FE), 00310008 point rings (806A5FB0 mode 0: tools/t3k_ringptfit.py, the calls exactly), 00100200 textured plane
+  (806A3108 mode 2: tools/t3k_planefit.py, 0.7 a channel; quirk: the pipelined loop starts each 64-pixel chunk one step
+  further on). The full route (boot, menus, level select, play, level end, warp, next level; 6000 fields): only the
+  boot / title screens are emulated (0000000F feedback background, 0031000E title particles); from the menus on 1503
+  pictures in a row are native. --nativecheck 1500-5999: 1500 of 1500 complete, mean 3.58 (1174 under 4).
+- Line widths: the tent's radius is the width byte - 0.06 (2 -> 1.94, 13 -> 12.96, 14 -> 14.2; signed profile
+  centred): the bonus screen's big numbers 18-28 -> 4-8.
+- Known gaps (polish, step 7): the original works in YCrCb - brightening feedback (the warp: orange in the original,
+  yellow natively) and lines whose peak exceeds 1 (the bonus numbers: flat saturated bars) clip there, not per RGB
+  channel: keep native pictures in YCrCb and convert with a final shader. Boot / title types (0000000F, 0031000E).
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,

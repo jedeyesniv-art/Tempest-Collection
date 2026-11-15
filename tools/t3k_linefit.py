@@ -30,6 +30,8 @@ def main():
         if not t:
             continue
         if t[0] == 'pc':
+            if len(t) > 2 and t[2].startswith('p'):   # (newer logs: 'pc f.. p<picture> <pc> r ..')
+                del t[2]
             if len(t) < 53 or t[52] != '00710001':
                 seg = None
                 continue

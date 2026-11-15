@@ -51,6 +51,7 @@ namespace t3knative {
 struct Seg {
   float x0, y0, x1, y1;
   SDL_FColor c0, c1;
+  float r = 1.94f;   // game pixels from the centre line to zero coverage: the width byte (w5 low) - 0.06
 };
 
 // One drawn vector entry: which segments it made, and what identifies it for interpolation.
