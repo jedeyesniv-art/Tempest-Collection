@@ -126,6 +126,9 @@ picture_blend = 1
 # Native renderer (in development, F7 cycles): 0 = off, 1 = native pictures (where every part is done; others stay
 # emulated), 2 = the native vector layer over the emulated picture (an alignment check), 3 = the vector layer alone.
 native_view = 0
+# With native_view 1: 1 = pictures we draw natively are skipped by the emulated renderers (the CPU saving: about
+# 2.4x less emulation time in play), 0 = the emulator still draws them too.
+native_skip = 1
 # 1 = the native layer moves smoothly between the game's pictures (F6), 0 = it steps with them.
 native_interpolate = 1
 # 1 = the frame-rate counter (F4): the game's pictures a second, emulated fields a second.
@@ -150,6 +153,43 @@ lr_release_pictures = 1
 )";
 
 struct Shot { int frame; std::string path; };
+
+// The draw gate (native renderer step 3, PLAN.md "Native renderer status"): the core asks once per picture, when the
+// renderers start drawing it; we build it from the emulator's memory and, when every entry type is ours, the
+// renderers skip it (the CPU saving). Pictures are filed under the flip that will show them.
+namespace gate {
+std::mutex mu;
+std::map<uint32_t, std::shared_ptr<t3knative::Picture>> built;
+int check_same = 0, check_differ = 0, check_missing = 0;   // --gate=1
+std::atomic<uint64_t> cb_ns{0}, cb_calls{0};               // time spent building pictures in the callback
+std::atomic<int> mode{0};   // 0 off, 1 build live only (the renderers still draw: --gate=1 checks), 2 skip complete ones
+int Callback(int mpe, uint32_t flips) {
+  if (mode.load() == 0) return 0;
+  const uint64_t t0 = SDL_GetTicksNS();
+  auto pic = std::make_shared<t3knative::Picture>();
+  const bool ok = t3knative::BuildPictureLive(mpe, flips + 1, pic.get());
+  cb_ns += SDL_GetTicksNS() - t0;
+  ++cb_calls;
+  if (!ok) return 0;
+  const bool skip = mode.load() == 2 && pic->complete;
+  // T3K_GATE_LOG=1: each decision (flip, skipped / drawn and the first type we don't draw)
+  static const bool log = std::getenv("T3K_GATE_LOG") != nullptr;
+  if (log) std::fprintf(stderr, "gatelog flip %u %s %08X\n", flips + 1, skip ? "skip" : "draw", pic->first_unknown);
+  std::lock_guard<std::mutex> lock(mu);
+  built[flips + 1] = pic;
+  while (built.size() > 8) built.erase(built.begin());
+  return skip ? 1 : 0;
+}
+// The picture built for this flip, if any (and everything older dropped).
+std::shared_ptr<t3knative::Picture> Take(uint32_t flip) {
+  std::lock_guard<std::mutex> lock(mu);
+  std::shared_ptr<t3knative::Picture> p;
+  auto it = built.find(flip);
+  if (it != built.end()) p = it->second;
+  built.erase(built.begin(), built.upper_bound(flip));
+  return p;
+}
+}  // namespace gate
 struct Press { int frame; int btn; int len; };
 struct AnalogHold { int frame; int x, y, len; };
 
@@ -445,6 +485,7 @@ int main(int argc, char** argv) {
       memdumps.push_back({std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)});
     }
     else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
+    else if (a.rfind("--gate=", 0) == 0) gate::mode = std::atoi(val("--gate=").c_str());
     else if (a.rfind("--nativecheck=", 0) == 0) {
       auto v = val("--nativecheck=");
       char dir[512] = {};
@@ -524,6 +565,14 @@ int main(int argc, char** argv) {
   double flip_cap = settings::Num("flip_cap", 3);   // (the settings menu can change it)
   nuon::SetFlipCap(flip_cap);
   nuon::EnableCapture(check_f0 >= 0 ? 2 : 1);   // the native renderer's input (t3k_native); 2: + ground truth
+  nuon::SetPictureCallback(gate::Callback);       // the draw gate (gate::mode: 0 = off)
+  if (!headless && loadstate.frame >= 0) {         // the window starts from a saved state too (tests, repros)
+    if (!nuon::LoadState(loadstate.path)) {
+      std::fprintf(stderr, "loadstate %s failed\n", loadstate.path.c_str());
+      return 1;
+    }
+    std::fprintf(stderr, "loadstate %s\n", loadstate.path.c_str());
+  }
   // T3K_PAD_PROPS=<hex>: extra controller properties reported to the game (tests).
   if (const char* pp = std::getenv("T3K_PAD_PROPS")) nuon::SetPadProperties(uint32_t(std::strtoul(pp, nullptr, 16)));
   std::fprintf(stderr, "timing: %s\n",
@@ -653,12 +702,56 @@ int main(int argc, char** argv) {
       auto& au = nuon::Audio();
       if (!wav.empty()) wav_samples.insert(wav_samples.end(), au.begin(), au.end());
       au.clear();
+      if (gate::mode.load() == 1) {   // --gate=1: the live-built picture vs the one built from the capture
+        static nuon::Capture gcap;
+        static uint32_t gflip = 0;
+        int& same = gate::check_same;
+        int& differ = gate::check_differ;
+        int& missing = gate::check_missing;
+        if (nuon::GetCapture(&gcap) && gcap.flip != gflip) {
+          gflip = gcap.flip;
+          t3knative::Picture a;
+          t3knative::BuildPicture(gcap, &a);
+          auto b = gate::Take(gcap.flip);
+          if (!b) {
+            ++missing;
+          } else {
+            bool eq = a.complete == b->complete && a.ops.size() == b->ops.size() && a.segs.size() == b->segs.size() &&
+                      a.blobs.size() == b->blobs.size() && a.glyphs.size() == b->glyphs.size() &&
+                      a.webs.size() == b->webs.size();
+            for (size_t i = 0; eq && i < a.segs.size(); ++i)
+              eq = std::fabs(a.segs[i].x0 - b->segs[i].x0) < 1e-3f && std::fabs(a.segs[i].y1 - b->segs[i].y1) < 1e-3f;
+            for (size_t i = 0; eq && i < a.blobs.size(); ++i)
+              eq = std::fabs(a.blobs[i].x - b->blobs[i].x) < 1e-3f && std::fabs(a.blobs[i].colour.a - b->blobs[i].colour.a) < 1e-4f;
+            for (size_t i = 0; eq && i < a.glyphs.size(); ++i) eq = a.glyphs[i].rgba == b->glyphs[i].rgba;
+            for (size_t i = 0; eq && i < a.webs.size(); ++i)
+              eq = std::equal(std::begin(a.webs[i].texture), std::end(a.webs[i].texture), std::begin(b->webs[i].texture));
+            (eq ? same : differ) += 1;
+            if (!eq && differ <= 5)
+              std::printf("gate: flip %u differs: ops %zu/%zu segs %zu/%zu blobs %zu/%zu glyphs %zu/%zu complete %d/%d\n",
+                          gcap.flip, a.ops.size(), b->ops.size(), a.segs.size(), b->segs.size(), a.blobs.size(),
+                          b->blobs.size(), a.glyphs.size(), b->glyphs.size(), a.complete, b->complete);
+          }
+        }
+      }
+      if (gate::mode.load() && f == frames - 1) {
+        uint32_t drawn = 0, skipped = 0;
+        nuon::GateStats(&drawn, &skipped);
+        std::printf("gate: %u pictures drawn by the renderers, %u skipped; building them took %.2f ms a picture\n",
+                    drawn, skipped, gate::cb_calls ? double(gate::cb_ns) / 1e6 / double(gate::cb_calls) : 0.0);
+        if (gate::mode.load() == 1)
+          std::printf("gate check: %d pictures the same, %d differ, %d not built live\n", gate::check_same,
+                      gate::check_differ, gate::check_missing);
+      }
       if (nren) {   // --nativeshot: each new game picture, natively where it can be
         static nuon::Capture ncap;
         if (nuon::GetCapture(&ncap) && ncap.flip != nflip) {
           nflip = ncap.flip;
           t3knative::Picture pic;
-          t3knative::BuildPicture(ncap, &pic);
+          // skipped by the renderers (--gate=2): the picture built from memory when they would have started
+          auto live = gate::mode.load() == 2 ? gate::Take(ncap.flip) : nullptr;
+          if (live) pic = *live;
+          else t3knative::BuildPicture(ncap, &pic);
           SDL_SetRenderTarget(nren, nout);
           if (pic.complete) {
             // T3K_NATIVE_RESEED=1 (tests): every native picture builds on the emulated previous one (one-step error)
@@ -966,9 +1059,15 @@ int main(int argc, char** argv) {
       static nuon::Capture cap;
       static std::shared_ptr<const t3knative::Vectors> vec;
       if (nuon::GetCapture(&cap) && (!vec || vec->flip != cap.flip)) {
-        auto v = std::make_shared<t3knative::Vectors>();
-        t3knative::BuildVectors(cap, v.get());
-        vec = v;
+        // the draw gate: a picture the renderers skipped was built from memory when they would have started it
+        auto live = gate::mode.load() == 2 ? gate::Take(cap.flip) : nullptr;
+        if (live) {
+          vec = live;
+        } else {
+          auto v = std::make_shared<t3knative::Vectors>();
+          t3knative::BuildVectors(cap, v.get());
+          vec = v;
+        }
       }
       auto& au = nuon::Audio();
       if (audio && !au.empty()) {
@@ -1035,6 +1134,8 @@ int main(int argc, char** argv) {
   bool prev_back = false;
   uint32_t prev_held = 0;
   int native_view = int(settings::Num("native_view", 0));
+  const bool native_skip = settings::Num("native_skip", 1) != 0;
+  gate::mode = (native_view == 1 && native_skip) ? 2 : 0;   // the draw gate follows the native view
   std::shared_ptr<const t3knative::Vectors> shown_vec, prev_vec;   // the shown picture's layer and the one before
   bool native_interp = settings::Num("native_interpolate", 1) != 0;
   std::vector<t3knative::Seg> native_segs;
@@ -1060,6 +1161,7 @@ int main(int argc, char** argv) {
       }
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F7) {
         native_view = (native_view + 1) % 4;
+        gate::mode = (native_view == 1 && native_skip) ? 2 : 0;
         settings::Save("native_view", std::to_string(native_view));
         std::fprintf(stderr, "native view %d\n", native_view);
       }

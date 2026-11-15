@@ -84,6 +84,11 @@ bool GetCapture(Capture* out);
 void ReleaseContext();
 void MakeContextCurrent();
 // Save states (core llamasoft-nuon retro_serialize: RAM, MPEs, BIOS / video / timer state; ~24 MB). Between frames.
+// The draw gate (core capture.cpp, native renderer step 3): cb(mpe, flips) is called once per picture when the
+// renderers start drawing it (on an emulation or renderer thread); non-zero = the frontend draws it, the renderers
+// skip it. Null: off. False if the core can't.
+bool SetPictureCallback(int (*cb)(int mpe, uint32_t flips));
+bool GateStats(uint32_t* drawn, uint32_t* skipped);
 bool SaveState(const std::string& path);
 bool LoadState(const std::string& path);
 

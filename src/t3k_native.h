@@ -103,6 +103,10 @@ uint32_t YccToXrgb(uint32_t ycc);
 
 // Build a captured picture.
 void BuildPicture(const nuon::Capture& cap, Picture* out);
+// Build the picture the renderers are about to draw, from the emulator's memory (the draw gate, step 3: the core asks
+// at the first drawing fetch; mpe = the fetching MPE, whose job word the web scroll reads). flip = the flip that will
+// show it. False if the memory isn't reachable.
+bool BuildPictureLive(int mpe, uint32_t flip, Picture* out);
 inline void BuildVectors(const nuon::Capture& cap, Picture* out) { BuildPicture(cap, out); }
 
 // The segments between two consecutive pictures (t = 0: prev, 1: cur), in cur's order (so cur's ops still apply).

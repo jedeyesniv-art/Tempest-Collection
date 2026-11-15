@@ -112,9 +112,34 @@ SDL_FColor Colour(uint32_t w, float strength) {
           cl(kZPeak * float(w & 0xFF) * strength)};
 }
 
-using Mem = std::unordered_map<uint32_t, uint32_t>;
+// What the builders read: the words MPE0 read while drawing (capture), or the emulator's memory itself (live: the
+// draw gate, when the renderers skip the picture). Live regions: system bus $8xxxxxxx, main bus $4xxxxxxx, one MPE's
+// local memory $2xxxxxxx (the job word); big-endian words.
+struct Mem {
+  const std::unordered_map<uint32_t, uint32_t>* map = nullptr;
+  const uint8_t* sys = nullptr;
+  size_t sys_n = 0;
+  const uint8_t* main = nullptr;
+  size_t main_n = 0;
+  const uint8_t* local = nullptr;
+  size_t local_n = 0;
+};
 
-bool Read(const Mem& mem, uint32_t addr, uint32_t* w) {
+bool Read(const Mem& m, uint32_t addr, uint32_t* w) {
+  if (!m.map) {
+    const uint8_t* p = nullptr;
+    size_t n = 0, off = 0;
+    switch (addr >> 28) {
+      case 8: p = m.sys; n = m.sys_n; off = addr & 0x7FFFFFu; break;
+      case 4: p = m.main; n = m.main_n; off = addr - 0x40000000u; break;
+      case 2: p = m.local; n = m.local_n; off = addr & 0x7FFFFFu; break;
+      default: return false;
+    }
+    if (!p || (off & 3) || off + 4 > n) return false;
+    *w = uint32_t(p[off]) << 24 | uint32_t(p[off + 1]) << 16 | uint32_t(p[off + 2]) << 8 | p[off + 3];
+    return true;
+  }
+  const auto& mem = *m.map;
   auto it = mem.find(addr);
   if (it == mem.end()) return false;
   *w = it->second;
@@ -536,8 +561,9 @@ uint32_t YccToXrgb(uint32_t ycc) {
   return uint32_t(c.r * 255.f + 0.5f) << 16 | uint32_t(c.g * 255.f + 0.5f) << 8 | uint32_t(c.b * 255.f + 0.5f);
 }
 
-void BuildPicture(const nuon::Capture& cap, Picture* out) {
-  out->flip = cap.flip;
+void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t flip, Picture* out) {
+  struct { uint32_t flip; } cap{flip};
+  out->flip = flip;
   out->segs.clear();
   out->items.clear();
   out->ops.clear();
@@ -548,8 +574,8 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
   out->first_unknown = 0;
   // tests (T3K_NATIVE_FORCE=1 with NUANCE_ONLYTYPES=<types>): draw only the types the emulator draws too
   static const char* const only = std::getenv("T3K_NATIVE_FORCE") ? std::getenv("NUANCE_ONLYTYPES") : nullptr;
-  for (size_t i = 0; i + 17 <= cap.entries.size(); i += 17) {
-    const uint32_t* e = &cap.entries[i + 1];
+  for (size_t i = 0; i + 17 <= entries.size(); i += 17) {
+    const uint32_t* e = &entries[i + 1];
     if (only) {
       char t[12];
       std::snprintf(t, sizeof t, "%08X", e[15]);
@@ -558,7 +584,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
     switch (e[15]) {
       case 0x00710001: {   // vector shape
         const uint32_t first = uint32_t(out->segs.size());
-        Shape(e, cap.mem, &out->segs);
+        Shape(e, mem, &out->segs);
         const uint32_t n = uint32_t(out->segs.size()) - first;
         out->items.push_back({e[7], float(Sext(e[0] >> 16, 16)), float(Sext(e[0], 16)), first, n});
         Op op{Op::kSegs};
@@ -591,15 +617,15 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       }
       case 0x0011000B: {   // web surface
         Web web;
-        for (int k = 0; k < 256; ++k) Read(cap.mem, e[0] + 4 * uint32_t(k), &web.texture[k]);
+        for (int k = 0; k < 256; ++k) Read(mem, e[0] + 4 * uint32_t(k), &web.texture[k]);
         uint32_t job = 0;
-        Read(cap.mem, 0x20100000u, &job);
+        Read(mem, 0x20100000u, &job);
         for (uint32_t a = 0x800BACF0u; web.quads.size() < 4 * 32; a += 32) {
           uint32_t w[8];
           bool any = false;
           for (int k = 0; k < 8; ++k) {
             w[k] = 0;
-            Read(cap.mem, a + 4 * uint32_t(k), &w[k]);
+            Read(mem, a + 4 * uint32_t(k), &w[k]);
             any |= w[k] != 0;
           }
           if (!any) break;
@@ -622,7 +648,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       case 0x00500005: {   // ring (drawn as an image, as the glowing number's digits)
         Op op{Op::kText};
         op.first = uint32_t(out->glyphs.size());
-        Ring(e, cap.mem, out);
+        Ring(e, mem, out);
         op.count = uint32_t(out->glyphs.size()) - op.first;
         if (op.count) out->ops.push_back(op);
         break;
@@ -630,7 +656,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       case 0x00310010: {   // disc grid
         Op op{Op::kBlobs};
         op.first = uint32_t(out->blobs.size());
-        Grid(e, cap.mem, out);
+        Grid(e, mem, out);
         op.count = uint32_t(out->blobs.size()) - op.first;
         if (op.count) out->ops.push_back(op);
         break;
@@ -638,7 +664,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       case 0x0031020E: {   // disc shapes
         Op op{Op::kBlobs};
         op.first = uint32_t(out->blobs.size());
-        Flower(e, cap.mem, out);
+        Flower(e, mem, out);
         op.count = uint32_t(out->blobs.size()) - op.first;
         if (op.count) out->ops.push_back(op);
         break;
@@ -646,7 +672,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       case 0x00310209: {   // dot images
         Op op{Op::kBlobs};
         op.first = uint32_t(out->blobs.size());
-        Dots(e, cap.mem, out);
+        Dots(e, mem, out);
         op.count = uint32_t(out->blobs.size()) - op.first;
         if (op.count) out->ops.push_back(op);
         break;
@@ -654,7 +680,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       case 0x00310309: {   // particles
         Op op{Op::kBlobs};
         op.first = uint32_t(out->blobs.size());
-        Particles(e, cap.mem, out);
+        Particles(e, mem, out);
         op.count = uint32_t(out->blobs.size()) - op.first;
         if (op.count) out->ops.push_back(op);
         break;
@@ -662,7 +688,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       case 0x0010000D: {   // glowing number
         Op op{Op::kText};
         op.first = uint32_t(out->glyphs.size());
-        Text(e, cap.mem, out);
+        Text(e, mem, out);
         op.count = uint32_t(out->glyphs.size()) - op.first;
         if (op.count) out->ops.push_back(op);
         break;
@@ -685,6 +711,32 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       }
     }
   }
+}
+
+void BuildPicture(const nuon::Capture& cap, Picture* out) {
+  Mem mem;
+  mem.map = &cap.mem;
+  BuildFrom(cap.entries, mem, cap.flip, out);
+}
+
+bool BuildPictureLive(int mpe, uint32_t flip, Picture* out) {
+  Mem mem;
+  mem.sys = nuon::Memory(0, &mem.sys_n);
+  mem.main = nuon::Memory(1, &mem.main_n);
+  mem.local = nuon::Memory(2 + std::clamp(mpe, 0, 3), &mem.local_n);
+  if (!mem.sys || !mem.main) return false;
+  // the display list: 64-byte entries from $8004E040 to the end-of-list entry (as the renderers walk it)
+  std::vector<uint32_t> entries;
+  for (uint32_t a = 0x8004E040u; entries.size() < 17 * 1024; a += 64) {
+    uint32_t e[16];
+    for (int k = 0; k < 16; ++k)
+      if (!Read(mem, a + 4 * uint32_t(k), &e[k])) return false;
+    entries.push_back(a);
+    entries.insert(entries.end(), e, e + 16);
+    if (e[15] == 0x000000FFu) break;
+  }
+  BuildFrom(entries, mem, flip, out);
+  return true;
 }
 
 Renderer::~Renderer() {

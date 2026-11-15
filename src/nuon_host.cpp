@@ -266,6 +266,22 @@ uint8_t* Memory(int which, size_t* size) {
   return g_core.get_memory(which, size);
 }
 
+bool SetPictureCallback(int (*cb)(int, uint32_t)) {
+  using Fn = void (*)(int (*)(int, uint32_t));
+  auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_set_picture_callback"));
+  if (!f) return false;
+  f(cb);
+  return true;
+}
+
+bool GateStats(uint32_t* drawn, uint32_t* skipped) {
+  using Fn = void (*)(uint32_t*, uint32_t*);
+  auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_gate_stats"));
+  if (!f) return false;
+  f(drawn, skipped);
+  return true;
+}
+
 bool SaveState(const std::string& path) {
   if (!g_core.serialize_size || !g_core.serialize) return false;
   const size_t n = g_core.serialize_size();
