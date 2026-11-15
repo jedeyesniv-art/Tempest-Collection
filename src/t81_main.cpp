@@ -113,13 +113,19 @@ std::string FindRomset(const std::string& given) {
 }
 
 // The spinner: relative movement a frame from the stick (with a curve, so small pushes are fine control) and the
-// d-pad / arrow keys (full speed). ~12 units a frame at speed 1 and full push.
+// d-pad / arrow keys (full speed). 4.8 units a frame at speed 1 and full push (the owner's pick: the first default
+// of 12 was far too quick). The fraction carries over between frames, so slow turns still move.
 int SpinDelta(float stick_x, bool left, bool right) {
+  static double carry = 0;
   float x = std::fabs(stick_x) < 0.15f ? 0.f : stick_x;
   if (x != 0.f) x = (x > 0 ? 1.f : -1.f) * std::pow((std::fabs(x) - 0.15f) / 0.85f, 1.5f);
   if (left) x = -1.f;
   if (right) x = 1.f;
-  return int(std::lround(x * 12.0 * settings::Num("spinner_speed", 1.0)));
+  if (x == 0.f) { carry = 0; return 0; }
+  const double want = x * 4.8 * settings::Num("spinner_speed", 1.0) + carry;
+  const int d = int(want);   // toward zero; the rest waits for the next frame
+  carry = want - d;
+  return d;
 }
 
 uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
