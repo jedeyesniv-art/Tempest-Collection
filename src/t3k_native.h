@@ -29,6 +29,11 @@
 //   00500005 ring (806A7DC0; tools/t3k_ringfit.py: 0.5 a channel): an ellipse band about w0 (radii from w4 x w1 hi,
 //            band from w1 lo), strength peaking at w5 >> 2, coloured from the 16 x 8 texture at w12; drawn as a
 //            premultiplied image (the glyph path);
+//   00310008 point rings (806A5FB0 mode 0, 806A6486; tools/t3k_ringptfit.py: the calls exactly): arcs of discs at
+//            depths stepping down by w10, w11 copies each, colours along a 2-texel gradient (warp, level select);
+//   x000000FE (any type ending in FE): a disabled entry, nothing drawn;
+//   00100200 textured plane (806A3108 mode 2, 806A3794; tools/t3k_planefit.py: 0.7 a channel): the rectangle w0 / w1
+//            filled with the 16 x 16 texture at w9 at quadratic (u, v) (bonus / warp backgrounds); a GPU mesh;
 //   00310108 (806A5FB0 mode 1) draws nothing unless w4 bit 0 is set (a particle burst: not ported, never seen in play);
 //   000000FF end of list; 000000FE / 003102FE nothing drawn.
 // A picture holding any other type is not "complete": the emulated picture is shown instead.
@@ -75,8 +80,15 @@ struct Blob {
   SDL_FColor colour{};   // a = the peak strength I
 };
 
+// A textured plane: a grid of vertices (game pixels, texels) over a rectangle, and its 16 x 16 texture.
+struct Plane {
+  int cols = 0, rows = 0;                  // grid cells
+  std::vector<Web::Vertex> grid;           // (cols + 1) x (rows + 1)
+  uint32_t texture[256] = {};
+};
+
 struct Op {
-  enum Kind { kFill, kZoom, kSegs, kWeb, kText, kBlobs } kind;
+  enum Kind { kFill, kZoom, kSegs, kWeb, kText, kBlobs, kPlane } kind;
   float x = 0, y = 0, w = 0, h = 0;          // fill rectangle (game pixels)
   SDL_FColor colour{};                         // fill colour
   float cx = 0, cy = 0, zx = 1, zy = 1;        // zoom: centre (game pixels), zoom
@@ -93,6 +105,7 @@ struct Picture {
   std::vector<Web> webs;          // kWeb ops: Op::first indexes this
   std::vector<Glyph> glyphs;      // kText ops: Op::first / count index this
   std::vector<Blob> blobs;        // kBlobs ops: Op::first / count index this
+  std::vector<Plane> planes;      // kPlane ops: Op::first indexes this
   bool complete = true;           // every entry type is one we draw
   uint32_t first_unknown = 0;     // (if not) the first type we don't draw
 };

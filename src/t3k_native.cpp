@@ -554,6 +554,108 @@ void Ring(const uint32_t* e, const Mem& mem, Picture* out) {
   out->glyphs.push_back(std::move(g));
 }
 
+// --- 00310008 point rings (806A5FB0 mode 0; tools/t3k_ringptfit.py) ---
+
+void RingPoints(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t cols[2] = {};
+  Read(mem, e[2], &cols[0]);
+  Read(mem, e[2] + 4, &cols[1]);
+  const int32_t w10 = int32_t(e[10]), w11 = int32_t(e[11]), n = int32_t(e[8]);
+  if (w10 <= 0 || w11 <= 0 || n <= 0 || n > 4096 || w11 > 256) return;
+  int64_t z = 0x3000000 - ((int64_t(e[1] & 0xFFFF) * w10) >> 16);
+  const int32_t hi1 = int32_t(e[1]) >> 16;
+  int32_t p1 = int32_t(e[4] & 0xFFFF) * hi1, p2 = int32_t(e[5] & 0xFFFF) * hi1;
+  const int32_t step_copy = (1 << 16) / w11;
+  // colour gradient: two texels, u in 16.16 wrapping over them
+  float c0[3], c1[3];
+  for (int k = 0; k < 3; ++k) {
+    c0[k] = float((cols[0] >> (24 - 8 * k)) & 255);
+    c1[k] = float((cols[1] >> (24 - 8 * k)) & 255);
+  }
+  for (int guard = 0; z > 0 && guard < 4096; ++guard) {
+    int32_t c, s;
+    SinCos(uint32_t(p2) & 0xFFFF, &c, &s);
+    const int32_t span = Sext(e[9], 16) + Mul(int32_t(e[5]) >> 16, c, 30);
+    SinCos(uint32_t(p1) & 0xFFFF, &c, &s);
+    const int32_t a0 = int32_t(e[6]) + Mul(int32_t(e[4]) >> 16, c, 30);
+    p1 -= int32_t(e[4] & 0xFFFF);
+    p2 -= int32_t(e[5] & 0xFFFF);
+    const int32_t k = int32_t(17592186044416.0 / double(z));   // 2^44 / z
+    const int32_t step = Mul((1 << 28) / n, span, 28), ustep = ((1 << 28) / n) >> 11;
+    const int32_t I = (std::min(Mul(int32_t(e[7] >> 16), k, 20), 0x3FFF) << 16) | int32_t(e[7] & 0xFFFF);
+    const int32_t radius = Mul(int32_t(e[9]), k, 20);
+    int32_t size = Mul(12, k, 21);
+    if (size >= 1) {
+      size = std::min(size, 30);
+      for (int32_t copy = 0; copy < w11; ++copy) {
+        int32_t a = a0 + copy * step_copy - (span >> 1);
+        uint32_t u = 0;
+        for (int32_t i = 0; i < n; ++i, u += uint32_t(ustep), a += step) {
+          SinCos(uint32_t(a) & 0xFFFF, &c, &s);
+          const double x = double(Mul(radius, c, 30)) / 65536.0 + 180.5;
+          const double y = double(Mul(radius, s, 30)) / 65536.0 + 120.5;
+          const float fu = float(u & 0xFFFF) / 65536.f;
+          const float* ca = ((u >> 16) & 1) ? c1 : c0;
+          const float* cb = ((u >> 16) & 1) ? c0 : c1;
+          auto byte = [](float v) { return uint32_t(std::clamp(v, 0.f, 255.f) + 0.5f); };
+          const uint32_t ycc = byte(ca[0] + (cb[0] - ca[0]) * fu) << 24 | byte(ca[1] + (cb[1] - ca[1]) * fu) << 16 |
+                               byte(ca[2] + (cb[2] - ca[2]) * fu) << 8 | 0xFF;
+          Blob b;   // the centre (the call passes centre - size / 2); disc rows / columns as the other disc routines
+          b.x = float(x + 0.5);
+          b.y = float(y - 0.5);
+          b.r = float(size) / 2.f;
+          b.colour = Colour(ycc, 1.f);
+          b.colour.a = std::clamp(float(I) / 1073741824.f, 0.f, 1.f);
+          out->blobs.push_back(b);
+        }
+      }
+    }
+    z -= w10;
+  }
+}
+
+// --- 00100200 textured plane (806A3108 mode 2; tools/t3k_planefit.py) ---
+
+void PlaneOp(const uint32_t* e, const Mem& mem, Picture* out) {
+  Plane pl;
+  for (int k = 0; k < 256; ++k) Read(mem, e[9] + 4 * uint32_t(k), &pl.texture[k]);
+  const double x0 = Sext(e[0] >> 16, 16), y0 = Sext(e[0], 16), w = double(e[1] >> 16), h = double(e[1] & 0xFFFF);
+  if (w <= 0 || h <= 0 || w > 1024 || h > 1024) return;
+  auto hi = [](uint32_t v) { return double(Sext(v >> 16, 16)); };
+  auto lo = [](uint32_t v) { return double(Sext(v, 16)); };
+  const double U0 = double(int32_t(e[2])), V0 = double(int32_t(e[3])), DU = double(int32_t(e[4])), DV = double(int32_t(e[5]));
+  const double RU = double(int32_t(e[7])), RV = double(int32_t(e[10]));
+  // (u, v) for the pixel at column i, row j (continuous): rows plain sums, columns in 64-pixel chunks, each starting one
+  // step further on (the module's pipelined loop)
+  auto uv = [&](double i, double j, float* u, float* v) {
+    double uu = U0 + j * RU + hi(e[11]) * j * (j - 1) / 2, vv = V0 + j * RV + lo(e[11]) * j * (j - 1) / 2;
+    double du = DU + j * hi(e[12]), dv = DV + j * lo(e[12]);
+    const double a = hi(e[6]), b = lo(e[6]);
+    const double k = std::floor(std::max(i, 0.0) / 64.0);
+    // k whole chunks: each adds 65 steps (65 du + a 64 65 / 2) and grows the step by 64 a
+    uu += 65.0 * (k * du + a * 64.0 * k * (k - 1) / 2) + k * a * 64.0 * 65.0 / 2;
+    vv += 65.0 * (k * dv + b * 64.0 * k * (k - 1) / 2) + k * b * 64.0 * 65.0 / 2;
+    du += 64.0 * k * a;
+    dv += 64.0 * k * b;
+    const double p = i - 64.0 * k;
+    *u = float((uu + p * du + a * p * (p - 1) / 2) / 65536.0);
+    *v = float((vv + p * dv + b * p * (p - 1) / 2) / 65536.0);
+  };
+  constexpr double kCell = 8.0;
+  pl.cols = std::max(1, int(std::ceil(w / kCell)));
+  pl.rows = std::max(1, int(std::ceil(h / kCell)));
+  pl.grid.resize(size_t(pl.cols + 1) * size_t(pl.rows + 1));
+  for (int r = 0; r <= pl.rows; ++r)
+    for (int c = 0; c <= pl.cols; ++c) {
+      const double X = std::min(c * kCell, w), Y = std::min(r * kCell, h);
+      Web::Vertex& vx = pl.grid[size_t(r) * size_t(pl.cols + 1) + size_t(c)];
+      vx.x = float(x0 + X);
+      vx.y = float(y0 + Y);
+      uv(X - 0.5, Y - 0.5, &vx.u, &vx.v);   // the module's pixel i is sampled at its centre, i + 1/2 on screen
+    }
+  out->planes.push_back(std::move(pl));
+}
+
 }  // namespace
 
 uint32_t YccToXrgb(uint32_t ycc) {
@@ -570,6 +672,7 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
   out->webs.clear();
   out->glyphs.clear();
   out->blobs.clear();
+  out->planes.clear();
   out->complete = true;
   out->first_unknown = 0;
   // tests (T3K_NATIVE_FORCE=1 with NUANCE_ONLYTYPES=<types>): draw only the types the emulator draws too
@@ -653,6 +756,21 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         if (op.count) out->ops.push_back(op);
         break;
       }
+      case 0x00100200: {   // textured plane
+        Op op{Op::kPlane};
+        op.first = uint32_t(out->planes.size());
+        PlaneOp(e, mem, out);
+        if (out->planes.size() > op.first) out->ops.push_back(op);
+        break;
+      }
+      case 0x00310008: {   // point rings
+        Op op{Op::kBlobs};
+        op.first = uint32_t(out->blobs.size());
+        RingPoints(e, mem, out);
+        op.count = uint32_t(out->blobs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
+        break;
+      }
       case 0x00310010: {   // disc grid
         Op op{Op::kBlobs};
         op.first = uint32_t(out->blobs.size());
@@ -694,6 +812,8 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         break;
       }
       case 0x000000FF: case 0x000000FE: case 0x003102FE:   // end of list; entries that draw nothing
+        break;
+      case 0x007100FE:   // (a disabled vector entry: the low byte FE makes the renderers pass over it)
         break;
       case 0x00310108:   // 806A5FB0 mode 1 (806A630A): a 96-particle burst, drawn only when w4 bit 0 is set
         if (e[4] & 1) {   // (never seen in play so far: not ported)
@@ -909,6 +1029,36 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
             }
         }
         SDL_SetTextureBlendMode(web_tex_, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_WRAP, SDL_TEXTURE_ADDRESS_WRAP);
+        SDL_RenderGeometry(ren, web_tex_, v.data(), int(v.size()), nullptr, 0);
+        SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
+        break;
+      }
+      case Op::kPlane: {
+        const Plane& pl = pic.planes[op.first];
+        if (!web_tex_) {
+          web_tex_ = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 16, 16);
+          SDL_SetTextureScaleMode(web_tex_, SDL_SCALEMODE_LINEAR);
+        }
+        uint32_t px[256];
+        for (int k = 0; k < 256; ++k) {
+          const SDL_FColor c = Colour(pl.texture[k] | 0xFF, 1.f);
+          px[k] = uint32_t(c.r * 255.f + 0.5f) << 16 | uint32_t(c.g * 255.f + 0.5f) << 8 | uint32_t(c.b * 255.f + 0.5f);
+        }
+        SDL_UpdateTexture(web_tex_, nullptr, px, 16 * 4);
+        std::vector<SDL_Vertex> v;
+        v.reserve(size_t(pl.cols) * size_t(pl.rows) * 6);
+        const SDL_FColor white{1.f, 1.f, 1.f, 1.f};
+        auto V = [&](const Web::Vertex& q) {   // (texel i at coordinate i; the GPU's texel centres at i + 1/2)
+          return SDL_Vertex{{q.x * sx, q.y * sy}, white, {(q.u + 0.5f) / 16.f, (q.v + 0.5f) / 16.f}};
+        };
+        for (int r = 0; r < pl.rows; ++r)
+          for (int c = 0; c < pl.cols; ++c) {
+            const size_t i0 = size_t(r) * size_t(pl.cols + 1) + size_t(c), i1 = i0 + size_t(pl.cols + 1);
+            const SDL_Vertex a = V(pl.grid[i0]), b = V(pl.grid[i0 + 1]), cc = V(pl.grid[i1 + 1]), d = V(pl.grid[i1]);
+            v.insert(v.end(), {a, b, cc, a, cc, d});
+          }
+        SDL_SetTextureBlendMode(web_tex_, SDL_BLENDMODE_NONE);
         SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_WRAP, SDL_TEXTURE_ADDRESS_WRAP);
         SDL_RenderGeometry(ren, web_tex_, v.data(), int(v.size()), nullptr, 0);
         SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
