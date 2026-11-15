@@ -549,6 +549,31 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   00000300, 00300004, 0011000B, 0010000D - from the modules' disassembly and the entry words, then a native prototype of
   one play picture checked against the emulated one.
 
+### Go / no-go checks before the GPU renderer (2026-11-15; owner: "run the checks first")
+- COST (core NUANCE_NODRAW=1: MPE0 / MPE2 see every entry as end-of-list, MPE1 at the list head $8004E040 - its
+  drawing pass, started with r1 = $FFFFFFF8, begins there; its compute jobs fetch single entries. NODRAW=2: MPE0 / 2
+  only). Play route, Deck defaults (flip_cap 3, 200k rounds), ms per field:
+  | | menus mean / p95 | play mean / p95 / max |
+  | threaded, today | 5.32 / 15.78 | 3.85 / 11.26 / 13.06 |
+  | threaded, no drawing | 0.88 / 2.01 | 1.16 / 3.17 / 4.42 |
+  -> 3.3-3.6x less CPU in play, ~6x in menus; identical flip count (the game logic doesn't depend on drawing).
+  MPE1's own modules (loaded at local 0: 8069E070, 806AA120, 806A4F20, 806AB458, 806AC638, 806AE210, kernel 8003DA50)
+  only compute (no pixel DMA while loaded) = ~12% of MPE1, stays emulated. PASSED with margin.
+- INTERPOLATION (tools/t3k_interpcheck.py on an ENTRYLOG + ENTRYDATA play log, fields 2300-3800, 500 pictures):
+  * list slots are NOT identities: 76% of entries keep slot + type + shape; 229 of 499 pairs keep the type sequence.
+  * no object id in the entries (w14 is shared: 499 of 4258 vector entries unique by type + shape + w14).
+  * matching each vector entry to the nearest same-shape entry of the next picture: 44 of 8660 unmatched; moves
+    median 0, p90 2, p95 4, p99 14 px; 18% ambiguous (shapes drawn many times: 8010A3E4 up to 11x, 8010ADE4 6x).
+  * 3D-placed objects have game-space inputs before the pre-pass (w8 lane 16.16, w9 depth 16.16; w7 an object
+    index) - better to match and interpolate there, then project ourselves (port 806AE210's projection).
+  * camera-like entries (003102FE / 00310108 w0 changes smoothly) and the runtime web shapes (same stream structure
+    in 6495 of 6496 pairs) are unique: interpolate directly.
+  -> FEASIBLE with a matching layer (type + shape + nearest in game space with velocity prediction), and a safe
+  fallback: unmatched / ambiguous entries are drawn stepped at their latest position (today's look).
+- Latency: interpolating between game steps shows the state up to one step late (50 ms at 20 pictures/s, the same
+  as picture_blend today). With emulation this cheap, run-ahead becomes affordable (1 picture = 3 fields ~3.5 ms on
+  this PC) but needs save states (retro_serialize, stage 4) - worth planning in.
+
 ### 00710001 = vector shapes (module 806A3F50; 2026-11-15)
 - Disassembly: logs\t3k\rr\m806A3F50.dis (t3k --disasm=2700:3:806A3F50:1400 on the play route; local pc = lib -
   806A3F50 + 203002D0). Investigation hooks (core): NUANCE_NOJIT=1 (interpreter; with NUANCE_NOAOT=1) and
