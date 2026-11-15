@@ -971,6 +971,60 @@ restores at a scheduler-safe point: 1-2 frames off a plain run, fine for players
 Open: tune the spinner feel with the owner; vector look (beam width / glow: MAME ini options); clones (tempest1..3,
 temptube) not selectable yet.
 
+## Claw feel study: TxK and Tempest 4000 (planned 2026-11-15, to do 2026-11-16)
+Owner: T3K's controls are "still strange" and need significant tuning; T2K's lr tuning was a guess (a successful one).
+TxK and T4K have a distinctive claw feel ("weight") worth measuring and offering in T2K / T3K. Do this BEFORE deciding on
+T3K game speed (PLAN "The hardware's picture rate": the estimate says 30 pictures/s, the owner plays at 24 and finds
+it a little fast - likely partly the claw) and before interpolate-all (step 4).
+
+Goal: per game, the claw's response to controlled stick input as numbers, fitted to our stick model (t2k.cpp /
+t3k_main.cpp ClawControl, settings lr_deadzone, lr_curve, lr_ramp_start, lr_max_speed, lr_ramp_frames,
+lr_release_frames), extended if they do something the model can't (momentum, overshoot, easing into a lane, analog
+proportional speed). Then a "TxK feel" / "T4K feel" option (or new defaults) in T2K and T3K for the owner to judge.
+
+What to measure (each game, both closed and open webs if possible):
+1. Start: delay to first movement; speed vs time while held (the acceleration curve), at full stick and at ~25 / 50 /
+   75 % deflection (does speed scale with deflection, or only the ramp?). D-pad / digital too.
+2. Top speed in lanes / second (and whether it depends on the web's lane count or width).
+3. Release: instant stop / ease-out (how long) / overshoot / snap to the nearest lane centre (and how fast).
+4. Taps: 1, 2, 4, 8-frame flicks - distance moved (a whole lane? a fraction?).
+5. Reversal: full left -> full right - does it decelerate through zero or flip instantly?
+6. Long sweeps on a closed web: constant speed? any lane "detents"?
+Script (the same for every game, so the results line up): rest 1 s; full right 2 s; release 1 s; full left 2 s;
+release; taps of 1 / 2 / 4 / 8 frames 0.5 s apart; half right 2 s; quarter right 2 s; full right 1 s then full left
+1 s (reversal); repeat once.
+
+A. TxK (txk.exe = src/lr_host.cpp + Vita3K core; fully ours):
+   - Add test switches to lr_host (as t3k's): --headless / --frames=N (fast, no window; Vita3K needs its GL context:
+     a hidden window may be needed), --stick=F:x,y[:len] and --press=F:btn[:len] (scripted pad: the claw script
+     above as a file, --script=<file>), --shot=F:file.bmp and --frames-dir=<dir> (every frame), --savestate /
+     --loadstate (the core supports serialisation? check retro_serialize_size; else drive from the attract / a menu
+     route each run).
+   - Claw position, two routes (do both if the first is quick):
+     (a) memory: retro_get_memory_data / a core export for Vita guest memory; find the claw angle / lane by diffing
+         snapshots while moving left / right (as tools/t3k_memsearch.py) - exact, per frame;
+     (b) image tracking: tools/claw_track.py - find the claw (its colour / shape near the web rim) in each frame, take
+         its angle about the web centre, convert to lanes (lane count from the web). Works for any game.
+   - Get into play reproducibly: a route of presses from boot (start, menus) found once by looking at shots.
+B. Tempest 4000 (Steam, native; our helper xinput1_4.dll / xinput1_3.dll = src/t4k/xinput_proxy.cpp is already loaded):
+   - Scripted input in the proxy: T4K_SCRIPT=<file> (or a file next to the exe) - XInputGetState returns the script's
+     stick values by time (QueryPerformanceCounter from the first poll after a hotkey / from a start delay), so the
+     owner starts it in play with one button. Log each poll's time + the injected value to a file (input timeline).
+   - Frames: the owner records with OBS at 60 / 120 fps (or we hook IDXGISwapChain::Present in the proxy to stamp a
+     frame counter / save every Nth frame - only if OBS timing proves unreliable); align with the input timeline
+     (a visible marker: the script starts with a fire press - the shot flash is easy to find).
+   - Claw position by image tracking (claw_track.py), as A(b). Memory reading (ReadProcessMemory) only if tracking
+     is too noisy.
+C. Analysis (tools/claw_fit.py): per run, lanes vs time; fit the model's parameters (and extra ones if needed);
+   plots of the four games side by side (T2K / T3K today with our settings vs TxK / T4K) - an artifact page for the
+   owner.
+D. Apply: settings presets ("txk", "t4k") for T2K / T3K's lr mode (+ any new model terms), selectable in the Back
+   menu; the owner plays and picks. Then revisit T3K game speed (flip_cap; maybe the "hardware pacing" mode from the
+   picture-rate estimate) with the new controls.
+
+Order for tomorrow: A first (all under our control): lr_host switches -> route into play -> memory search or
+tracking -> measurements. Then B (needs the owner at the PC for the OBS recording). Then C, D.
+
 ## Collection status and open items (2026-11-15, after the owner's Steam Deck test)
 Owner tested the play folder (dist\TempestCollection, built by tools\package_collection.ps1) on the Steam Deck: all our
 games "work really well indeed". Tempest 3000 runs "just about at frame rate" (little headroom).

@@ -142,7 +142,9 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
   every native picture (core nuance_set_picture_callback; pictures built from live memory): play 2.2-2.4x less
   emulation time. Native from the menus on (boot / title still emulated). Tests: t3k --gate=1 (live == captured) /
   --gate=2 (skip) headless, T3K_GATE_LOG=1.
-- Next: step 4 (interpolation for everything), then the YCrCb pipeline (polish: brightening / overshoot clip in YCrCb).
+- Next (owner 2026-11-15): the claw feel study (PLAN.md "Claw feel study: TxK and Tempest 4000") - measure TxK / T4K
+  claw response, tune T2K / T3K controls; then T3K game speed; step 4 (interpolate-all) only if still needed; YCrCb
+  pipeline (polish).
 - Workflow per type (tools from 2026-11-15): t3k --disasm=F:3:<lib>:N > m.dis; tools/t3k_annotate.py m.dis (local pcs,
   helpers); tools/t3k_logrun.py --state play_f2900 --span <type> --entries --out logs/t3k/<x>/run; a fit script on
   tools/t3k_spanlib.py (prepare / predict); unsure of a value -> --pc <local pcs> --interp <lib lo>-<hi> --pictures
