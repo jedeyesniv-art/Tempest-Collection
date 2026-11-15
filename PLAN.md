@@ -616,6 +616,27 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   a debug view of the vector layer alone, interpolated between pictures; then the other play types (00000300 fill,
   00300004 zoom feedback, 0011000B web surface, 0010000D text) for the first full native picture.
 
+### Native renderer in t3k.exe: the vector layer (2026-11-15)
+- Core capture (src/capture.cpp, always on from t3k.exe: nuance_capture_enable / nuance_capture_get): MPE0's entry
+  fetches (16 words into $20100030) + every other bus word it reads, published at the flip (VidConfig /
+  VidChangeBase: CaptureFlip) = the picture that flip shows; capture.flip == RunStats::vid_flips of the field.
+  Emulation thread only (MPE0 and MPE3 both run there with the renderer threads on).
+- Host: src/t3k_native.{h,cpp} - C++ port of the bit-exact transform + stream interpreter (BuildVectors, once per
+  new picture on the emulation thread; the field ring slots carry a shared_ptr), DrawVectors = SDL_RenderGeometry:
+  per segment a tent (centre vertices = colour + opacity, side vertices +-1.94 game px at alpha 0) + end caps,
+  BLEND mode (lerp in RGB == lerp in YCrCb: the conversion is affine), half a pixel shift (the module samples at pixel
+  corners). Colour = Nuance's BT.601, alpha = 0.00888 x Z.
+- Settings / keys: native_view (F7: 0 off, 1 the native vector layer alone, 2 over the emulated picture),
+  native_interpolate (F6, default 1). Interpolate(): entries matched by shape (w7) + segment count, nearest first
+  (first segment start + w0), each once; segment endpoints / colours lerped over the picture's slot (picture_blend's
+  timer); moves > 30 game px or unmatched -> drawn as the latest picture. T3K_WINSEQ=<first>:<n>:<dir> saves n
+  consecutive presents (tests).
+- Verified in a window: native_view 2 lines sit on the emulated ones (level start zoom); native_view 1 in play
+  (logs\t3k\rr\win_native.png: web, claw, zap line, enemies, star, streaks, HUD at 1440x1080). 120 Hz, 20 pictures/s,
+  mean change per present: stepped 0 / 3.0-3.5 at each new picture; interpolated 0.3-0.9 every present, a few snaps
+  (spawns, big moves).
+- Not yet: the emulated renderers still run (no speed gain until whole pictures are native); the other types.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,

@@ -5,6 +5,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace nuon {
@@ -69,6 +70,15 @@ std::string Disasm(int mpe, uint32_t address, int packets);
 // The Nuon's memory (big-endian words): 0 = system bus DRAM ($80000000), 1 = main bus DRAM ($40000000),
 // 2..5 = MPE 0..3 local memory ($20000000). Null if the core can't.
 uint8_t* Memory(int which, size_t* size);
+// Native renderer capture (core llamasoft-nuon capture.cpp): one picture's display list as MPE0 drew it.
+struct Capture {
+  uint32_t flip = 0;                              // the flip count that showed it (RunStats::vid_flips)
+  std::vector<uint32_t> entries;                  // 17 words each: list address, then the entry's 16 words
+  std::unordered_map<uint32_t, uint32_t> mem;     // the other bus words MPE0 read (shape streams, palettes)
+};
+bool EnableCapture(bool on);
+// The newest published picture (after RunFrame, on the emulation thread). Keeps *out when it is the same picture.
+bool GetCapture(Capture* out);
 void ReleaseContext();
 void MakeContextCurrent();
 

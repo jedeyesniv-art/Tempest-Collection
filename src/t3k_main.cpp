@@ -36,6 +36,7 @@
 #include <atomic>
 #include <bit>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <cmath>
@@ -52,6 +53,7 @@
 #include "nuon_host.h"
 #include "settings.h"
 #include "t3k_menu.h"
+#include "t3k_native.h"
 
 namespace fs = std::filesystem;
 
@@ -115,6 +117,11 @@ flip_cap = 3
 # 1 = cross-fade between the game's pictures (smooth-looking motion at any display rate, ~one picture more lag;
 # F3 toggles). 0 = each picture shown as it is.
 picture_blend = 1
+# Native renderer (in development, F7 cycles): 0 = off, 1 = the native vector layer alone, 2 = it over the emulated
+# picture (an alignment check).
+native_view = 0
+# 1 = the native layer moves smoothly between the game's pictures (F6), 0 = it steps with them.
+native_interpolate = 1
 # 1 = the frame-rate counter (F4): the game's pictures a second, emulated fields a second.
 show_rates = 0
 # 1 = render at 720x480, twice the game's own 360x240 (experimental: some screens still have flaws; needs about 2.5x
@@ -488,6 +495,7 @@ int main(int argc, char** argv) {
   if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
   double flip_cap = settings::Num("flip_cap", 3);   // (the settings menu can change it)
   nuon::SetFlipCap(flip_cap);
+  nuon::EnableCapture(true);   // the native renderer's input (t3k_native)
   // T3K_PAD_PROPS=<hex>: extra controller properties reported to the game (tests).
   if (const char* pp = std::getenv("T3K_PAD_PROPS")) nuon::SetPadProperties(uint32_t(std::strtoul(pp, nullptr, 16)));
   std::fprintf(stderr, "timing: %s\n",
@@ -658,7 +666,10 @@ int main(int argc, char** argv) {
   const uint64_t field_ns = uint64_t(1e9 / nuon::Fps());
   const uint64_t buffer_fields = uint64_t(std::clamp(settings::Num("buffer_fields", 2), 1.0, 3.0));
   // pic: the game's picture count after the field (VidConfig / VidChangeBase calls).
-  struct Slot { int64_t field = -1; uint64_t due = 0; uint32_t pic = 0; nuon::Frame frame; };
+  struct Slot {
+    int64_t field = -1; uint64_t due = 0; uint32_t pic = 0; nuon::Frame frame;
+    std::shared_ptr<const t3knative::Vectors> vec;   // the shown picture's vector layer (native renderer)
+  };
   Slot ring[8];
   std::mutex ring_mutex;
   std::atomic<uint16_t> pad_buttons{0};
@@ -703,6 +714,14 @@ int main(int argc, char** argv) {
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
+      // The native renderer's input: each new picture's display list, built into its vector layer once.
+      static nuon::Capture cap;
+      static std::shared_ptr<const t3knative::Vectors> vec;
+      if (nuon::GetCapture(&cap) && (!vec || vec->flip != cap.flip)) {
+        auto v = std::make_shared<t3knative::Vectors>();
+        t3knative::BuildVectors(cap, v.get());
+        vec = v;
+      }
       auto& au = nuon::Audio();
       if (audio && !au.empty()) {
         // The display's clock and the sound card's drift apart slowly: keep the queue short (~100 ms).
@@ -718,6 +737,7 @@ int main(int argc, char** argv) {
         nuon::RunStats rs{};
         sl.pic = nuon::GetRunStats(&rs) ? rs.vid_flips : uint32_t(k);
         sl.frame = nuon::LastFrame();
+        sl.vec = vec;
       }
       perf.Frame(uint64_t(k), t0, t1, SDL_GetTicksNS());
       fields_done = k + 1;
@@ -766,6 +786,10 @@ int main(int argc, char** argv) {
   };
   bool prev_back = false;
   uint32_t prev_held = 0;
+  int native_view = int(settings::Num("native_view", 0));
+  std::shared_ptr<const t3knative::Vectors> shown_vec, prev_vec;   // the shown picture's layer and the one before
+  bool native_interp = settings::Num("native_interpolate", 1) != 0;
+  std::vector<t3knative::Seg> native_segs;
   int presents = 0;
   while (running) {
     SDL_Event e;
@@ -776,6 +800,16 @@ int main(int argc, char** argv) {
         picture_blend = !picture_blend;
         settings::Save("picture_blend", picture_blend ? "1" : "0");
         std::fprintf(stderr, "picture blend %s\n", picture_blend ? "on" : "off");
+      }
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F6) {
+        native_interp = !native_interp;
+        settings::Save("native_interpolate", native_interp ? "1" : "0");
+        std::fprintf(stderr, "native interpolation %s\n", native_interp ? "on" : "off");
+      }
+      else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F7) {
+        native_view = (native_view + 1) % 3;
+        settings::Save("native_view", std::to_string(native_view));
+        std::fprintf(stderr, "native view %d\n", native_view);
       }
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F4) {
         show_rates = !show_rates;
@@ -889,6 +923,10 @@ int main(int argc, char** argv) {
           th = f.height;
         }
         SDL_UpdateTexture(tex, nullptr, f.pixels.data(), int(f.width * 4));
+        if (pick->vec != shown_vec) {
+          if (shown_vec && pick->vec && pick->vec->flip != shown_vec->flip) prev_vec = shown_vec;
+          shown_vec = pick->vec;
+        }
         if (new_picture) {   // a new picture (or field without pacing)
           if (shown >= 0) {
             hold_hist[std::min(presents_of_shown, 7)]++;
@@ -912,7 +950,9 @@ int main(int argc, char** argv) {
       SDL_FRect dst{(ww - w) / 2, (wh - h) / 2, w, h};
       // picture_blend (F3): cross-fade from the previous picture to this one over its time slot - smooth-looking
       // motion between the game's steps, at the price of about one picture more lag.
-      if (picture_blend && picture_ns && tex_prev) {
+      if (native_view == 1) {
+        // native vector layer alone (on black)
+      } else if (picture_blend && picture_ns && tex_prev) {
         const double t = std::clamp(double(int64_t(SDL_GetTicksNS() + refresh_ns / 2 - blend_from)) / double(picture_ns),
                                     0.0, 1.0);
         SDL_SetTextureBlendMode(tex_prev, SDL_BLENDMODE_NONE);
@@ -924,6 +964,17 @@ int main(int argc, char** argv) {
         SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
       } else {
         SDL_RenderTexture(ren, tex, nullptr, &dst);
+      }
+      if (native_view && shown_vec) {
+        // native_interpolate (F6): between the previous picture and this one over its time slot (as picture_blend)
+        if (native_interp && prev_vec && picture_ns) {
+          const double t = std::clamp(double(int64_t(SDL_GetTicksNS() + refresh_ns / 2 - blend_from)) / double(picture_ns),
+                                      0.0, 1.0);
+          t3knative::Interpolate(*prev_vec, *shown_vec, float(t), &native_segs);
+          t3knative::DrawVectors(ren, native_segs, dst);
+        } else {
+          t3knative::DrawVectors(ren, shown_vec->segs, dst);
+        }
       }
     }
     if (show_rates) {
@@ -947,6 +998,17 @@ int main(int argc, char** argv) {
     if (menu::Shown()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, SDL_GetTicksNS());
     if (menu_test && presents == 0) menu::Open(menu_test == 2);
+    // T3K_WINSEQ=<first present>:<count>:<dir> (tests): save each of those presents as <dir>/p<n>.bmp.
+    if (static const char* ws = std::getenv("T3K_WINSEQ"); ws) {
+      static int w0 = -1, wn = 0;
+      static char wdir[512] = {};
+      if (w0 < 0) std::sscanf(ws, "%d:%d:%511s", &w0, &wn, wdir);
+      if (presents >= w0 && presents < w0 + wn)
+        if (SDL_Surface* sf = SDL_RenderReadPixels(ren, nullptr)) {
+          SDL_SaveBMP(sf, (std::string(wdir) + "/p" + std::to_string(presents) + ".bmp").c_str());
+          SDL_DestroySurface(sf);
+        }
+    }
     if (winshot_at >= 0 && presents == winshot_at) {
       if (SDL_Surface* sf = SDL_RenderReadPixels(ren, nullptr)) {
         if (!SDL_SaveBMP(sf, winshot_file.c_str())) std::fprintf(stderr, "winshot: %s\n", SDL_GetError());

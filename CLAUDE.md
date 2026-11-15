@@ -117,7 +117,9 @@ classifier (downloaded code) - ask the owner before trying again.
 ## T3K native renderer research (2026-11-15; current focus)
 Owner: decouple game speed from frame rate, Steam Deck = min spec -> a native renderer of T3K's display list.
 Findings + design so far: PLAN.md "Native renderer research" (every picture = feedback of the previous one + blended
-primitives; takeover must be per whole picture, not T2K's per-primitive overlay).
+primitives; takeover must be per whole picture, not T2K's per-primitive overlay). In t3k.exe: src/t3k_native.cpp
+draws the vector shapes (00710001) from the core's per-picture capture (core src/capture.cpp); F7 = native_view
+(off / native vectors alone / over the emulated picture), F6 = native_interpolate.
 
 ## Collection state (2026-11-15; start here next time)
 All five entries run from the launcher (tempest.exe; TempestCollection.exe in the play folder): Tempest (1981, t81 /

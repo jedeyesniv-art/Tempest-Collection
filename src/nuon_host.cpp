@@ -318,4 +318,28 @@ bool GetRunStats(RunStats* out) {
   return true;
 }
 
+bool EnableCapture(bool on) {
+  using Fn = void (*)(int);
+  auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_capture_enable"));
+  if (!f) return false;
+  f(on ? 1 : 0);
+  return true;
+}
+
+bool GetCapture(Capture* out) {
+  using Fn = int (*)(uint32_t*, const uint32_t**, size_t*, const uint32_t**, size_t*);
+  static Fn f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_capture_get"));
+  uint32_t flip = 0;
+  const uint32_t *e = nullptr, *m = nullptr;
+  size_t ne = 0, nm = 0;
+  if (!f || !f(&flip, &e, &ne, &m, &nm)) return false;
+  if (out->flip == flip && !out->entries.empty()) return true;   // unchanged since the last call: keep the copy
+  out->flip = flip;
+  out->entries.assign(e, e + ne);
+  out->mem.clear();
+  out->mem.reserve(nm / 2);
+  for (size_t i = 0; i + 1 < nm; i += 2) out->mem[m[i]] = m[i + 1];
+  return true;
+}
+
 }  // namespace nuon

@@ -43,7 +43,7 @@ endif()
 
 # Tempest 3000 (Nuon): the Nuance libretro core is a separate DLL (tools\build_nuance.bat -> build_nuance\), loaded at
 # run time; its BIOS stubs (from the Nuance source) and our nuance.cfg go to system\nuance next to the exe.
-add_executable(t3k WIN32 src/t3k_main.cpp src/t3k_menu.cpp src/nuon_host.cpp src/settings.cpp src/menu.cpp src/controls.cpp)
+add_executable(t3k WIN32 src/t3k_main.cpp src/t3k_menu.cpp src/t3k_native.cpp src/nuon_host.cpp src/settings.cpp src/menu.cpp src/controls.cpp)
 target_link_libraries(t3k PRIVATE SDL3::SDL3-static opengl32)
 target_compile_definitions(t3k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)
