@@ -549,6 +549,32 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   00000300, 00300004, 0011000B, 0010000D - from the modules' disassembly and the entry words, then a native prototype of
   one play picture checked against the emulated one.
 
+### 00710001 = vector shapes (module 806A3F50; 2026-11-15)
+- Disassembly: logs\t3k\rr\m806A3F50.dis (t3k --disasm=2700:3:806A3F50:1400 on the play route; local pc = lib -
+  806A3F50 + 203002D0). Investigation hooks (core): NUANCE_NOJIT=1 (interpreter; with NUANCE_NOAOT=1) and
+  NUANCE_PCLOG=<local pc> (+ NUANCE_PCLOG_MEM=<local addrs>): MPE0's r0-r31, the entry at $20100030 and memory words
+  each time it reaches that pc. Note a local pc is shared by every module loaded at $203002D0: filter on the entry type.
+- The pre-pass (MPE1, 806AE210 etc.) turns object indexes into shape pointers and fills in angle / sizes; the drawing
+  pass reads the rewritten entry. Words: w0 screen position (x hi, y lo), w2 / w3 colours A / B, w4 sizes (10-bit
+  signed halves x hi / y lo, 8.8 of shape units), w5 width etc. (low byte = line width; w5 >> 2 = width factor),
+  w6 angle (16 bits a turn), w7 shape stream (system RAM for fixed shapes, main bus $4018xxxx for runtime shapes such
+  as the web outline), w12 jitter strength, w13 jitter amounts (bytes: angle, x, y).
+- Shape stream (DMA'd in 64-word chunks): a word with $8000 in the top half is a command (low nibble, table at local
+  $20100CC0): 0 / 5 set w5 low / high half from the next word, 1 end, 2 pen up, 3 colour A = next, 4 colour B, A =
+  next two, 6 load a 16-colour palette from the next word's address, 7 colours from the palette (nibbles: A = bits
+  8-11, B = bits 12-15), 8 add (cmd << 16 >> 20) to the jitter offset, 9 set it from the next word. Other words are
+  vertices (y hi, x lo; signed 16-bit); each vertex after the first draws a line from the previous one.
+- Transform, **bit-exact against 85,280 emulated segments** (tools/t3k_vecmodel.py): sin / cos = polynomial
+  (806A4BBE, 2.30, quadrant stubs); object matrix from w4 + w6; per segment the endpoints are taken about the midpoint,
+  rotated by a random angle and the midpoint moved by random x / y (LFSR $31415926 reset per entry, one step per
+  segment: v >> 1, xor $A3000000 when bit 0 was clear), amounts = w13 bytes x clamp(w12 + offset, 0, $FFFF); then
+  object matrix (>> 14) + w0. Screen units = shape units x size / 256.
+- Raster (read, not yet modelled): thick antialiased lines in 32-pixel row spans, read-modify-write per pixel:
+  dest + (colour - dest) x coverage, coverage from the distance to the line (reciprocal sqrt table at local
+  $20100630), colour A -> B along the line. GPU equivalent: a quad per segment with a distance-falloff shader and
+  alpha blending. Next: model the coverage profile + gradient, check against emulated pixels, then the native
+  prototype.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
