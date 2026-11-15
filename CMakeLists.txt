@@ -61,7 +61,7 @@ add_custom_target(t3k_runtime ALL
 
 # TxK (PS Vita): the Vita3K libretro core is a separate DLL (tools\build_vita3k.bat -> build_vita3k\bin\Release\),
 # loaded at run time. Firmware comes from vita_firmware\ (txk.exe links it into system\vita3k\ on first start).
-add_executable(txk WIN32 src/txk_main.cpp src/txk_menu.cpp src/vita_host.cpp src/settings.cpp src/menu.cpp src/controls.cpp)
+add_executable(txk WIN32 src/txk_main.cpp src/txk_menu.cpp src/lr_host.cpp src/settings.cpp src/menu.cpp src/controls.cpp)
 target_link_libraries(txk PRIVATE SDL3::SDL3-static opengl32)
 target_compile_definitions(txk PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)
@@ -71,3 +71,16 @@ add_custom_target(txk_runtime ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/build_vita3k/bin/Release/vita3k_libretro.dll"
           "${CMAKE_BINARY_DIR}"
   DEPENDS txk)
+
+# Tempest (1981 arcade): MAME's libretro core with the Tempest driver only (tools/build_mame.sh, MinGW gcc from the
+# portable Strawberry Perl -> third_party/mame-libretro/tempest_libretro.dll), loaded at run time.
+add_executable(t81 WIN32 src/t81_main.cpp src/t81_menu.cpp src/lr_host.cpp src/settings.cpp src/menu.cpp src/controls.cpp)
+target_link_libraries(t81 PRIVATE SDL3::SDL3-static opengl32)
+target_compile_definitions(t81 PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
+if(WIN32)
+  target_link_libraries(t81 PRIVATE winmm)
+endif()
+add_custom_target(t81_runtime ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/third_party/mame-libretro/tempest_libretro.dll"
+          "${CMAKE_BINARY_DIR}"
+  DEPENDS t81)

@@ -48,7 +48,7 @@ struct Game {
 
 std::vector<Game> MakeGames(const fs::path& base) {
   std::vector<Game> g = {
-      {"TEMPEST", "1981  ARCADE", Kind::NotYet, "", ""},
+      {"TEMPEST", "1981  ARCADE", Kind::Program, "t81.exe", ""},
       {"TEMPEST 2000", "1994  ATARI JAGUAR", Kind::Program, "t2k.exe", ""},
       {"TEMPEST 3000", "2000  NUON", Kind::Program, "t3k.exe", ""},
       {"TxK", "2014  PS VITA", Kind::Program, "txk.exe", ""},

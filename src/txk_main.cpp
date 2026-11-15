@@ -40,7 +40,7 @@
 #include "menu.h"
 #include "settings.h"
 #include "txk_menu.h"
-#include "vita_host.h"
+#include "lr_host.h"
 
 namespace fs = std::filesystem;
 
@@ -79,7 +79,7 @@ int BtnByName(const std::string& n) {
   return -1;
 }
 
-bool WriteBmp(const std::string& path, const vita::Frame& f) {
+bool WriteBmp(const std::string& path, const lr::Frame& f) {
   if (f.width == 0) return false;
   std::ofstream o(path, std::ios::binary);
   if (!o) return false;
@@ -146,24 +146,24 @@ uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
   auto set = [&](int bit, bool on) { if (on) b |= uint16_t(1u << bit); };
   if (pad) {
     auto btn = [&](SDL_GamepadButton x) { return SDL_GetGamepadButton(pad, x); };
-    set(vita::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP));
-    set(vita::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN));
-    set(vita::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT));
-    set(vita::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT));
+    set(lr::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP));
+    set(lr::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN));
+    set(lr::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT));
+    set(lr::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT));
   }
   if (keys) {
-    set(vita::UP, keys[SDL_SCANCODE_UP]);
-    set(vita::DOWN, keys[SDL_SCANCODE_DOWN]);
-    set(vita::LEFT, keys[SDL_SCANCODE_LEFT]);
-    set(vita::RIGHT, keys[SDL_SCANCODE_RIGHT]);
-    set(vita::B, keys[SDL_SCANCODE_Z]);
-    set(vita::A, keys[SDL_SCANCODE_X]);
-    set(vita::Y, keys[SDL_SCANCODE_A]);
-    set(vita::X, keys[SDL_SCANCODE_S]);
-    set(vita::L, keys[SDL_SCANCODE_Q]);
-    set(vita::R, keys[SDL_SCANCODE_W]);
-    set(vita::START, keys[SDL_SCANCODE_RETURN]);
-    set(vita::SELECT, keys[SDL_SCANCODE_TAB]);
+    set(lr::UP, keys[SDL_SCANCODE_UP]);
+    set(lr::DOWN, keys[SDL_SCANCODE_DOWN]);
+    set(lr::LEFT, keys[SDL_SCANCODE_LEFT]);
+    set(lr::RIGHT, keys[SDL_SCANCODE_RIGHT]);
+    set(lr::B, keys[SDL_SCANCODE_Z]);
+    set(lr::A, keys[SDL_SCANCODE_X]);
+    set(lr::Y, keys[SDL_SCANCODE_A]);
+    set(lr::X, keys[SDL_SCANCODE_S]);
+    set(lr::L, keys[SDL_SCANCODE_Q]);
+    set(lr::R, keys[SDL_SCANCODE_W]);
+    set(lr::START, keys[SDL_SCANCODE_RETURN]);
+    set(lr::SELECT, keys[SDL_SCANCODE_TAB]);
   }
   return b;
 }
@@ -256,21 +256,21 @@ int main(int argc, char** argv) {
       std::string k = line.substr(0, eq);
       k.erase(0, k.find_first_not_of(" \t"));
       k.erase(k.find_last_not_of(" \t\r") + 1);
-      if (k.rfind("vita3k_", 0) == 0) vita::SetOption(k, settings::Str(k, ""));
+      if (k.rfind("vita3k_", 0) == 0) lr::SetOption(k, settings::Str(k, ""));
     }
   }
-  for (auto& [k, v] : opts) vita::SetOption(k, v);
+  for (auto& [k, v] : opts) lr::SetOption(k, v);
   // (read by the core's sceMsgDialogInit, our branch llamasoft-vita). The process environment, before the DLL loads:
   // the core has its own C runtime, which copies the environment when it starts (_putenv would only reach ours).
   SetEnvironmentVariableA("VITA3K_AUTO_OK_DIALOG", settings::Str("auto_ok_dialog", "").c_str());
 
   std::string err;
-  if (!vita::Load((base / "vita3k_libretro.dll").string(), game, system_dir.string(), udir.string(), &err)) {
+  if (!lr::Load((base / "vita3k_libretro.dll").string(), game, system_dir.string(), udir.string(), &err)) {
     std::fprintf(stderr, "load: %s\n", err.c_str());
     if (!headless) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TxK", err.c_str(), nullptr);
     return 1;
   }
-  std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", game.c_str(), vita::Fps(), vita::SampleRate());
+  std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", game.c_str(), lr::Fps(), lr::SampleRate());
 
   auto scripted = [&](int f) {
     uint16_t b = 0;
@@ -284,35 +284,35 @@ int main(int argc, char** argv) {
     // Paced to real time: the emulator runs on its own threads (and prepares the title on one), so frames handed out
     // faster than 60 a second would only skip ahead of it.
     const uint64_t t0 = SDL_GetTicksNS();
-    const double frame_ns = 1e9 / vita::Fps();
+    const double frame_ns = 1e9 / lr::Fps();
     for (int f = 0; f < frames; ++f) {
       const uint64_t due = t0 + uint64_t(f * frame_ns);
       if (const uint64_t now = SDL_GetTicksNS(); now < due) SDL_DelayPrecise(due - now);
-      vita::SetButtons(scripted(f));
+      lr::SetButtons(scripted(f));
       float sx = 0, sy = 0;
       for (auto& h : sticks)
         if (f >= h.frame && f < h.frame + h.len) { sx = h.x; sy = h.y; }
-      vita::SetSticks(int(sx * 32767), int(sy * 32767), 0, 0);
+      lr::SetSticks(int(sx * 32767), int(sy * 32767), 0, 0);
       for (auto& o : setopts)
-        if (o.frame == f) vita::SetOption(o.key, o.value);
+        if (o.frame == f) lr::SetOption(o.key, o.value);
       for (int r : resets)
-        if (r == f) vita::Reset();
-      vita::RunFrame();
-      auto& au = vita::Audio();
+        if (r == f) lr::Reset();
+      lr::RunFrame();
+      auto& au = lr::Audio();
       if (!wav.empty()) wav_samples.insert(wav_samples.end(), au.begin(), au.end());
       au.clear();
       for (auto& s : shots)
-        if (s.frame == f && !WriteBmp(s.path, vita::LastFrame())) std::fprintf(stderr, "shot %s failed\n", s.path.c_str());
+        if (s.frame == f && !WriteBmp(s.path, lr::LastFrame())) std::fprintf(stderr, "shot %s failed\n", s.path.c_str());
       if ((f + 1) % 600 == 0) {
         static uint64_t last_new = 0;
         std::fprintf(stderr, "frame %d: %.1f s, picture %ux%u, %llu new pictures in the last 600 frames\n", f + 1,
-                     (SDL_GetTicksNS() - t0) / 1e9, vita::LastFrame().width, vita::LastFrame().height,
-                     (unsigned long long)(vita::NewFrames() - last_new));
-        last_new = vita::NewFrames();
+                     (SDL_GetTicksNS() - t0) / 1e9, lr::LastFrame().width, lr::LastFrame().height,
+                     (unsigned long long)(lr::NewFrames() - last_new));
+        last_new = lr::NewFrames();
       }
     }
-    if (!wav.empty()) WriteWav(wav, wav_samples, uint32_t(vita::SampleRate()));
-    vita::Unload();
+    if (!wav.empty()) WriteWav(wav, wav_samples, uint32_t(lr::SampleRate()));
+    lr::Unload();
     SDL_Quit();
     return 0;
   }
@@ -325,12 +325,12 @@ int main(int argc, char** argv) {
   SDL_HideCursor();
   SDL_Texture* tex = nullptr;
   unsigned tw = 0, th = 0;
-  SDL_AudioSpec spec{SDL_AUDIO_S16, 2, int(vita::SampleRate())};
+  SDL_AudioSpec spec{SDL_AUDIO_S16, 2, int(lr::SampleRate())};
   SDL_AudioStream* audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
   if (audio) SDL_ResumeAudioStreamDevice(audio);
   SDL_Gamepad* pad = nullptr;
   bool running = true;
-  const double frame_ns = 1e9 / vita::Fps();
+  const double frame_ns = 1e9 / lr::Fps();
   uint64_t next = SDL_GetTicksNS();
   int frame = 0, presents = 0;
   bool prev_back = false;
@@ -343,7 +343,7 @@ int main(int argc, char** argv) {
   auto apply_core_options = [&] {
     for (const char* k : {"vita3k_resolution_multiplier", "vita3k_anisotropic_filtering"}) {
       const std::string v = settings::Str(k, "");
-      if (!v.empty()) vita::SetOption(k, v);
+      if (!v.empty()) lr::SetOption(k, v);
     }
   };
   while (running) {
@@ -378,7 +378,7 @@ int main(int argc, char** argv) {
           case menu::kQuit: running = false; break;
           case menu::kToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
           case txk_menu::kRestart:
-            vita::Reset();
+            lr::Reset();
             menu::Toast("Restarting the game", now);
             break;
           default: break;
@@ -395,23 +395,23 @@ int main(int argc, char** argv) {
       if (now > next + uint64_t(frame_ns * 8)) next = now;
     }
     for (int k = 0; k < todo; ++k) {
-      vita::SetButtons(ReadPad(pad, SDL_GetKeyboardState(nullptr)) | scripted(frame));
+      lr::SetButtons(ReadPad(pad, SDL_GetKeyboardState(nullptr)) | scripted(frame));
       if (pad)
-        vita::SetSticks(SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY),
+        lr::SetSticks(SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY),
                         SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTX), SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTY));
-      vita::RunFrame();
+      lr::RunFrame();
       ++frame;
-      auto& au = vita::Audio();
+      auto& au = lr::Audio();
       if (audio && !au.empty()) {
-        if (SDL_GetAudioStreamQueued(audio) > int(vita::SampleRate()) * 4 / 10) SDL_ClearAudioStream(audio);
+        if (SDL_GetAudioStreamQueued(audio) > int(lr::SampleRate()) * 4 / 10) SDL_ClearAudioStream(audio);
         SDL_PutAudioStreamData(audio, au.data(), int(au.size() * 2));
       }
       au.clear();
       for (auto& s : shots)
-        if (s.frame == frame - 1) WriteBmp(s.path, vita::LastFrame());
+        if (s.frame == frame - 1) WriteBmp(s.path, lr::LastFrame());
       if (frames >= 0 && frame >= frames) running = false;
     }
-    const vita::Frame& f = vita::LastFrame();
+    const lr::Frame& f = lr::LastFrame();
     if (f.width) {
       if (!tex || tw != f.width || th != f.height) {
         if (tex) SDL_DestroyTexture(tex);
@@ -448,7 +448,7 @@ int main(int argc, char** argv) {
   }
   if (audio) SDL_DestroyAudioStream(audio);
   if (tex) SDL_DestroyTexture(tex);
-  vita::Unload();
+  lr::Unload();
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
   SDL_Quit();

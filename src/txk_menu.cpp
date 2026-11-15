@@ -3,7 +3,7 @@
 
 #include "controls.h"
 #include "settings.h"
-#include "vita_host.h"
+#include "lr_host.h"
 
 namespace txk_menu {
 namespace {
@@ -11,7 +11,7 @@ namespace {
 // controls:: functions (index 0 = none) and the RetroPad button each one presses (the core maps RetroPad B to
 // Cross, A to Circle, Y to Square, X to Triangle).
 enum Fn { kNone, kCross, kCircle, kSquare, kTriangle, kL, kR, kStart, kSelect, kFnCount };
-const int kBit[kFnCount] = {-1, vita::B, vita::A, vita::Y, vita::X, vita::L, vita::R, vita::START, vita::SELECT};
+const int kBit[kFnCount] = {-1, lr::B, lr::A, lr::Y, lr::X, lr::L, lr::R, lr::START, lr::SELECT};
 
 }  // namespace
 

@@ -21,6 +21,13 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   -> build_vita3k\bin\Release\vita3k_libretro.dll (32 MB; needs the MSVC C++ runtime DLLs). Configure needs the
   portable Strawberry Perl in third_party\strawberry (owner approved the download) and downloads FFmpeg + curl.
   Firmware in vita_firmware\ (PSVUPDAT.PUP system, PSP2UPDAT.PUP fonts). None of these in the outer git.
+- third_party/mame-libretro: libretro/mame (current MAME 0.289, commit 5f5a0774, shallow) for arcade Tempest (1981),
+  built with only src/mame/atari/tempest.cpp by tools/build_mame.sh (Git Bash + the MinGW gcc 13.2 / GNU make in
+  third_party/strawberry; SDL3 headers via -DSDLMAME_SDL3 for the libretro OSD's key table) ->
+  tempest_libretro.dll (43 MB, only Windows DLLs). Romset: tempest.zip (MAME's current split set) - not in git.
+- src/lr_host.cpp: the shared libretro host for DLL cores (txk.exe: Vita3K, OpenGL on demand; t81.exe: MAME,
+  software frames, mouse deltas for the spinner, save states). GET_VARIABLE answers the defaults the core declared
+  (MAME takes a missing answer as an empty value). LR_LOG_DEBUG=1 shows the cores' debug log.
 - src/host.cpp: libretro host (env callbacks, options, video XRGB8888, audio, input, save states).
 - src/main.cpp: SDL3 window + headless test mode.
 - src/launcher.cpp: build\tempest.exe, the Tempest Collection launcher (starts t2k.exe / t3k.exe as processes,

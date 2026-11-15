@@ -29,3 +29,6 @@ aot_catalog_hires/
 third_party/vita3k-libretro/
 third_party/strawberry/
 build_vita3k/
+third_party/mame-libretro/
+build_mame/
+*.zip

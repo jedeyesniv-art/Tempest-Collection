@@ -595,3 +595,15 @@ Steps
 3. Virtual pad + gameplay links; tune with the owner in the window (menu sliders, sensible defaults).
 4. Packaging: neon.exe + its DLLs + dash.xex in dist\ only (personal use; dash.xex is from the owner's dump, never in
    git, never published). Neon Mode greyed out when they're missing.
+
+## Tempest (1981 arcade) (2026-11-15)
+build\t81.exe (src/t81_main.cpp, src/t81_menu.cpp) on MAME's libretro core built with the Tempest driver only
+(tools/build_mame.sh). Romset tempest.zip next to the exe, in game\ or the repo root. Core options (t81_settings.txt,
+any mame_* key): rotation internal, alternate renderer at mame_altres (1920x1440 default; 2880x2160 for 4K; applies
+live), mouse on. Spinner: the left stick (curve, spinner_speed) / d-pad as relative mouse movement a frame; MAME's
+dial reads it. Buttons (remappable): A / RT fire, B / RB / X zap, Start, Y coin; Back = menu (reset, save states
+5 slots in userdata\states\t81_slotN.state, spinner speed, buttons, fullscreen, vector resolution, scaling).
+Verified: attract -> coin -> start -> rate yourself -> play; spinner moves the claw; save state restores (the core
+restores at a scheduler-safe point: 1-2 frames off a plain run, fine for players); window keeps 3:4 (core aspect).
+Open: tune the spinner feel with the owner; vector look (beam width / glow: MAME ini options); clones (tempest1..3,
+temptube) not selectable yet.
