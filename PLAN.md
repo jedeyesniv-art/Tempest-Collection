@@ -495,6 +495,37 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   attempt: bigger buffers in free main-bus memory, job sizes, channel flags, projection x2, then fix what breaks
   (text, sprites, clears, feedback effects).
 
+### Native renderer research (2026-11-15; owner: decouple game speed from frame rate, Deck = min spec)
+- Owner: Deck at native res mostly 24 pictures/s, dips to 22; high res very slow there. 3x renderer work for
+  interpolated pictures through the emulated renderers is out (too expensive) -> focus on a NATIVE renderer of the
+  display list, with interpolation at any display rate.
+- Re-render test part 1 (core src/fbprobe.cpp: NUANCE_FBPROBE=<file> per-field frame buffer reads / writes + reader pcs;
+  NUANCE_CLEARTARGET=<hex> fills a buffer when the renderers switch to it; original res only, NUANCE_THREADS=0;
+  tools/t3k_cleardiff.py; logs\t3k\rr\run.sh A|B = 3800-field route with fire, shots every 20 fields):
+  * Runs stay in lockstep (perf stats identical). 184 of 185 pictures identical with the target pre-filled: every
+    picture fully redraws its buffer, nothing older than the previous picture survives. Exception: the level-start
+    zoom (f2760) leaves the right-most 1-2 columns undrawn.
+  * But EVERY picture starts from the previous one: the first 3D display list entry ($8004E040) is a feedback pass.
+    Play: type 00300004 (zoom feedback, module 806A5280: centre B4,78, zoom 16.16 in words 4/5, varies: 1.0009 at f2740, 1.0625, ~1.4 in transitions,
+    source = the previous buffer in word 9) - ~2.4 screens of reads a picture; this is the trails / glow look. Title /
+    menus: 0000000F (feedback background). Then the primitives draw over it, many read-modify-write (blended: pcs
+    20300E22 / 20300D72 read the target before writing).
+  * So picture n = F(picture n-1, display list n). The display list (+ the templates / tables it points at) is the
+    whole input; ~10 entry types on the route to level 1 (00710001 2D sprites / vectors 2606, 00FF0004 862,
+    00000300 460, 0000000F 251, 00300004 194, 003102FE / 00310108 / 000000FE 55 each).
+- Consequences for the design:
+  * T2K's per-primitive overlay (native + emulated picture composited, black see-through) does NOT carry over: the
+    feedback pass and blended draws read the whole buffer, so a half-native picture would feed back / blend against
+    the wrong content. Takeover must be per PICTURE: if every entry in this picture's list is a ported type, draw it
+    all natively (feedback in our own texture, as T2K's feedback screens); otherwise run the emulated renderers for
+    that picture. Port entry types screen by screen (play first).
+  * Interpolation: the feedback is one step per game picture. At display rate it becomes continuous: zoom^(dt) and
+    fade^(dt) per displayed frame with trail length matched per second, objects drawn at interpolated positions.
+  * Speed: native pictures skip MPE0-2 (the bulk of the cost); MPE3 (game logic) stays emulated (4-12%).
+- Next: the display list census over long runs (attract demos for late levels): types, counts, fields, which module
+  draws each; then decode the play screen's types (00300004 first, then the web / claw / enemies) and a native
+  prototype checked against the emulated picture.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
