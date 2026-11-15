@@ -680,6 +680,30 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   0011000B (web surface), 0010000D (glowing text), 00310309 / 00310209 / 0031020E / 00500005 / 00310010 / 00310108
   (small objects, particles).
 
+### 0010000D = glowing number (module 806AF1E8; 2026-11-15)
+- One mode only (jump table at local $E78 has one entry): the decimal digits of the word at $800DC240 - the score in
+  play, 3000 on the title (centred: w14 = 1). Per digit a 16 x 16 YCrCbZ glyph (1 KB at w10 + digit x 1024), cell
+  16 x w2 by 16 x w3 at w0 (x hi, y lo), advance 12 x w2 (a 1: 4 x w2); centring moves x by w2 x (13 a digit, 5 a
+  1) / 2, y by 8 x w3.
+- Per pixel (806AF7AE, the only routine in the w13 table at $E74): G = bilinear glyph at (u, v); T = bilinear 16 x 16
+  texture at w11 (the animated texture) at (U + w4 x G.Cr >> 20, V + w5 x G.Cb >> 20); out = dest + (T - dest) x
+  (G.Z x w6 / 2^23). Coordinates 16.16 texels, stepped per pixel / row with a quadratic term (u += du >> 8, du +=
+  d2u) from the 20-word block at w12 (to local $DF0: DF0 origins, E00 glyph a pixel = 1 / w2, E10 texture a pixel,
+  E20 glyph a row (E24 = 1 / w3), E30 texture a row).
+- Pixel loads (ld_pz, 32-bit): Y = byte << 22, Cr / Cb SIGNED (byte - 128) << 22, Z = byte << 24 (4x the others) -
+  two wrong guesses cost time here; the NUANCE_PCLOG register dump settled both.
+- Quirks kept: the reciprocal gives 0x7FFF for 1/2 (not 0x8000); each digit steps the texture origin by all the
+  advance before it and writes it back (digit 3 of 3+ steps twice). Not kept: the row skip 806AF5A0 skips one row
+  fewer than the band offset, so a band starting inside a cell repeats a row (sub-pixel; ours is continuous).
+- Verified: tools/t3k_textfit.py (NUANCE_SPANLOG=0010000D + ENTRYLOG / ENTRYDATA, logs\t3k\gt\span.sh): 2616
+  entries (title 3000 + score), 3.77M pixels, mean error 0.37 a channel, none off by > 3. Native: per digit a
+  premultiplied RGBA image (2 samples a game pixel, 1 for cells > 64 px; the content is smooth), rebuilt per picture,
+  uploaded once per picture, drawn as a blended quad. --nativecheck 2300-2955 with 0010000D added: 218 pictures,
+  mean 3.84 (score box 4.7, lines crossing it included).
+- PCLOG on this module needs NUANCE_NOJIT=1 NUANCE_AOT_SKIP=806AF (AOT modules are named by the chunk they start at,
+  806AF2E8..806AF6E8 overlap the routine); the emulated timeline then slips (picture 775 by field 2960, not 975),
+  so compare registers with spans from the SAME run. The log is ~2.4 GB to field 2960.
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
@@ -695,9 +719,7 @@ modules; cost without emulated drawing 3.3-3.6x less in play, ~6x in menus), vec
 zoom feedback 00300004, web surface 0011000B, t3k.exe native view (F7) + interpolation (F6) + mixed-mode seeding, ground
 truth check (--nativecheck: 218 play pictures with those four types, mean error 3.8).
 Next, in order:
-1. 0010000D glowing text (module 806AF1E8: score digits, big text; in nearly every play picture). Census words: w8 =
-   002DE840 (pixel DMA flags), w9 = 40000000, w10 = 80106DA0 (font / table?), w11 = 800B1CE0; position w0, 16.16 scales
-   w2 / w3 (hi-res notes). Decode with --disasm + NUANCE_SPANLOG=0010000D, verify with --nativecheck.
+1. DONE: 0010000D glowing number (section above).
 2. The small types: 00310309 / 00310209 (806A8990: object path, enemy parts), 0031020E (806AFA80), 00500005
    (806A7DC0: explosions), 00310010 (806A6E40: level-3 dot grid), 00310108 (806A5FB0: points; often draws nothing).
    Then play pictures are complete (check with --nativecheck WITHOUT T3K_NATIVE_FORCE).

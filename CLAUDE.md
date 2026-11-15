@@ -125,7 +125,8 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
   + the bus words MPE0 read (+ mode 2: its frame buffer = ground truth) at the flip; host src/t3k_native.{h,cpp}
   (BuildPicture -> ops; Renderer with two window-sized feedback textures; Interpolate). t3k.exe keys: F7 native_view
   (0 off, 1 native pictures, 2 vectors over emulated, 3 vectors alone), F6 native_interpolate.
-- Ported + verified: 00710001 vector shapes, 00000300 fill, 00300004 zoom feedback, 0011000B web surface.
+- Ported + verified: 00710001 vector shapes, 00000300 fill, 00300004 zoom feedback, 0011000B web surface, 0010000D
+  glowing number (score / title 3000; tools/t3k_textfit.py).
 - VERIFY every type with ground truth, never with screenshots: NUANCE_ONLYTYPES=<done types> T3K_NATIVE_FORCE=1
   t3k.exe --headless ... --nativecheck=F0:F1:<dir> (per-picture mean error + truth | native | diff images). Decode
   a module with --disasm=F:3:<lib addr>:N, NUANCE_SPANLOG=<type> (pixel rows read / written + entry words, job word),
@@ -133,7 +134,9 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
   + NUANCE_ENTRYDATA=1 (lists + data per picture), NUANCE_SKIPTYPE (what a type draws), NUANCE_NODRAW (cost).
 - Python models: tools/t3k_vecmodel.py, t3k_linefit.py, t3k_vecrender.py, t3k_zoomfit.py, t3k_webfit.py,
   t3k_census.py, t3k_interpcheck.py.
-- Next: 0010000D glowing text (806AF1E8), then the small types, then switch emulated drawing off for native pictures.
+- Next: the small types (PLAN.md step 2), then switch emulated drawing off for native pictures.
+- Pixel loads in the MPE modules: Y byte << 22, Cr / Cb signed (byte - 128) << 22, Z byte << 24. PCLOG inside a module:
+  NUANCE_NOJIT=1 NUANCE_AOT_SKIP=<lib prefix covering every chunk-start module> (timeline slips: same-run data only).
 
 ## Collection state (2026-11-15)
 All five entries run from the launcher (tempest.exe; TempestCollection.exe in the play folder): Tempest (1981, t81 /

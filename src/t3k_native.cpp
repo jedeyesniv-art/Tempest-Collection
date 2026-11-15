@@ -165,6 +165,112 @@ void Shape(const uint32_t* entry, const Mem& mem, std::vector<Seg>* segs) {
   }
 }
 
+// --- 0010000D glowing number (806AF1E8; tools/t3k_textfit.py) ---
+
+// Bilinear sample of a 16 x 16 YCrCbZ texture at (u, v) texels (texel i at coordinate i, wrapping); bytes as floats.
+void Bilinear16(const uint32_t* tex, float u, float v, float out[4]) {
+  const float fu = std::floor(u), fv = std::floor(v);
+  const int iu = int(fu), iv = int(fv);
+  const float a = u - fu, b = v - fv;
+  const uint32_t t00 = tex[(iv & 15) * 16 + (iu & 15)], t10 = tex[(iv & 15) * 16 + ((iu + 1) & 15)];
+  const uint32_t t01 = tex[((iv + 1) & 15) * 16 + (iu & 15)], t11 = tex[((iv + 1) & 15) * 16 + ((iu + 1) & 15)];
+  for (int k = 0; k < 4; ++k) {
+    const int sh = 24 - 8 * k;
+    const float c00 = float((t00 >> sh) & 255), c10 = float((t10 >> sh) & 255);
+    const float c01 = float((t01 >> sh) & 255), c11 = float((t11 >> sh) & 255);
+    const float top = c00 + (c10 - c00) * a, bot = c01 + (c11 - c01) * a;
+    out[k] = top + (bot - top) * b;
+  }
+}
+
+// Sum of n per-pixel steps that start at a and grow by d each step, each taken >> 8 (16.16 units); n continuous.
+float Steps(float n, int32_t a, int32_t d) { return (n * float(a) + 0.5f * n * (n - 1.f) * float(d)) / 256.f; }
+
+void Text(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t number = 0, blkw[20] = {}, tex2[256] = {};
+  if (!Read(mem, 0x800DC240u, &number)) return;
+  const int32_t w2 = int32_t(e[2]), w3 = int32_t(e[3]);
+  if (w2 <= 0 || w3 <= 0) return;
+  for (int k = 0; k < 20; ++k) Read(mem, e[12] + 4 * uint32_t(k), &blkw[k]);
+  for (int k = 0; k < 256; ++k) Read(mem, e[11] + 4 * uint32_t(k), &tex2[k]);
+  // the block lands at local $DF0: DF0 glyph u0 v0, tex2 U0 V0; E00 glyph du dv d2u d2v a pixel; E10 tex2 the same;
+  // E20 glyph a row; E30 tex2 a row. E00 / E24 are replaced by 1 / w2, 1 / w3 (the module's reciprocal 806AF8D8
+  // comes out a hair low: 2.0 -> 0x7FFF a pixel, not 0x8000)
+  int32_t blk[20];
+  for (int k = 0; k < 20; ++k) blk[k] = int32_t(blkw[k]);
+  blk[4] = int32_t(((int64_t(1) << 40) / w2) - 1);
+  blk[13] = int32_t(((int64_t(1) << 40) / w3) - 1);
+  std::vector<int> digits;
+  {
+    char buf[16];
+    std::snprintf(buf, sizeof buf, "%u", number);
+    for (const char* c = buf; *c; ++c) digits.push_back(*c - '0');
+  }
+  const int cellw = int((int64_t(16) * w2) >> 16), cellh = int((int64_t(16) * w3) >> 16);
+  if (cellw <= 0 || cellh <= 0) return;
+  int x = Sext(e[0] >> 16, 16), y = Sext(e[0], 16);
+  if (e[14] == 1) {   // 806AF45A: centred (13 units a digit, 5 for a 1; half a cell high)
+    int units = 0;
+    for (int d : digits) units += d == 1 ? 5 : 13;
+    x -= int((int64_t(w2) * units) >> 17);
+    y -= w3 >> 13;
+  }
+  const float w4 = float(int32_t(e[4])), w5 = float(int32_t(e[5]));
+  const float zf = float(e[6]) / float(1 << 23);   // opacity per unit of glyph Z (Z << 24, x w6 >> 16 >> 1, 2.30)
+  // per digit the tex2 origin is stepped DB0 pixels along x (the advance before it); the stepped origin and steps are
+  // written back, so later digits step again (806AF520) - kept
+  int32_t U0 = blk[2], V0 = blk[3], e10[4] = {blk[8], blk[9], blk[10], blk[11]};
+  int db0 = 0;
+  // image resolution: 2 samples a game pixel for small cells (the content is smooth: a glyph texel spans 2+ pixels)
+  const int S = std::max(cellw, cellh) > 64 ? 1 : 2;
+  for (int d : digits) {
+    for (int k = 0; k < db0; ++k) {
+      U0 += e10[0] >> 8;
+      V0 += e10[1] >> 8;
+      e10[0] += e10[2];
+      e10[1] += e10[3];
+    }
+    uint32_t glyph[256] = {};
+    for (int k = 0; k < 256; ++k) Read(mem, e[10] + uint32_t(d) * 1024u + 4 * uint32_t(k), &glyph[k]);
+    Glyph g;
+    g.x = float(x);
+    g.y = float(y);
+    g.w = float(cellw);
+    g.h = float(cellh);
+    g.pw = cellw * S;
+    g.ph = cellh * S;
+    g.rgba.resize(size_t(g.pw) * size_t(g.ph));
+    for (int q = 0; q < g.ph; ++q) {
+      // the module's pixel j uses parameter j; an image pixel's centre is (q + 1/2) / S game pixels in
+      const float j = std::clamp((float(q) + 0.5f) / float(S) - 0.5f, 0.f, float(cellh - 1));
+      const float gu_row = float(blk[0]) + Steps(j, blk[12], blk[14]);
+      const float gv_row = float(blk[1]) + Steps(j, blk[13], blk[15]);
+      const float tu_row = float(U0) + Steps(j, blk[16], blk[18]);
+      const float tv_row = float(V0) + Steps(j, blk[17], blk[19]);
+      for (int p = 0; p < g.pw; ++p) {
+        const float i = std::clamp((float(p) + 0.5f) / float(S) - 0.5f, 0.f, float(cellw - 1));
+        float gs[4], ts[4];
+        Bilinear16(glyph, (gu_row + Steps(i, blk[4], blk[6])) / 65536.f, (gv_row + Steps(i, blk[5], blk[7])) / 65536.f,
+                   gs);
+        // the glyph's signed Cr / Cb (byte - 128, << 22) x w4 / w5 >> 20 move the texture lookup
+        const float tu = tu_row + Steps(i, e10[0], e10[2]) + w4 * (gs[1] - 128.f) * 4.f;
+        const float tv = tv_row + Steps(i, e10[1], e10[3]) + w5 * (gs[2] - 128.f) * 4.f;
+        Bilinear16(tex2, tu / 65536.f, tv / 65536.f, ts);
+        const float a = std::clamp(gs[3] * zf, 0.f, 1.f);
+        auto byte = [](float v) { return uint32_t(std::clamp(v, 0.f, 255.f) + 0.5f); };
+        const SDL_FColor c = Colour(byte(ts[0]) << 24 | byte(ts[1]) << 16 | byte(ts[2]) << 8 | 0xFF, 1.f);
+        g.rgba[size_t(q) * size_t(g.pw) + size_t(p)] = uint32_t(a * 255.f + 0.5f) << 24 |
+            uint32_t(c.r * a * 255.f + 0.5f) << 16 | uint32_t(c.g * a * 255.f + 0.5f) << 8 |
+            uint32_t(c.b * a * 255.f + 0.5f);
+      }
+    }
+    out->glyphs.push_back(std::move(g));
+    const int adv = int(((int64_t(d == 1 ? 0x40000 : 0xC0000) * w2) >> 16) >> 16);
+    x += adv;
+    db0 += adv;
+  }
+}
+
 }  // namespace
 
 uint32_t YccToXrgb(uint32_t ycc) {
@@ -178,6 +284,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
   out->items.clear();
   out->ops.clear();
   out->webs.clear();
+  out->glyphs.clear();
   out->complete = true;
   out->first_unknown = 0;
   for (size_t i = 0; i + 17 <= cap.entries.size(); i += 17) {
@@ -246,6 +353,14 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
         }
         break;
       }
+      case 0x0010000D: {   // glowing number
+        Op op{Op::kText};
+        op.first = uint32_t(out->glyphs.size());
+        Text(e, cap.mem, out);
+        op.count = uint32_t(out->glyphs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
+        break;
+      }
       case 0x000000FF: case 0x000000FE: case 0x003102FE:   // end of list; entries that draw nothing
         break;
       default: {
@@ -264,6 +379,8 @@ Renderer::~Renderer() {
   for (SDL_Texture* t : tex_)
     if (t) SDL_DestroyTexture(t);
   if (web_tex_) SDL_DestroyTexture(web_tex_);
+  for (SDL_Texture* t : glyph_tex_)
+    if (t) SDL_DestroyTexture(t);
 }
 
 void Renderer::Redraw(SDL_Renderer* ren, const SDL_FRect& dst) {
@@ -432,8 +549,34 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
         break;
       }
+      case Op::kText: {
+        // one texture per digit, filled when a new picture comes (in-between frames redraw the same picture)
+        const bool fresh = glyph_flip_ != pic.flip;
+        for (uint32_t k = 0; k < op.count; ++k) {
+          const uint32_t gi = op.first + k;
+          const Glyph& g = pic.glyphs[gi];
+          if (glyph_tex_.size() <= gi) glyph_tex_.resize(gi + 1, nullptr);
+          SDL_Texture*& t = glyph_tex_[gi];
+          float tw = 0, th = 0;
+          if (t) SDL_GetTextureSize(t, &tw, &th);
+          if (!t || int(tw) != g.pw || int(th) != g.ph) {
+            if (t) SDL_DestroyTexture(t);
+            t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, g.pw, g.ph);
+            if (!t) continue;
+            SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+            SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND_PREMULTIPLIED);
+            SDL_UpdateTexture(t, nullptr, g.rgba.data(), g.pw * 4);
+          } else if (fresh) {
+            SDL_UpdateTexture(t, nullptr, g.rgba.data(), g.pw * 4);
+          }
+          const SDL_FRect r{g.x * sx, g.y * sy, g.w * sx, g.h * sy};
+          SDL_RenderTexture(ren, t, nullptr, &r);
+        }
+        break;
+      }
     }
   }
+  glyph_flip_ = pic.flip;
   SDL_SetRenderTarget(ren, keep);
   SDL_SetTextureBlendMode(next, SDL_BLENDMODE_NONE);
   SDL_RenderTexture(ren, next, nullptr, &dst);

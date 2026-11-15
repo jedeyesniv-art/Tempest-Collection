@@ -11,6 +11,11 @@
 //            $800BACF0: 4 x (position y hi / x lo, signed half pixels about (180, 120); u hi / v lo, 1/512 texel))
 //            textured with the 16 x 16 texture at w0 (bilinear, wrapping; v scrolled by MPE0's job word / 2), blended
 //            out = T + (dest - T) v / 32;
+//   0010000D glowing number (806AF1E8; tools/t3k_textfit.py: mean error 0.4, the title's 3000 + the score): the
+//            decimal digits of the word at $800DC240 as 16 x 16 YCrCbZ glyphs (w10 + digit x 1 KB) scaled by w2 / w3 at
+//            w0 (centred if w14 = 1); per pixel the glyph's Cr / Cb displace a lookup into the 16 x 16 texture at w11
+//            (a quadratic mapping from the 20-word block at w12), blended toward it by glyph Z x w6. Drawn as one
+//            premultiplied RGBA image per digit, rebuilt per picture;
 //   000000FF end of list; 000000FE / 003102FE nothing drawn.
 // A picture holding any other type is not "complete": the emulated picture is shown instead.
 #pragma once
@@ -43,8 +48,15 @@ struct Web {
   uint32_t texture[256] = {};              // 16 x 16 YCrCbZ
 };
 
+// One glowing-number digit: the colour it blends toward and how strongly, as an image over its cell.
+struct Glyph {
+  float x = 0, y = 0, w = 0, h = 0;        // cell (game pixels)
+  int pw = 0, ph = 0;                      // image size
+  std::vector<uint32_t> rgba;              // premultiplied ARGB8888
+};
+
 struct Op {
-  enum Kind { kFill, kZoom, kSegs, kWeb } kind;
+  enum Kind { kFill, kZoom, kSegs, kWeb, kText } kind;
   float x = 0, y = 0, w = 0, h = 0;          // fill rectangle (game pixels)
   SDL_FColor colour{};                         // fill colour
   float cx = 0, cy = 0, zx = 1, zy = 1;        // zoom: centre (game pixels), zoom
@@ -59,6 +71,7 @@ struct Picture {
   std::vector<Item> items;
   std::vector<Op> ops;
   std::vector<Web> webs;          // kWeb ops: Op::first indexes this
+  std::vector<Glyph> glyphs;      // kText ops: Op::first / count index this
   bool complete = true;           // every entry type is one we draw
   uint32_t first_unknown = 0;     // (if not) the first type we don't draw
 };
@@ -93,8 +106,10 @@ class Renderer {
 
  private:
   void Resize(SDL_Renderer* ren, const SDL_FRect& dst);
-  SDL_Texture* tex_[2] = {nullptr, nullptr};
-  SDL_Texture* web_tex_ = nullptr;             // the web surface's 16 x 16 texture   // [cur_]: the last drawn picture; the other: the next one
+  SDL_Texture* tex_[2] = {nullptr, nullptr};   // [cur_]: the last drawn picture; the other: the next one
+  SDL_Texture* web_tex_ = nullptr;             // the web surface's 16 x 16 texture
+  std::vector<SDL_Texture*> glyph_tex_;        // kText images (uploaded once per picture)
+  uint32_t glyph_flip_ = 0xFFFFFFFFu;
   int cur_ = 0, w_ = 0, h_ = 0;
 };
 
