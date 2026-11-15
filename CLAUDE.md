@@ -134,7 +134,8 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
   + NUANCE_ENTRYDATA=1 (lists + data per picture), NUANCE_SKIPTYPE (what a type draws), NUANCE_NODRAW (cost).
 - Python models: tools/t3k_vecmodel.py, t3k_linefit.py, t3k_vecrender.py, t3k_zoomfit.py, t3k_webfit.py,
   t3k_census.py, t3k_interpcheck.py.
-- Next: the small types (PLAN.md step 2), then switch emulated drawing off for native pictures.
+- Next: TOOLS FIRST (PLAN.md "Native renderer status" step 0: save states, PCLOG upgrades, spanlib), then the small
+  types (step 2), then switch emulated drawing off for native pictures.
 - Pixel loads in the MPE modules: Y byte << 22, Cr / Cb signed (byte - 128) << 22, Z byte << 24. PCLOG inside a module:
   NUANCE_NOJIT=1 NUANCE_AOT_SKIP=<lib prefix covering every chunk-start module> (timeline slips: same-run data only).
 

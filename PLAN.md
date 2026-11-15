@@ -718,9 +718,22 @@ Done (each verified; details in the sections above): research (picture = display
 modules; cost without emulated drawing 3.3-3.6x less in play, ~6x in menus), vector shapes 00710001, fill 00000300,
 zoom feedback 00300004, web surface 0011000B, t3k.exe native view (F7) + interpolation (F6) + mixed-mode seeding, ground
 truth check (--nativecheck: 218 play pictures with those four types, mean error 3.8).
-Next, in order:
+Next, in order (owner 2026-11-15: tools first, then the work; estimate steps 2-4 ~5-8 sessions):
+0. TOOLS FIRST (next session starts here):
+   a. Before guessing an instruction's semantics (pixel load formats, mul_p / mul_sv shifts), read Nuance's own
+      implementation in third_party\NuanceResurrection (two wrong guesses cost a third of the 0010000D session).
+   b. t3k save states (retro_serialize in the Nuance core; also step 5's prerequisite): a play state so investigation
+      runs start in play, short, on one timeline even under NUANCE_NOJIT.
+   c. PCLOG upgrades: several pcs in one run, a picture / field window (logs reached 2.4 GB), pixel registers printed
+      decoded (Y / Cr / Cb / Z), NUANCE_AOT_SKIP matching every chunk-start module of a library range.
+   d. tools/t3k_spanlib.py: shared parsing of spanentry / span / ENTRYDATA logs + a model-vs-register checker, so each
+      type's fit script is only its model (refactor webfit / textfit onto it).
+   e. Per-type ground truth: error over the pixels that type wrote (from the span log), not the whole picture.
+   f. Annotated --disasm: labels for entry words w0-w15 ($20100030..), DMA helpers, local -> lib addresses, jump tables.
 1. DONE: 0010000D glowing number (section above).
-2. The small types: 00310309 / 00310209 (806A8990: object path, enemy parts), 0031020E (806AFA80), 00500005
+2. The small types (survey 2026-11-15, play fields 2300-2955, 217 pictures: 00310108 in 127 - tiny points;
+   00310309 in 126 - particle dots; 00310209 in 26 - enemy parts; 0031020E in 24 - particle clouds; 00500005 in 8 -
+   explosion rings; logs\t3k\gt\small_diff.png = what each draws, skip-run differences):: 00310309 / 00310209 (806A8990: object path, enemy parts), 0031020E (806AFA80), 00500005
    (806A7DC0: explosions), 00310010 (806A6E40: level-3 dot grid), 00310108 (806A5FB0: points; often draws nothing).
    Then play pictures are complete (check with --nativecheck WITHOUT T3K_NATIVE_FORCE).
 3. Switch the emulated drawing off for complete pictures (the speed gain). The core must decide before drawing (scan
