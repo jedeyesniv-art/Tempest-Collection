@@ -32,6 +32,9 @@ struct Core {
   void (*get_run_stats)(RunStats*);   // ours (llamasoft-nuon); null on another build
   void (*set_timing)(int, double);    // ours
   uint8_t* (*get_memory)(int, size_t*);   // ours
+  size_t (*serialize_size)();
+  bool (*serialize)(void*, size_t);
+  bool (*unserialize)(const void*, size_t);
 } g_core;
 
 retro_system_av_info g_av{};
@@ -212,6 +215,9 @@ bool Load(const std::string& core_dll, const std::string& disc, const std::strin
   Sym(g_core.get_run_stats, "nuance_get_run_stats");
   Sym(g_core.set_timing, "nuance_set_timing");
   Sym(g_core.get_memory, "nuance_get_memory");
+  Sym(g_core.serialize_size, "retro_serialize_size");
+  Sym(g_core.serialize, "retro_serialize");
+  Sym(g_core.unserialize, "retro_unserialize");
   g_system_dir = system_dir;
   g_save_dir = save_dir;
   if (!CreateGL(err)) return false;
@@ -258,6 +264,29 @@ std::vector<int16_t>& Audio() { return g_audio; }
 uint8_t* Memory(int which, size_t* size) {
   if (!g_core.get_memory) { if (size) *size = 0; return nullptr; }
   return g_core.get_memory(which, size);
+}
+
+bool SaveState(const std::string& path) {
+  if (!g_core.serialize_size || !g_core.serialize) return false;
+  const size_t n = g_core.serialize_size();
+  if (!n) return false;
+  std::vector<uint8_t> buf(n);
+  if (!g_core.serialize(buf.data(), n)) return false;
+  FILE* f = std::fopen(path.c_str(), "wb");
+  if (!f) return false;
+  const bool ok = std::fwrite(buf.data(), 1, n, f) == n;
+  return std::fclose(f) == 0 && ok;
+}
+
+bool LoadState(const std::string& path) {
+  if (!g_core.unserialize) return false;
+  FILE* f = std::fopen(path.c_str(), "rb");
+  if (!f) return false;
+  std::vector<uint8_t> buf;
+  uint8_t chunk[1 << 16];
+  for (size_t k; (k = std::fread(chunk, 1, sizeof chunk, f)) > 0;) buf.insert(buf.end(), chunk, chunk + k);
+  std::fclose(f);
+  return !buf.empty() && g_core.unserialize(buf.data(), buf.size());
 }
 
 void ReleaseContext() { SDL_GL_MakeCurrent(g_glwin, nullptr); }

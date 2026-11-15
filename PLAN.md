@@ -722,8 +722,21 @@ Next, in order (owner 2026-11-15: tools first, then the work; estimate steps 2-4
 0. TOOLS FIRST (next session starts here):
    a. Before guessing an instruction's semantics (pixel load formats, mul_p / mul_sv shifts), read Nuance's own
       implementation in third_party\NuanceResurrection (two wrong guesses cost a third of the 0010000D session).
-   b. t3k save states (retro_serialize in the Nuance core; also step 5's prerequisite): a play state so investigation
-      runs start in play, short, on one timeline even under NUANCE_NOJIT.
+   b. DONE (2026-11-15): t3k save states. Core (llamasoft-nuon 6f65735..): retro_serialize walks RAM (16 + 8 MB),
+      flash, BIOS heap, env, the host audio ring (its fill gates the audio interrupts: game-visible), MPE0-3 (registers,
+      control, local memory), video channels + what VidConfig derived, media callbacks, syscall waits, emulated time,
+      timer schedule, parked loops (src/savestate.h: one walk for save and load, section tags). On load every code
+      cache is flushed, instruction RAM re-hashed, AOT re-validated. 62 MB a state (MPE local memory arrays dominate
+      after RAM: trim for run-ahead). t3k --savestate=F:file (after field F) / --loadstate=F:file (load, continue at
+      F + 1 without emulating the fields before). tools/t3k_statediff.py: two states compared by section / field /
+      address. Properties: plain runs are deterministic (identical states); two loads of one state replay identically
+      (pictures + states through 50 fields); a load is NOT bit-identical to the uninterrupted run (a fresh process has
+      cold code caches, so interrupts land between different blocks: MPE3 rzi2 differs after one field, RAM after ~10)
+      - fine for investigations, revisit for run-ahead (same process, warm caches: maybe skip the flush). The first
+      picture after a load in a fresh process is drawn with stale GL texture state (two half-size copies), exact from
+      the next field. Play states: logs\t3k\states\play_f2700 (level 1 start), f2900 (level 1 play), f3000 (level 2,
+      green), f3150 (busier play), each with a .bmp. Payoff: the 0010000D register log from play_f2900 under NOJIT
+      takes 1.5 s / 5 MB (was 56 s / 2.4 GB from boot, and the slipped timeline).
    c. PCLOG upgrades: several pcs in one run, a picture / field window (logs reached 2.4 GB), pixel registers printed
       decoded (Y / Cr / Cb / Z), NUANCE_AOT_SKIP matching every chunk-start module of a library range.
    d. tools/t3k_spanlib.py: shared parsing of spanentry / span / ENTRYDATA logs + a model-vs-register checker, so each

@@ -392,7 +392,8 @@ int main(int argc, char** argv) {
   bool headless = false, novsync = false, from_launcher = false;
   int menu_test = 0, winshot_at = -1;
   int frames = -1;   // headless default 600; the window runs until closed unless given
-  std::vector<Shot> shots, memdumps, nativeshots;
+  std::vector<Shot> shots, memdumps, nativeshots, savestates;
+  Shot loadstate{-1, ""};   // --loadstate=F:file: continue from field F + 1
   int check_f0 = -1, check_f1 = -1;
   std::string check_dir;   // memdumps: --memdump=F:<prefix>
   std::vector<std::string> disasms;      // --disasm=F:mpe:hexaddr:count
@@ -451,6 +452,12 @@ int main(int argc, char** argv) {
       check_dir = fs::absolute(dir).string();
       fs::create_directories(check_dir);
     }
+    else if (a.rfind("--savestate=", 0) == 0 || a.rfind("--loadstate=", 0) == 0) {
+      const bool save = a.rfind("--savestate=", 0) == 0;
+      auto v = a.substr(12);
+      Shot s{std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)};
+      if (save) savestates.push_back(s); else loadstate = s;
+    }
     else if (a.rfind("--nativeshot=", 0) == 0) {
       auto v = val("--nativeshot="), c = v.substr(0, v.find(':'));
       nativeshots.push_back({std::atoi(c.c_str()), v.substr(v.find(':') + 1)});
@@ -475,6 +482,8 @@ int main(int argc, char** argv) {
   for (auto& s : nativeshots) s.path = fs::absolute(s.path).string();
   if (!winshot_file.empty()) winshot_file = fs::absolute(winshot_file).string();
   for (auto& s : memdumps) s.path = fs::absolute(s.path).string();
+  for (auto& s : savestates) s.path = fs::absolute(s.path).string();
+  if (!loadstate.path.empty()) loadstate.path = fs::absolute(loadstate.path).string();
   const std::string sample_out = std::getenv("T3K_SAMPLE") ? fs::absolute(std::getenv("T3K_SAMPLE")).string() : "";
 
   SetUnhandledExceptionFilter(CrashFilter);
@@ -611,7 +620,16 @@ int main(int argc, char** argv) {
   }
   if (headless) {
     if (frames < 0) frames = 600;
-    for (int f = 0; f < frames; ++f) {
+    int first = 0;
+    if (loadstate.frame >= 0) {   // field numbers carry on from where the state was saved
+      if (!nuon::LoadState(loadstate.path)) {
+        std::fprintf(stderr, "loadstate %s failed\n", loadstate.path.c_str());
+        return 1;
+      }
+      first = loadstate.frame + 1;
+      std::fprintf(stderr, "loadstate %s: continuing at field %d\n", loadstate.path.c_str(), first);
+    }
+    for (int f = first; f < frames; ++f) {
       {
         float sx = 0.f;
         for (auto& h : sticks)
@@ -796,6 +814,9 @@ int main(int argc, char** argv) {
         }
       for (auto& s : shots)
         if (s.frame == f && !WriteBmp(s.path, nuon::LastFrame())) std::fprintf(stderr, "shot %s failed\n", s.path.c_str());
+      for (auto& s : savestates)
+        if (s.frame == f)
+          std::fprintf(stderr, "savestate %d %s: %s\n", f, s.path.c_str(), nuon::SaveState(s.path) ? "ok" : "FAILED");
       perf.Frame(f, t0, t1, SDL_GetTicksNS());
     }
     if (sampler.joinable()) { sampling = false; sampler.join(); }

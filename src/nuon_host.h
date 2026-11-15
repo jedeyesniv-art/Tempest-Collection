@@ -83,5 +83,8 @@ bool EnableCapture(int mode);
 bool GetCapture(Capture* out);
 void ReleaseContext();
 void MakeContextCurrent();
+// Save states (core llamasoft-nuon retro_serialize: RAM, MPEs, BIOS / video / timer state; ~24 MB). Between frames.
+bool SaveState(const std::string& path);
+bool LoadState(const std::string& path);
 
 }  // namespace nuon
