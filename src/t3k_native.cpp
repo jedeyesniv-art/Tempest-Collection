@@ -358,7 +358,10 @@ void Dots(const uint32_t* e, const Mem& mem, Picture* out) {
 
 // --- 0031020E disc shapes (806AFA80 mode 2; tools/t3k_flowerfit.py) ---
 
-void Flower(const uint32_t* e, const Mem& mem, Picture* out) {
+// The disc template (806AFA80 mode 2 / 806A6E40 mode 0): grid = false: 0031020E at w0; true: one 00310010 grid point
+// (px, py, pz): start angle + (w1 << 8), last rotation (px + py) >> 12, the point added before the perspective, depth
+// from pz, size cap 30 px, centred at (192, 120).
+void FlowerAt(const uint32_t* e, const Mem& mem, Picture* out, bool grid, int32_t px, int32_t py, int32_t pz) {
   uint32_t hdr[4] = {}, pal[16] = {};
   for (int k = 0; k < 4; ++k) Read(mem, e[10] + 4 * uint32_t(k), &hdr[k]);
   for (int k = 0; k < 16; ++k) Read(mem, hdr[0] + 4 * uint32_t(k), &pal[k]);
@@ -368,14 +371,14 @@ void Flower(const uint32_t* e, const Mem& mem, Picture* out) {
   const int32_t step_b = m0 ? (1 << 16) / m0 : 0, step_a = n0 ? (1 << 16) / n0 : 0;
   const int32_t w1 = int32_t(e[1]);
   int32_t c3, s3;
-  SinCos((e[14] + 0x2000) & 0xFFFF, &c3, &s3);
+  SinCos(grid ? uint32_t((px + py) >> 12) & 0xFFFF : (e[14] + 0x2000) & 0xFFFF, &c3, &s3);
   for (int ri = 0; ri < 64; ++ri) {
     uint32_t rec = 0;
     if (!Read(mem, e[10] + 16 + 4 * uint32_t(ri), &rec)) break;
     const int32_t size_bits = int32_t((rec >> 8) & 0x7F);
     if (!size_bits) break;
     const int32_t r29 = size_bits << 16;
-    int32_t a = Mul(int32_t(((rec >> 24) & 0xFF) << 8), r16, 16);
+    int32_t a = Mul(int32_t(((rec >> 24) & 0xFF) << 8), r16, 16) + (grid ? w1 << 8 : 0);
     const int32_t r28 = Mul(Mul(Sext(rec >> 16, 8) << 10, w1, 16), int32_t(e[12]), 15);
     const int32_t inten = Mul(int32_t(((rec >> 4) & 15) << 13), S32(int64_t(0x100 - w1) << 21), 16);
     const SDL_FColor colour = Colour(pal[rec & 15] | 0xFF, 1.f);
@@ -388,16 +391,18 @@ void Flower(const uint32_t* e, const Mem& mem, Picture* out) {
       SinCos(uint32_t(b + (w1 << 6)) & 0xFFFF, &c2, &s2);
       const int32_t depth = Mul(S32(x), s2, 30);
       x = Mul(c2, S32(x), 30);
-      const int64_t xr = int64_t(Mul(S32(x), c3, 30)) + Mul(S32(y), S32(-int64_t(s3)), 30);
-      const int64_t yr = int64_t(Mul(S32(x), s3, 30)) + Mul(S32(y), c3, 30);
-      const double d = double(std::max<int64_t>(int64_t(int32_t(e[9])) + (int64_t(depth) << 2), 0xA0000));
+      int64_t xr = int64_t(Mul(S32(x), c3, 30)) + Mul(S32(y), S32(-int64_t(s3)), 30);
+      int64_t yr = int64_t(Mul(S32(x), s3, 30)) + Mul(S32(y), c3, 30);
+      if (grid) xr += px, yr += py;
+      const double d = double(std::max<int64_t>(int64_t(grid ? pz : int32_t(e[9])) + (int64_t(depth) << 2), 0xA0000));
       const int32_t k = int32_t(17592186044416.0 / d);   // 2^(28 + 16) / d
-      const double px = double(Mul(k, S32(xr), 19)) / 65536.0 + double(Sext(e[0] >> 16, 16));
-      const double py = double(Mul(k, S32(yr), 19)) / 65536.0 + double(Sext(e[0], 16));
-      const double size = double(std::min(Mul(r29, k, 19) + 0x10000, 0x80000)) / 65536.0;
+      const double ox = grid ? 192.0 : double(Sext(e[0] >> 16, 16)), oy = grid ? 120.0 : double(Sext(e[0], 16));
+      const double cxp = double(Mul(k, S32(xr), 19)) / 65536.0 + ox;
+      const double cyp = double(Mul(k, S32(yr), 19)) / 65536.0 + oy;
+      const double size = double(std::min(Mul(r29, k, 19) + 0x10000, grid ? 0x1E0000 : 0x80000)) / 65536.0;
       Blob bl;   // (the position is the disc's centre; columns / rows as the other disc routines)
-      bl.x = float(px + 0.5);
-      bl.y = float(py - 0.5);
+      bl.x = float(cxp + 0.5);
+      bl.y = float(cyp - 0.5);
       bl.r = float(size / 2.0);
       bl.colour = colour;
       bl.colour.a = std::clamp(float(inten) / 1073741824.f, 0.f, 1.f);
@@ -408,6 +413,56 @@ void Flower(const uint32_t* e, const Mem& mem, Picture* out) {
       if (--m > 0) continue;
       break;
     }
+  }
+}
+
+void Flower(const uint32_t* e, const Mem& mem, Picture* out) { FlowerAt(e, mem, out, false, 0, 0, 0); }
+
+// --- 00310010 disc grid (806A6E40 mode 0; tools/t3k_gridfit.py: the emulator's calls exactly) ---
+
+void Grid(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t rows[32] = {};
+  for (int k = 0; k < 32; ++k) Read(mem, e[11] + 4 * uint32_t(k), &rows[k]);
+  const int32_t w2 = int32_t(e[2]), w3 = int32_t(e[3]), w4 = int32_t(e[4]), w5 = int32_t(e[5]);
+  const int32_t d0 = w2 >> 18, d1 = Sext(e[2], 16), d2 = S32(int64_t(w4) << 3);   // point step growth
+  const int32_t e0 = w3 >> 18, e1 = Sext(e[3], 16), e2 = S32(int64_t(w5) << 3);   // row step growth
+  const int32_t sx0 = S32(int64_t(int32_t(e[13]) >> 16) << 8);                    // point step x at a row start
+  auto row = [&](uint32_t word, int32_t x, int32_t y, int32_t z) {
+    int32_t r12 = sx0, r13 = 0, r14 = 0;
+    uint32_t r15 = (word >> 15) | (word << 17);
+    const int32_t x0 = x, y0 = y, z0 = z;
+    const uint32_t r15_0 = r15;
+    for (int i = 0; i < 16; ++i) {
+      if (r15 & 1) FlowerAt(e, mem, out, true, x, y, z);
+      r15 = (r15 << 1) | (r15 >> 31);
+      x += r12; r12 += d0;
+      y += r13; r13 += d1;
+      z += r14; r14 += d2;
+    }
+    x = x0; y = y0; z = z0; r15 = r15_0;
+    r12 = -sx0; r13 = 0; r14 = 0;
+    for (int i = 0; i < 16; ++i) {
+      r14 -= d2; r12 -= d0; r13 -= d1;
+      x += r12; y += r13; z += r14;
+      r15 = (r15 >> 1) | (r15 << 31);
+      if (r15 & 1) FlowerAt(e, mem, out, true, x, y, z);
+    }
+  };
+  int32_t p[3] = {0, 0, int32_t(e[9])};
+  int32_t r20 = 0, r21 = S32(int64_t(Sext(e[13], 16)) << 8), r22 = 0;
+  const int32_t q[3] = {p[0], p[1], p[2]}, q20 = r20, q21 = r21, q22 = r22;
+  for (int i = 0; i < 16; ++i) {
+    row(rows[16 + i], p[0], p[1], p[2]);
+    p[2] += r22; r22 += e2;
+    p[0] += r20; r20 += e0;
+    p[1] += r21; r21 += e1;
+  }
+  p[0] = q[0]; p[1] = q[1]; p[2] = q[2];
+  r20 = -q20; r21 = -q21; r22 = -q22;
+  for (int i = 0; i < 16; ++i) {
+    r20 -= e0; r21 -= e1; r22 -= e2;
+    p[0] += r20; p[1] += r21; p[2] += r22;
+    row(rows[15 - i], p[0], p[1], p[2]);
   }
 }
 
@@ -499,6 +554,14 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
           out->webs.push_back(std::move(web));
           out->ops.push_back(op);
         }
+        break;
+      }
+      case 0x00310010: {   // disc grid
+        Op op{Op::kBlobs};
+        op.first = uint32_t(out->blobs.size());
+        Grid(e, cap.mem, out);
+        op.count = uint32_t(out->blobs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
         break;
       }
       case 0x0031020E: {   // disc shapes
