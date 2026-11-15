@@ -786,6 +786,23 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   yellow natively) and lines whose peak exceeds 1 (the bonus numbers: flat saturated bars) clip there, not per RGB
   channel: keep native pictures in YCrCb and convert with a final shader. Boot / title types (0000000F, 0031000E).
 
+### The hardware's picture rate, estimated from emulation (2026-11-15; owner: "what is the designed speed?")
+- The game moves per picture, so its speed is the picture rate the real Nuon reached. tools/t3k_hwspeed.py <perflogs>:
+  per picture the packets each MPE executed (RunStats), at one packet a cycle and 54 MHz, the busiest MPE's time ->
+  whole 60 Hz fields. The packet counts are real work: the same at flip_cap 1 / 2 / 3 (1.06-1.21M a picture).
+- Play (levels 1-2, an explosion; play_f2700 / f2880 / f3150): MPE0 ~1.06M, MPE1 ~1.15-1.24M (the busiest: the
+  pre-pass + its band), MPE2 ~1.0M, MPE3 (game logic) ~0.13M packets a picture -> 1.2-1.4 fields of compute -> every
+  picture 2 fields = **30 pictures/s** (a floor: memory stalls not counted). Warp / bonus screens: ~0.8M -> mostly
+  1 field, ~52-54 pictures/s.
+- Memory traffic (NUANCE_FBPROBE, level 1): ~106k pixels written + ~215k read (195k of them the zoom feedback's read
+  of the previous picture) = ~1.3 MB a picture. Even fully serialised at a few hundred MB/s that adds a few ms:
+  ~27 ms worst case against 33 ms for 2 fields. 20 pictures/s (3 fields) would need far bigger stalls.
+- So the estimate: the original ran play at **30 pictures/s** (flip_cap 2), probably dropping to 20 in the busiest
+  moments (the game would then have slowed down with them), 60-ish between levels. The owner plays at 2.5 (24) and
+  finds enemies "a little fast" - at odds with 30; the feel may come from the controls (the claw) or the hardware
+  was slower than this floor. Confirm with a 60 fps capture of a real player (count distinct pictures a second;
+  time a flipper's climb / the level-start zoom).
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,
