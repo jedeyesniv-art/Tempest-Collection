@@ -34,6 +34,9 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   Steam link for T4K). PLAN.md "Tempest Collection".
 
 ## Build / test
+Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
+-> dist\TempestCollection\ (TempestCollection.exe launcher, t2k / t3k / txk / t81 + cores + C++ runtime, system\ with the
+installed Vita firmware, game\ = the four games hard-linked, userdata\ = the owner's, all fullscreen; ~1.14 GB, never publish).
 Test build: powershell -ExecutionPolicy Bypass -File tools\package.ps1 -> dist\Tempest2000\ (Tempest2000.exe, the
 owner's .jag, userdata\settings.txt fullscreen = 1, README with Steam Deck steps) + dist\Tempest2000-test.zip. dist\ is not in git (the ROM is in it: never publish). Icon: tools/make_icon.py (an original claw ship) -> res/t2k.ico
 (exe, res/t2k.rc) + res/icon_rgba.h (window). userdata defaults to the exe's folder.
