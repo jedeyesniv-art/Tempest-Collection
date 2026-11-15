@@ -704,6 +704,28 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   806AF2E8..806AF6E8 overlap the routine); the emulated timeline then slips (picture 775 by field 2960, not 975),
   so compare registers with spans from the SAME run. The log is ~2.4 GB to field 2960.
 
+### The small types (2026-11-15, started)
+- Shared layout: the type word's low byte names the module (08 -> 806A5FB0, 09 -> 806A8990, 0E -> 806AFA80), the middle
+  byte (bits 8-14) the mode: a jump table at local $B80 (806A5FB0) / per module, dispatch at local $20300494. Find a
+  mode's handler with --pc 20300494 --interp <module range>: r0 at that pc = the target.
+- NUANCE_SPANLOG now covers MPE0-2 (NUANCE_SPANLOG_MPES mask, default 7; spanentry repeated when the MPE changes):
+  MPE0 alone missed every type drawn outside its bands.
+- 00310108 (806A5FB0 mode 1, handler 806A630A): draws only when w4 bit 0 is set - a 96-particle burst (LFSR 806A66D8
+  positions, colour lerped between $B60 / $B64 by depth, perspective size 2..24). In play w4 = 00240100: nothing, in
+  every logged play entry (500). Ported as "draws nothing" (bit set -> picture stays emulated).
+- 00310309 (806A8990 mode 3, handler 806A8B68): particles from a list of 4-word records at w12 (16 bytes each, ends
+  at x word $80000000): word 0 = x hi / y lo (signed), 1 = depth, 2 = colour (YCrCb), 3 = intensity hi / size lo
+  (hi 0 -> full intensity, size word as is). Projection as the point modules: depth clamped >= $400000, k from the
+  reciprocal 806A9566 of (depth + $800000) x $C000, position = ((x << 16) + camera x 8) x k >> 19 + (180.5, 120.5)
+  (camera words at local $BE4 / $BE8), size / intensity x k >> 19, size <= 30 px; drawn by the blob routine 806A9124:
+  centre = top-left + size / 2, R = size / 2, per pixel (integer corners) d^2 = dx^2 + dy^2, k = I x (1 - d^2 / R^2)
+  (I 2.30; $B30 = R^2, $B34 = 1 / R^2), skipped where d >= R, out = dest + (colour - dest) x k; the box is size + 2
+  wide, size + 1 high. Logged (logs\t3k\s309\pcs_span.txt, play_f3150, picture 1041): sprite calls at local
+  20300578 (r4 / r5 top-left 16.16, r6 size, r13 I) next to the records (pc 203004C2: v7 = the PREVIOUS record).
+  Next: the exact projection integers (read 806A9566, fit k on the logged pairs), the blob fit on spans
+  (--span 00310309 from play_f3150), port as GPU blobs (a radial-falloff quad: k = I (1 - d^2/R^2)), then
+  00310209 (same module, mode 2), 0031020E (806AFA80), 00500005 (806A7DC0).
+
 ### Stage 3 next: speed (the critical path - more rounds a field = faster, smoother game)
 - NUANCE_PROFILE=1 (220k rounds): each MPE call ~20 ns for only 3-5 packets (MPE0-2) and MPE3 85% single-packet
   calls (the packet hack): per-call overhead dominates, not the work. ~35% of a field outside the MPE calls (loop,

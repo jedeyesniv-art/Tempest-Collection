@@ -16,6 +16,7 @@
 //            w0 (centred if w14 = 1); per pixel the glyph's Cr / Cb displace a lookup into the 16 x 16 texture at w11
 //            (a quadratic mapping from the 20-word block at w12), blended toward it by glyph Z x w6. Drawn as one
 //            premultiplied RGBA image per digit, rebuilt per picture;
+//   00310108 (806A5FB0 mode 1) draws nothing unless w4 bit 0 is set (a particle burst: not ported, never seen in play);
 //   000000FF end of list; 000000FE / 003102FE nothing drawn.
 // A picture holding any other type is not "complete": the emulated picture is shown instead.
 #pragma once

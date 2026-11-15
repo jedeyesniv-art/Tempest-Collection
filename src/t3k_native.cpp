@@ -363,6 +363,12 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
       }
       case 0x000000FF: case 0x000000FE: case 0x003102FE:   // end of list; entries that draw nothing
         break;
+      case 0x00310108:   // 806A5FB0 mode 1 (806A630A): a 96-particle burst, drawn only when w4 bit 0 is set
+        if (e[4] & 1) {   // (never seen in play so far: not ported)
+          if (out->complete) out->first_unknown = e[15];
+          out->complete = false;
+        }
+        break;
       default: {
         // T3K_NATIVE_FORCE=1 (tests): types not done yet are left out instead of making the picture emulated
         static const bool force = std::getenv("T3K_NATIVE_FORCE") != nullptr;
