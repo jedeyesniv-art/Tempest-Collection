@@ -26,6 +26,8 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0 -or (Select-String -Path $log -Pattern "FAILED|error:" -Quiet)) {
         Write-Error "build failed: see $log"
     }
+    cmd /c "`"$repo\tools\build_t4k_helper.bat`" > `"$build\t4k_helper_build.log`" 2>&1"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Tempest 4000 helper build failed: see $build\t4k_helper_build.log" }
 }
 
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
@@ -51,7 +53,9 @@ $vsrc = Join-Path $build "system\vita3k"
 $vdst = Join-Path $dist "system\vita3k"
 if (-not (Test-Path (Join-Path $vsrc "vs0"))) { Write-Error "Vita firmware not installed yet: run build\txk.exe once" }
 New-Item -ItemType Directory -Force $vdst | Out-Null
-Get-ChildItem $vsrc | Where-Object { $_.Extension -ne ".pup" -and $_.Name -notin @("log", "cache") } |
+# Not storage_location.txt: it names the folder the core last used, and a core that finds another folder there MOVES
+# the data from it (a test run from dist\ once moved build\system\vita3k away). Without it the copy is a fresh start.
+Get-ChildItem $vsrc | Where-Object { $_.Extension -ne ".pup" -and $_.Name -notin @("log", "cache", "storage_location.txt") } |
     ForEach-Object { Copy-Item -Recurse $_.FullName (Join-Path $vdst $_.Name) }
 
 # The games (hard links: same disk, no second copy).
@@ -70,6 +74,32 @@ Get-ChildItem $txk -Recurse -File | ForEach-Object {
     New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
     New-Item -ItemType HardLink -Path $to -Target $_.FullName | Out-Null
 }
+
+# The Tempest 4000 helper (skips its video-mode dialog; goes into the Steam game's folder, see its README).
+$t4k = Join-Path $dist "Tempest 4000 helper"
+New-Item -ItemType Directory -Force $t4k | Out-Null
+foreach ($f in @("xinput1_4.dll", "xinput1_3.dll")) { Copy-Item (Join-Path $build "t4k\$f") $t4k }
+@"
+TEMPEST 4000 HELPER - straight into the game at the screen's own resolution and refresh rate
+==========================================================================================
+
+Tempest 4000 (Steam) asks for a video mode every time it starts. With these two files next to its program it skips
+that window and starts at the desktop's current resolution and refresh rate (also on screens whose own mode the
+game leaves off its list, e.g. 4K at 120 Hz). Hold Shift while it starts to get the window back (e.g. for
+Configure Keyboard). It writes a small log, t4k_autostart.log, next to the game's program.
+
+INSTALL: copy xinput1_4.dll and xinput1_3.dll into BOTH of the game's folders:
+  <Steam library>\steamapps\common\Tempest 4000\Win10\
+  <Steam library>\steamapps\common\Tempest 4000\Win7-8\
+  (Steam: right-click Tempest 4000 > Manage > Browse local files.)
+  On the Steam Deck the folder is ~/.local/share/Steam/steamapps/common/Tempest 4000/ (or on the SD card's
+  steamapps/common), and Proton needs the game to load these files instead of its own: in Steam, Tempest 4000 >
+  Properties > General > Launch options:
+      WINEDLLOVERRIDES="xinput1_3,xinput1_4=n,b" %command%
+
+UNINSTALL: delete the two files (and the launch option). A Steam "verify files" leaves them alone (they are not
+the game's files); a game update does too.
+"@ | Set-Content -Encoding ascii (Join-Path $t4k "README.txt")
 
 # The owner's userdata (settings, T2K EEPROM, save states, TxK saves), every program set to start fullscreen.
 Get-ChildItem (Join-Path $build "userdata") | Where-Object { $_.Name -notlike "*.bak" } |
@@ -91,7 +121,8 @@ when you quit (Back / View on the pad opens a game's settings menu, which has "R
   TEMPEST 2000 (Jaguar)       Virtual Jaguar      game\Tempest 2000 (1994).jag
   TEMPEST 3000 (Nuon)         Nuance              game\Tempest 3000.iso
   TxK (PS Vita)               Vita3K              game\PCSB00494\  (firmware already installed in system\vita3k)
-  TEMPEST 4000                opens Steam (if it is installed there)
+  TEMPEST 4000                opens Steam (if it is installed there); "Tempest 4000 helper\" skips its
+                              video-mode window and starts at the screen's own mode (see its README)
 
 Settings, saves and save states live in userdata\. This folder is a private copy: do not share it.
 

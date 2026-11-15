@@ -192,6 +192,17 @@ Tooling pitfalls (cost time today)
 - From bash give the exe forward-slash paths; check file times when a fix "shows no change" (stale screenshots).
 - Headless runs keep only the LAST --savestate; window runs over ~100 s need the timeout raised.
 
+## Lessons (2026-11-15)
+- Vita3K core: system\vita3k\storage_location.txt names the folder the core last used; a core started with another
+  system folder MOVES the data from there. A copied system\vita3k must not carry that file (package_collection.ps1
+  leaves it out) - a test run from dist\ once moved build\system\vita3k away (reinstalled from vita_firmware\).
+- Tempest 4000 (Steam 688140, 32-bit, DXGI): its start-up video-mode dialog (resource 130) always runs and its
+  mode list keeps only the first 256 DXGI modes (no 4K @ 120 on a big monitor). src\t4k\xinput_proxy.cpp
+  (tools\build_t4k_helper.bat -> build\t4k\xinput1_4.dll / xinput1_3.dll, next to Win10\ / Win7-8\
+  Tempest4000.exe; Steam runs Win7-8 here) hooks DialogBoxParamW, picks the desktop mode, rewrites the chosen
+  entry of the game's mode table (found by matching the whole list) to the desktop mode, presses Start Game during
+  WM_INITDIALOG. Verified: 3840x2160 @ 120 full screen. Deck: WINEDLLOVERRIDES="xinput1_3,xinput1_4=n,b" %command%.
+
 ## Lessons (2026-11-09)
 - From bash, give the exe forward-slash paths (logs/x.bmp): a quoted backslash scratchpad path silently failed to
   write AND to delete, so I re-read stale screenshots for three rounds. Check file times when a fix shows no change.
