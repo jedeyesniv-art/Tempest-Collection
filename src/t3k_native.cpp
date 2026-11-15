@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace t3knative {
 namespace {
@@ -271,6 +272,36 @@ void Text(const uint32_t* e, const Mem& mem, Picture* out) {
   }
 }
 
+// --- 00310309 particles (806A8990 mode 3; tools/t3k_partfit.py) ---
+
+void Particles(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t cam[3] = {};
+  for (int k = 0; k < 3; ++k) Read(mem, 0x800DAD80u + 4 * uint32_t(k), &cam[k]);
+  const double camy = double(int32_t(cam[0])), camx = double(int32_t(cam[1]));
+  uint32_t a = e[12];
+  for (int n = 0; n < 4096; ++n, a += 16) {
+    uint32_t w[4];
+    if (!Read(mem, a, &w[0]) || w[0] == 0x80000000u) break;
+    for (int k = 1; k < 4; ++k) Read(mem, a + 4 * uint32_t(k), &w[k]);
+    const double d = double(std::max<uint32_t>(w[1] & 0x7FFFFFFFu, 0x400000u));
+    const double kk = 0.75 * 17592186044416.0 / (d + 8388608.0);   // 0.75 x 2^44 / (depth + $800000)
+    const double X = double(Sext(w[0] >> 16, 16)) * 65536.0 + camx * 8.0;
+    const double Y = double(Sext(w[0], 16)) * 65536.0 + camy * 8.0;
+    const uint32_t hi = w[3] >> 16, lo = w[3] & 0xFFFF;
+    const double size = std::min(double(lo) * kk / 524288.0, 30.0);
+    const double I = hi ? double(hi) * 65536.0 * kk / 524288.0 / 1073741824.0 : double(0x3FFF0000) / 1073741824.0;
+    if (size <= 0.0) continue;
+    Blob b;
+    // the module evaluates pixel p at its corner p: our centres sit half a pixel on
+    b.x = float(X * kk / 524288.0 / 65536.0 + 180.5 + 0.5);
+    b.y = float(Y * kk / 524288.0 / 65536.0 + 120.5 + 0.5);
+    b.r = float(size / 2.0);
+    b.colour = Colour(w[2] | 0xFF, 1.f);
+    b.colour.a = std::clamp(float(I), 0.f, 1.f);
+    out->blobs.push_back(b);
+  }
+}
+
 }  // namespace
 
 uint32_t YccToXrgb(uint32_t ycc) {
@@ -285,10 +316,18 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
   out->ops.clear();
   out->webs.clear();
   out->glyphs.clear();
+  out->blobs.clear();
   out->complete = true;
   out->first_unknown = 0;
+  // tests (T3K_NATIVE_FORCE=1 with NUANCE_ONLYTYPES=<types>): draw only the types the emulator draws too
+  static const char* const only = std::getenv("T3K_NATIVE_FORCE") ? std::getenv("NUANCE_ONLYTYPES") : nullptr;
   for (size_t i = 0; i + 17 <= cap.entries.size(); i += 17) {
     const uint32_t* e = &cap.entries[i + 1];
+    if (only) {
+      char t[12];
+      std::snprintf(t, sizeof t, "%08X", e[15]);
+      if (!std::strstr(only, t)) continue;
+    }
     switch (e[15]) {
       case 0x00710001: {   // vector shape
         const uint32_t first = uint32_t(out->segs.size());
@@ -353,6 +392,14 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
         }
         break;
       }
+      case 0x00310309: {   // particles
+        Op op{Op::kBlobs};
+        op.first = uint32_t(out->blobs.size());
+        Particles(e, cap.mem, out);
+        op.count = uint32_t(out->blobs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
+        break;
+      }
       case 0x0010000D: {   // glowing number
         Op op{Op::kText};
         op.first = uint32_t(out->glyphs.size());
@@ -387,6 +434,7 @@ Renderer::~Renderer() {
   if (web_tex_) SDL_DestroyTexture(web_tex_);
   for (SDL_Texture* t : glyph_tex_)
     if (t) SDL_DestroyTexture(t);
+  if (disc_tex_) SDL_DestroyTexture(disc_tex_);
 }
 
 void Renderer::Redraw(SDL_Renderer* ren, const SDL_FRect& dst) {
@@ -553,6 +601,35 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_WRAP, SDL_TEXTURE_ADDRESS_WRAP);
         SDL_RenderGeometry(ren, web_tex_, v.data(), int(v.size()), nullptr, 0);
         SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
+        break;
+      }
+      case Op::kBlobs: {
+        // each particle a quad over its disc, textured alpha = 1 - r^2 (white), vertex colour = the particle colour
+        // with alpha = its strength: BLEND gives dest + (colour - dest) x I x (1 - d^2 / R^2)
+        if (!disc_tex_) {
+          constexpr int N = 64;
+          std::vector<uint32_t> px(N * N);
+          for (int y = 0; y < N; ++y)
+            for (int x = 0; x < N; ++x) {
+              const float u = (float(x) + 0.5f) / N * 2.f - 1.f, v = (float(y) + 0.5f) / N * 2.f - 1.f;
+              const float k = std::max(0.f, 1.f - (u * u + v * v));
+              px[size_t(y) * N + size_t(x)] = uint32_t(k * 255.f + 0.5f) << 24 | 0xFFFFFF;
+            }
+          disc_tex_ = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, N, N);
+          SDL_UpdateTexture(disc_tex_, nullptr, px.data(), N * 4);
+          SDL_SetTextureScaleMode(disc_tex_, SDL_SCALEMODE_LINEAR);
+          SDL_SetTextureBlendMode(disc_tex_, SDL_BLENDMODE_BLEND);
+        }
+        std::vector<SDL_Vertex> v;
+        v.reserve(size_t(op.count) * 6);
+        for (uint32_t k = 0; k < op.count; ++k) {
+          const Blob& b = pic.blobs[op.first + k];
+          const float x0 = (b.x - b.r) * sx, x1 = (b.x + b.r) * sx, y0 = (b.y - b.r) * sy, y1 = (b.y + b.r) * sy;
+          const SDL_Vertex a{{x0, y0}, b.colour, {0, 0}}, bb{{x1, y0}, b.colour, {1, 0}};
+          const SDL_Vertex c{{x1, y1}, b.colour, {1, 1}}, d{{x0, y1}, b.colour, {0, 1}};
+          v.insert(v.end(), {a, bb, c, a, c, d});
+        }
+        SDL_RenderGeometry(ren, disc_tex_, v.data(), int(v.size()), nullptr, 0);
         break;
       }
       case Op::kText: {

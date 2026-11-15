@@ -16,6 +16,9 @@
 //            w0 (centred if w14 = 1); per pixel the glyph's Cr / Cb displace a lookup into the 16 x 16 texture at w11
 //            (a quadratic mapping from the 20-word block at w12), blended toward it by glyph Z x w6. Drawn as one
 //            premultiplied RGBA image per digit, rebuilt per picture;
+//   00310309 particles (806A8990 mode 3, 806A8B68; tools/t3k_partfit.py): 4-word records at w12 projected as the point
+//            modules (k = 0.75 x 2^44 / (max(depth, $400000) + $800000), camera at $800DAD80), each a soft disc
+//            (806A9124): dest + (colour - dest) x I x (1 - d^2 / R^2), R = size / 2 (size <= 30 px);
 //   00310108 (806A5FB0 mode 1) draws nothing unless w4 bit 0 is set (a particle burst: not ported, never seen in play);
 //   000000FF end of list; 000000FE / 003102FE nothing drawn.
 // A picture holding any other type is not "complete": the emulated picture is shown instead.
@@ -56,8 +59,14 @@ struct Glyph {
   std::vector<uint32_t> rgba;              // premultiplied ARGB8888
 };
 
+// One soft disc (particle): centre and radius in game pixels, colour, peak strength.
+struct Blob {
+  float x = 0, y = 0, r = 0;
+  SDL_FColor colour{};   // a = the peak strength I
+};
+
 struct Op {
-  enum Kind { kFill, kZoom, kSegs, kWeb, kText } kind;
+  enum Kind { kFill, kZoom, kSegs, kWeb, kText, kBlobs } kind;
   float x = 0, y = 0, w = 0, h = 0;          // fill rectangle (game pixels)
   SDL_FColor colour{};                         // fill colour
   float cx = 0, cy = 0, zx = 1, zy = 1;        // zoom: centre (game pixels), zoom
@@ -73,6 +82,7 @@ struct Picture {
   std::vector<Op> ops;
   std::vector<Web> webs;          // kWeb ops: Op::first indexes this
   std::vector<Glyph> glyphs;      // kText ops: Op::first / count index this
+  std::vector<Blob> blobs;        // kBlobs ops: Op::first / count index this
   bool complete = true;           // every entry type is one we draw
   uint32_t first_unknown = 0;     // (if not) the first type we don't draw
 };
@@ -111,6 +121,7 @@ class Renderer {
   SDL_Texture* web_tex_ = nullptr;             // the web surface's 16 x 16 texture
   std::vector<SDL_Texture*> glyph_tex_;        // kText images (uploaded once per picture)
   uint32_t glyph_flip_ = 0xFFFFFFFFu;
+  SDL_Texture* disc_tex_ = nullptr;            // kBlobs: alpha = 1 - r^2 over the unit disc
   int cur_ = 0, w_ = 0, h_ = 0;
 };
 
