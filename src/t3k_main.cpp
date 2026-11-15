@@ -7,6 +7,10 @@
 //   --timing=emulated|real --rounds=N     override settings timing / nuon_rounds
 //   --hires[=0|1]                         override settings high_res (render at 720x480)
 //   --shot=F:<file.bmp>                   save the picture after frame F (repeatable)
+//   --nativecheck=F0:F1:<dir>              headless: each game picture shown in fields F0..F1 drawn natively at
+//                                         360x240 on the emulated previous picture, against that picture's own
+//                                         frame buffer (ground truth): mean error per picture, images in <dir>.
+//                                         With NUANCE_ONLYTYPES=<types> the emulator draws only those types too.
 //   --nativeshot=F:<file.bmp>             headless: the native renderer's picture after frame F, 1440x1080 (one
 //                                         feedback step per game picture; emulated pictures where it can't yet)
 //   --press=F:<btn>[:len]                 hold a RetroPad button from frame F (default 6 frames)
@@ -388,7 +392,9 @@ int main(int argc, char** argv) {
   bool headless = false, novsync = false, from_launcher = false;
   int menu_test = 0, winshot_at = -1;
   int frames = -1;   // headless default 600; the window runs until closed unless given
-  std::vector<Shot> shots, memdumps, nativeshots;   // memdumps: --memdump=F:<prefix>
+  std::vector<Shot> shots, memdumps, nativeshots;
+  int check_f0 = -1, check_f1 = -1;
+  std::string check_dir;   // memdumps: --memdump=F:<prefix>
   std::vector<std::string> disasms;      // --disasm=F:mpe:hexaddr:count
   std::vector<std::string> aotdumps;     // --aotdump=F:mpe:hexsrc:len:hexbase:file
   std::vector<Press> presses;
@@ -438,6 +444,13 @@ int main(int argc, char** argv) {
       memdumps.push_back({std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)});
     }
     else if (a.rfind("--userdata=", 0) == 0) userdata = val("--userdata=");
+    else if (a.rfind("--nativecheck=", 0) == 0) {
+      auto v = val("--nativecheck=");
+      char dir[512] = {};
+      std::sscanf(v.c_str(), "%d:%d:%511[^\n]", &check_f0, &check_f1, dir);
+      check_dir = fs::absolute(dir).string();
+      fs::create_directories(check_dir);
+    }
     else if (a.rfind("--nativeshot=", 0) == 0) {
       auto v = val("--nativeshot="), c = v.substr(0, v.find(':'));
       nativeshots.push_back({std::atoi(c.c_str()), v.substr(v.find(':') + 1)});
@@ -501,7 +514,7 @@ int main(int argc, char** argv) {
   if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
   double flip_cap = settings::Num("flip_cap", 3);   // (the settings menu can change it)
   nuon::SetFlipCap(flip_cap);
-  nuon::EnableCapture(true);   // the native renderer's input (t3k_native)
+  nuon::EnableCapture(check_f0 >= 0 ? 2 : 1);   // the native renderer's input (t3k_native); 2: + ground truth
   // T3K_PAD_PROPS=<hex>: extra controller properties reported to the game (tests).
   if (const char* pp = std::getenv("T3K_PAD_PROPS")) nuon::SetPadProperties(uint32_t(std::strtoul(pp, nullptr, 16)));
   std::fprintf(stderr, "timing: %s\n",
@@ -585,7 +598,7 @@ int main(int argc, char** argv) {
   nuon::Frame nprev_frame;
   int ncomplete = 0, nincomplete = 0;
   const SDL_FRect ndst{0, 0, 1440, 1080};
-  if (headless && !nativeshots.empty()) {
+  if (headless && (!nativeshots.empty() || check_f0 >= 0)) {
     nwin = SDL_CreateWindow("t3k native", 64, 64, SDL_WINDOW_HIDDEN);
     nren = nwin ? SDL_CreateRenderer(nwin, nullptr) : nullptr;
     if (nren) {
@@ -666,6 +679,79 @@ int main(int argc, char** argv) {
           SDL_SetRenderTarget(nren, nullptr);
           nprev_frame = nuon::LastFrame();   // this picture, emulated (T3K_NATIVE_RESEED: the next one builds on it)
         }
+        // --nativecheck: this picture natively at 360x240 on the emulated previous one vs its own frame buffer.
+        static uint32_t check_flip = 0;
+        static std::vector<uint32_t> check_prev;   // the previous picture's ground truth (XRGB)
+        static t3knative::Renderer checker;
+        static SDL_Texture *ck_out = nullptr, *ck_seed = nullptr;
+        static double ck_sum = 0;
+        static int ck_n = 0, ck_saved = 0;
+        if (check_f0 >= 0 && ncap.flip != check_flip && !ncap.frame.empty()) {
+          check_flip = ncap.flip;
+          std::vector<uint32_t> truth(ncap.frame.size());
+          for (size_t i = 0; i < truth.size(); ++i) truth[i] = t3knative::YccToXrgb(ncap.frame[i]);
+          t3knative::Picture pic;
+          t3knative::BuildPicture(ncap, &pic);
+          if (f >= check_f0 && f <= check_f1 && pic.complete && !check_prev.empty()) {
+            if (!ck_out) {
+              ck_out = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, 360, 240);
+              ck_seed = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 360, 240);
+            }
+            const SDL_FRect d360{0, 0, 360, 240};
+            SDL_UpdateTexture(ck_seed, nullptr, check_prev.data(), 360 * 4);
+            SDL_SetRenderTarget(nren, ck_out);
+            checker.Seed(nren, ck_seed, d360);
+            checker.Draw(nren, pic, pic.segs, d360, 1.f);
+            SDL_Surface* sf = SDL_RenderReadPixels(nren, nullptr);
+            SDL_SetRenderTarget(nren, nullptr);
+            if (sf) {
+              SDL_Surface* cv = SDL_ConvertSurface(sf, SDL_PIXELFORMAT_XRGB8888);
+              double sum = 0;
+              int big = 0;
+              std::vector<uint32_t> diff(360 * 240);
+              for (int y = 0; y < 240; ++y)
+                for (int x = 0; x < 360; ++x) {
+                  const uint32_t a = truth[size_t(y) * 360 + x];
+                  const uint32_t b = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(cv->pixels) + y * cv->pitch)[x];
+                  int e = 0;
+                  for (int k = 0; k < 24; k += 8) e += std::abs(int((a >> k) & 0xFF) - int((b >> k) & 0xFF));
+                  sum += e / 3.0;
+                  big += e / 3 > 24;
+                  const uint32_t g = uint32_t(std::min(255, e));
+                  diff[size_t(y) * 360 + x] = g << 16 | g << 8 | g;
+                }
+              const double mean = sum / (360.0 * 240.0);
+              ck_sum += mean;
+              ++ck_n;
+              std::printf("check field %d flip %u: mean error %.2f, %.1f%% of pixels off by > 24\n", f, pic.flip, mean,
+                          100.0 * big / (360.0 * 240.0));
+              // images: truth | native | difference, for the first pictures and then every 50th
+              if (ck_saved < 6 || ck_n % 50 == 0) {
+                ++ck_saved;
+                SDL_Surface* row = SDL_CreateSurface(360 * 3 + 16, 240, SDL_PIXELFORMAT_XRGB8888);
+                SDL_FillSurfaceRect(row, nullptr, 0);
+                for (int y = 0; y < 240; ++y) {
+                  uint32_t* r = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(row->pixels) + y * row->pitch);
+                  const uint32_t* b = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(cv->pixels) + y * cv->pitch);
+                  for (int x = 0; x < 360; ++x) {
+                    r[x] = truth[size_t(y) * 360 + x];
+                    r[368 + x] = b[x];
+                    r[736 + x] = diff[size_t(y) * 360 + x];
+                  }
+                }
+                SDL_SaveBMP(row, (check_dir + "/check_f" + std::to_string(f) + ".bmp").c_str());
+                SDL_DestroySurface(row);
+              }
+              SDL_DestroySurface(cv);
+              SDL_DestroySurface(sf);
+            }
+          } else if (f >= check_f0 && f <= check_f1 && !pic.complete) {
+            std::printf("check field %d flip %u: not complete (type %08X)\n", f, pic.flip, pic.first_unknown);
+          }
+          check_prev = std::move(truth);
+        }
+        if (check_f0 >= 0 && f == check_f1 && ck_n)
+          std::printf("check: %d pictures, mean error %.2f\n", ck_n, ck_sum / ck_n);
         for (auto& s : nativeshots)
           if (s.frame == f) {
             SDL_SetRenderTarget(nren, nout);

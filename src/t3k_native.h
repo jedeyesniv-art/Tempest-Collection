@@ -7,6 +7,10 @@
 //   00000300 fill (806A3108): rectangle w0 (x, y) / w1 (w, h) in colour w2;
 //   00300004 zoom feedback (806A5280; tools/t3k_zoomfit.py): the previous picture sampled at
 //            centre + R(-angle) (p - centre) / zoom, x the fade (w7 >> 16 as 2.14);
+//   0011000B web surface (806AD2B0; tools/t3k_webfit.py: mean error 1.4 grey levels): per lane a quad (records at
+//            $800BACF0: 4 x (position y hi / x lo, signed half pixels about (180, 120); u hi / v lo, 1/512 texel))
+//            textured with the 16 x 16 texture at w0 (bilinear, wrapping; v scrolled by MPE0's job word / 2), blended
+//            out = T + (dest - T) v / 32;
 //   000000FF end of list; 000000FE / 003102FE nothing drawn.
 // A picture holding any other type is not "complete": the emulated picture is shown instead.
 #pragma once
@@ -32,8 +36,15 @@ struct Item {
   uint32_t first, count; // its segments in Picture::segs
 };
 
+// The web surface's quads and texture (one per picture).
+struct Web {
+  struct Vertex { float x, y, u, v; };     // game pixels; texels
+  std::vector<Vertex> quads;               // 4 per lane
+  uint32_t texture[256] = {};              // 16 x 16 YCrCbZ
+};
+
 struct Op {
-  enum Kind { kFill, kZoom, kSegs } kind;
+  enum Kind { kFill, kZoom, kSegs, kWeb } kind;
   float x = 0, y = 0, w = 0, h = 0;          // fill rectangle (game pixels)
   SDL_FColor colour{};                         // fill colour
   float cx = 0, cy = 0, zx = 1, zy = 1;        // zoom: centre (game pixels), zoom
@@ -47,10 +58,14 @@ struct Picture {
   std::vector<Seg> segs;
   std::vector<Item> items;
   std::vector<Op> ops;
+  std::vector<Web> webs;          // kWeb ops: Op::first indexes this
   bool complete = true;           // every entry type is one we draw
   uint32_t first_unknown = 0;     // (if not) the first type we don't draw
 };
 using Vectors = Picture;          // (the vector layer: Picture::segs)
+
+// A YCrCb(A) frame buffer word -> XRGB8888 as Nuance shows it (BT.601, video range).
+uint32_t YccToXrgb(uint32_t ycc);
 
 // Build a captured picture.
 void BuildPicture(const nuon::Capture& cap, Picture* out);
@@ -78,7 +93,8 @@ class Renderer {
 
  private:
   void Resize(SDL_Renderer* ren, const SDL_FRect& dst);
-  SDL_Texture* tex_[2] = {nullptr, nullptr};   // [cur_]: the last drawn picture; the other: the next one
+  SDL_Texture* tex_[2] = {nullptr, nullptr};
+  SDL_Texture* web_tex_ = nullptr;             // the web surface's 16 x 16 texture   // [cur_]: the last drawn picture; the other: the next one
   int cur_ = 0, w_ = 0, h_ = 0;
 };
 

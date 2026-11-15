@@ -318,11 +318,11 @@ bool GetRunStats(RunStats* out) {
   return true;
 }
 
-bool EnableCapture(bool on) {
+bool EnableCapture(int mode) {
   using Fn = void (*)(int);
   auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "nuance_capture_enable"));
   if (!f) return false;
-  f(on ? 1 : 0);
+  f(mode);
   return true;
 }
 
@@ -339,6 +339,12 @@ bool GetCapture(Capture* out) {
   out->mem.clear();
   out->mem.reserve(nm / 2);
   for (size_t i = 0; i + 1 < nm; i += 2) out->mem[m[i]] = m[i + 1];
+  using FrameFn = int (*)(const uint32_t**, int*, int*);
+  static FrameFn ff = reinterpret_cast<FrameFn>(::GetProcAddress(g_core.dll, "nuance_capture_frame"));
+  const uint32_t* px = nullptr;
+  int fw = 0, fh = 0;
+  if (ff && ff(&px, &fw, &fh) && px) out->frame.assign(px, px + size_t(fw) * size_t(fh));
+  else out->frame.clear();
   return true;
 }
 

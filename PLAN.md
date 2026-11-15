@@ -656,6 +656,26 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   one step diff 1.1-1.3 (720x480 mean abs), no shift (after removing a wrong +1/2 texel: floor(S) + 1/2 averages
   to S); chained 5.0 after 5 steps, 14.5 after 25 (bilinear at 4x vs nearest at 1x, and the brightening clips per
   RGB channel instead of in YCrCb -> slightly greyer letters; a YCrCb fade shader would fix it).
+- Web surface 0011000B (806AD2B0; tools/t3k_webfit.py, mean error 1.4-1.5 grey levels in Y / Cr / Cb): per lane a quad
+  (records at $800BACF0, 8 words: 4 x (position y hi / x lo, signed half pixels about (180, 120); uv u hi / v lo,
+  1/512 texel)) textured with the 16 x 16 texture at w0 (bilinear; texel i at coordinate i), u = 4 texels a lane,
+  v 16 -> 32 outer -> inner, sampled at v + job / 2 (MPE0's job word at local $20100000, +1 a picture: the scroll),
+  blended out = T + (dest - T) v / 32, interpolated by EDGE WALKING (per scanline along the left / right edges, then
+  across) - the GPU version gives an 8 x 8 grid per quad the module's own (u, v). Lessons: the position word is y hi /
+  x lo (as vector vertices) - swapped, the lanes come out reversed and look "mirrored"; signed per-pixel steps.
+  Unused so far: per-lane colour pulses (triangle waves of a per-lane table + job x 128 -> $20100BC0 / A34 / A38) and a
+  per-lane uvctl switch ($004CC010 vs $104CC010, lane mask from $800AF7B0): the surface pixels match without them.
+  The texture is rewritten every picture (a lightsynth-style generator elsewhere): an endgame add-on would run it
+  natively at display rate and higher resolution (owner 2026-11-15: later, renderer first).
+- Ground truth (2026-11-15; owner: stuck comparing screenshots - build a measurement): nuance_capture_enable(2) keeps,
+  at each flip, the frame buffer that picture was drawn into (the buffer of MPE0's last pixel writes; CaptureBiLinear),
+  nuance_capture_frame(). NUANCE_ONLYTYPES=<types> makes the emulated drawing pass draw only those (MPE0 / MPE2
+  always; MPE1 from its list-head fetch to the list end). t3k --nativecheck=F0:F1:<dir> (headless): every complete
+  picture drawn natively at 360x240 on the previous picture's ground truth, against its own: mean error per picture
+  and truth | native | difference images. Screenshot comparisons (--shot vs --nativeshot) were not reliably the same
+  picture: a scrolling texture then looks like a model error.
+  First result (ONLYTYPES vectors + fill + web + zoom, T3K_NATIVE_FORCE=1, fields 2300-2955): 218 pictures, mean
+  error 3.8 (level start 0.7-1.6; play ~2.8, 4% of pixels > 24 off: line edges at 360x240, a few web patches).
 - Complete pictures today: menu transitions (zoom + vectors) and some menu screens (fill + vectors). Play still needs
   0011000B (web surface), 0010000D (glowing text), 00310309 / 00310209 / 0031020E / 00500005 / 00310010 / 00310108
   (small objects, particles).

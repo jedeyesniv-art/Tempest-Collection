@@ -75,8 +75,10 @@ struct Capture {
   uint32_t flip = 0;                              // the flip count that showed it (RunStats::vid_flips)
   std::vector<uint32_t> entries;                  // 17 words each: list address, then the entry's 16 words
   std::unordered_map<uint32_t, uint32_t> mem;     // the other bus words MPE0 read (shape streams, palettes)
+  std::vector<uint32_t> frame;                    // mode 2: the frame buffer it was drawn into (360 x 240 YCrCbA)
 };
-bool EnableCapture(bool on);
+// 0 off, 1 the display lists, 2 also each picture's frame buffer (ground truth for checks).
+bool EnableCapture(int mode);
 // The newest published picture (after RunFrame, on the emulation thread). Keeps *out when it is the same picture.
 bool GetCapture(Capture* out);
 void ReleaseContext();

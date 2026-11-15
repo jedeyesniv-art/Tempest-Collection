@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 namespace t3knative {
 namespace {
@@ -165,11 +167,17 @@ void Shape(const uint32_t* entry, const Mem& mem, std::vector<Seg>* segs) {
 
 }  // namespace
 
+uint32_t YccToXrgb(uint32_t ycc) {
+  const SDL_FColor c = Colour(ycc | 0xFF, 1.f);
+  return uint32_t(c.r * 255.f + 0.5f) << 16 | uint32_t(c.g * 255.f + 0.5f) << 8 | uint32_t(c.b * 255.f + 0.5f);
+}
+
 void BuildPicture(const nuon::Capture& cap, Picture* out) {
   out->flip = cap.flip;
   out->segs.clear();
   out->items.clear();
   out->ops.clear();
+  out->webs.clear();
   out->complete = true;
   out->first_unknown = 0;
   for (size_t i = 0; i + 17 <= cap.entries.size(); i += 17) {
@@ -208,12 +216,46 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
         out->ops.push_back(op);
         break;
       }
+      case 0x0011000B: {   // web surface
+        Web web;
+        for (int k = 0; k < 256; ++k) Read(cap.mem, e[0] + 4 * uint32_t(k), &web.texture[k]);
+        uint32_t job = 0;
+        Read(cap.mem, 0x20100000u, &job);
+        for (uint32_t a = 0x800BACF0u; web.quads.size() < 4 * 32; a += 32) {
+          uint32_t w[8];
+          bool any = false;
+          for (int k = 0; k < 8; ++k) {
+            w[k] = 0;
+            Read(cap.mem, a + 4 * uint32_t(k), &w[k]);
+            any |= w[k] != 0;
+          }
+          if (!any) break;
+          for (int k = 0; k < 4; ++k)
+            // position: y hi / x lo, signed half pixels about the centre (806AD7BE); u hi / v lo in 1/512 texel
+            web.quads.push_back({180.f + float(Sext(w[2 * k], 16)) / 2.f, 120.f + float(Sext(w[2 * k] >> 16, 16)) / 2.f,
+                                 float(w[2 * k + 1] >> 16) / 512.f, float(w[2 * k + 1] & 0xFFFF) / 512.f});
+        }
+        if (!web.quads.empty()) {
+          Op op{Op::kWeb};
+          op.first = uint32_t(out->webs.size());
+          op.fade = float(job) / 2.f;   // (kWeb: the v scroll in texels)
+          if (std::getenv("T3K_NATIVE_DEBUG"))
+            std::fprintf(stderr, "web flip %u job %X quads %zu\n", cap.flip, job, web.quads.size() / 4);
+          out->webs.push_back(std::move(web));
+          out->ops.push_back(op);
+        }
+        break;
+      }
       case 0x000000FF: case 0x000000FE: case 0x003102FE:   // end of list; entries that draw nothing
         break;
-      default:
+      default: {
+        // T3K_NATIVE_FORCE=1 (tests): types not done yet are left out instead of making the picture emulated
+        static const bool force = std::getenv("T3K_NATIVE_FORCE") != nullptr;
+        if (force) break;
         if (out->complete) out->first_unknown = e[15];
         out->complete = false;
         break;
+      }
     }
   }
 }
@@ -221,6 +263,7 @@ void BuildPicture(const nuon::Capture& cap, Picture* out) {
 Renderer::~Renderer() {
   for (SDL_Texture* t : tex_)
     if (t) SDL_DestroyTexture(t);
+  if (web_tex_) SDL_DestroyTexture(web_tex_);
 }
 
 void Renderer::Redraw(SDL_Renderer* ren, const SDL_FRect& dst) {
@@ -309,6 +352,84 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
       case Op::kSegs: {
         part.assign(segs.begin() + op.first, segs.begin() + op.first + op.count);
         DrawVectors(ren, part, full);
+        break;
+      }
+      case Op::kWeb: {
+        const Web& web = pic.webs[op.first];
+        if (!web_tex_) {
+          web_tex_ = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 16, 16);
+          SDL_SetTextureScaleMode(web_tex_, SDL_SCALEMODE_LINEAR);   // the module filters bilinearly
+        }
+        uint32_t px[256];
+        for (int k = 0; k < 256; ++k) {
+          const SDL_FColor c = Colour(web.texture[k] | 0xFF, 1.f);
+          px[k] = uint32_t(c.r * 255.f + 0.5f) << 16 | uint32_t(c.g * 255.f + 0.5f) << 8 | uint32_t(c.b * 255.f + 0.5f);
+        }
+        SDL_UpdateTexture(web_tex_, nullptr, px, 16 * 4);
+        // out = T + (dest - T) w, w = v / 32: the texture at alpha 1 - v / 32 over what is there. (The module puts
+        // texel i at coordinate i; the GPU puts texel centres at i + 1/2.)
+        std::vector<SDL_Vertex> v;
+        v.reserve(web.quads.size() / 4 * 6);
+        auto V = [&](const Web::Vertex& q) {
+          const float a = std::clamp(1.f - q.v / 32.f, 0.f, 1.f);
+          static const float uoff = std::getenv("T3K_WEB_UOFF") ? float(std::atof(std::getenv("T3K_WEB_UOFF"))) : 0.f;
+          static const float voff = std::getenv("T3K_WEB_VOFF") ? float(std::atof(std::getenv("T3K_WEB_VOFF"))) : 0.f;
+          return SDL_Vertex{{q.x * sx, q.y * sy}, {1.f, 1.f, 1.f, a},
+                            {(q.u + uoff + 0.5f) / 16.f, (q.v + op.fade + voff + 0.5f) / 16.f}};
+        };
+        // The module edge-walks each quad: on a scanline, (u, v) where it crosses the quad's left and right edges
+        // (interpolated along those edges by y), then linear across. These lane quads taper strongly, so two GPU
+        // triangles would place the texture differently: an N x N grid takes the module's (u, v) at each point.
+        constexpr int N = 8;
+        auto walk = [](const Web::Vertex* q, float px, float py, float* u, float* vv) {
+          float xs[4][3];
+          int n = 0;
+          for (int k = 0; k < 4; ++k) {
+            const Web::Vertex &a = q[k], &b = q[(k + 1) & 3];
+            if (a.y == b.y || py < std::min(a.y, b.y) || py > std::max(a.y, b.y)) continue;
+            const float f = (py - a.y) / (b.y - a.y);
+            xs[n][0] = a.x + (b.x - a.x) * f;
+            xs[n][1] = a.u + (b.u - a.u) * f;
+            xs[n][2] = a.v + (b.v - a.v) * f;
+            ++n;
+          }
+          if (n < 2) return false;
+          int l = 0, r = 0;
+          for (int k = 1; k < n; ++k) {
+            if (xs[k][0] < xs[l][0]) l = k;
+            if (xs[k][0] > xs[r][0]) r = k;
+          }
+          const float w = xs[r][0] - xs[l][0];
+          const float f = w > 1e-4f ? std::clamp((px - xs[l][0]) / w, 0.f, 1.f) : 0.f;
+          *u = xs[l][1] + (xs[r][1] - xs[l][1]) * f;
+          *vv = xs[l][2] + (xs[r][2] - xs[l][2]) * f;
+          return true;
+        };
+        for (size_t k = 0; k + 3 < web.quads.size(); k += 4) {
+          const Web::Vertex* q = &web.quads[k];
+          Web::Vertex g[N + 1][N + 1];
+          for (int j = 0; j <= N; ++j)
+            for (int i = 0; i <= N; ++i) {
+              const float s = float(i) / N, t = float(j) / N;
+              Web::Vertex p;
+              p.x = (1 - t) * ((1 - s) * q[0].x + s * q[1].x) + t * ((1 - s) * q[3].x + s * q[2].x);
+              p.y = (1 - t) * ((1 - s) * q[0].y + s * q[1].y) + t * ((1 - s) * q[3].y + s * q[2].y);
+              if (!walk(q, p.x, p.y, &p.u, &p.v)) {
+                p.u = (1 - t) * ((1 - s) * q[0].u + s * q[1].u) + t * ((1 - s) * q[3].u + s * q[2].u);
+                p.v = (1 - t) * ((1 - s) * q[0].v + s * q[1].v) + t * ((1 - s) * q[3].v + s * q[2].v);
+              }
+              g[j][i] = p;
+            }
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i) {
+              const SDL_Vertex a = V(g[j][i]), b = V(g[j][i + 1]), c = V(g[j + 1][i + 1]), d = V(g[j + 1][i]);
+              v.insert(v.end(), {a, b, c, a, c, d});
+            }
+        }
+        SDL_SetTextureBlendMode(web_tex_, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_WRAP, SDL_TEXTURE_ADDRESS_WRAP);
+        SDL_RenderGeometry(ren, web_tex_, v.data(), int(v.size()), nullptr, 0);
+        SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
         break;
       }
     }
