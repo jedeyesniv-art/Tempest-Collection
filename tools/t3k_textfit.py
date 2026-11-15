@@ -1,9 +1,9 @@
 """Tempest 3000 glowing text (entry type 0010000D, module 806AF1E8, mode 0 = a number): model vs the emulator.
 
-python -I tools/t3k_textfit.py <spanlog> <entrylog> [max entries] [dump.png]
+python -I tools/t3k_textfit.py <spanlog> <entrylog> [max entries]
 
 <spanlog>: NUANCE_THREADS=0 NUANCE_SPANLOG=0010000D NUANCE_JOBLOG=<f>; <entrylog>: NUANCE_ENTRYLOG + NUANCE_ENTRYDATA=1,
-same run (logs/t3k/gt/span.sh).
+same run: python -I tools/t3k_logrun.py --state play_f2900 --span 0010000D --entries --out ...
 
 Module (read from the disassembly, lib addresses):
   set-up 806AF332: number = word at $800DC240, decimal digits (most significant first); glyph k = 1 KB (16 x 16 YCrCbZ)
@@ -17,10 +17,14 @@ Module (read from the disassembly, lib addresses):
     V + w5 x G.Cb >> 20); out = dest + (T - dest) x (G.Z << 21) x w6 >> 16 >> 30. Steps: u += du >> 8, du += d2u...
 """
 import math
-import sys
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import t3k_spanlib as sl  # noqa: E402
+
 ZSH = int(os.environ.get("ZSH", "24"))
-MINFLIP = int(os.environ.get("MINFLIP", "700"))
+MINFLIP = int(os.environ.get("MINFLIP", "0"))
 
 
 def s32(v):
@@ -133,66 +137,30 @@ class Text:
 
 
 def main():
-    spans, ents = sys.argv[1], sys.argv[2]
-    maxe = int(sys.argv[3]) if len(sys.argv) > 3 else 40
-    pics = load_entries(ents)
-    pend = {}
-    text = cell = None
-    n = 0
-    errs = [0.0] * 3
-    big = 0
-    entries = 0
-    worst = []
-    for line in open(spans):
-        tk = line.split()
-        if not tk:
-            continue
-        if tk[0] == 'spanentry':
-            flip = int(tk[17][1:])
-            words = [int(t, 16) for t in tk[1:17]]
-            text = cell = None
-            for ew, mem in (pics.get(flip, []) if flip >= MINFLIP else []):
-                if ew[1:] == words[1:] or (ew[2:] == words[2:]):
-                    t = Text(ew, mem)
-                    x = s32(words[0]) >> 16
-                    for c in t.cells:
-                        if c[0] == x:
-                            text, cell = t, c
-                    break
-            if text:
-                entries += 1
-                if entries > maxe:
-                    break
-            continue
-        if tk[0] != 'span' or not text:
-            continue
-        x, y, cnt = int(tk[2]), int(tk[3]), int(tk[4])
-        px = [int(v, 16) for v in tk[5:5 + cnt]]
-        if tk[1] == 'rd':
-            pend[(x, y)] = px
-            continue
-        before = pend.pop((x, y), None)
-        if before is None:
-            continue
-        for k, (bp, op) in enumerate(zip(before, px)):
-            i, j = x + k - cell[0], y - text.y0
-            if not (0 <= i < text.cellw and 0 <= j < text.cellh):
-                continue
-            B, O = chans(bp), chans(op)
-            out, f, g, t = text.pixel(cell, i, j, B)
-            e = [abs(out[c] - O[c]) for c in range(3)]
-            for c in range(3):
-                errs[c] += e[c]
-            if max(e) > 3:
-                big += 1
-                if len(worst) < 12:
-                    worst.append((i, j, B, O, [round(v, 1) for v in out], round(f, 3), [round(v) for v in g],
-                                  [round(v) for v in t]))
-            n += 1
-    print('%d entries, %d pixels; mean |error| Y / Cr / Cb %.2f %.2f %.2f; %d pixels off by > 3' % (
-        entries, n, errs[0] / max(1, n), errs[1] / max(1, n), errs[2] / max(1, n), big))
-    for wv in worst:
-        print('  i %d j %d dest %s out %s model %s f %s glyph %s tex2 %s' % wv)
+    spans, ents_path = sys.argv[1], sys.argv[2]
+    maxe = int(sys.argv[3]) if len(sys.argv) > 3 else None
+    ents = sl.load_entries(ents_path, 0x0010000D)
+
+    def prepare(ev):
+        # the module rewrites w0 / w1 while drawing: match on the other words, find the digit by its x
+        hit = sl.entry_for(ents, ev, match_from=2)   # (w0 = the position per digit, w1 = the cell size)
+        if not hit:
+            return None
+        t = Text(*hit)
+        x = sl.hi16(ev.words[0])
+        for c in t.cells:
+            if c[0] == x:
+                return t, c
+        return None
+
+    def predict(ctx, x, y, dest):
+        t, cell = ctx
+        i, j = x - cell[0], y - t.y0
+        if not (0 <= i < t.cellw and 0 <= j < t.cellh):
+            return None
+        return t.pixel(cell, i, j, dest)[0]
+
+    sl.fit(spans, prepare, predict, min_picture=MINFLIP, max_entries=maxe)
 
 
 if __name__ == '__main__':
