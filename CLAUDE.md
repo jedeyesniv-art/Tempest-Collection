@@ -134,7 +134,10 @@ T3K, all committed:
 Next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"): T3K high scores / settings
 (flash not saved), repackage the play folder for the Deck (today's work isn't on it), interpolation for everything +
 run-ahead, orange patches on the brightest warp / bonus screens, sharpen the glowing text (0010000D) if wanted,
-T2K to-do batch (B = back in menus, yellow polygon enemy shots, pink line in bonus 1 clouds, bonus 2 speed),
+T2K to-do batch DONE 2026-11-16 (B / Backspace = back in menus, enemy bullets at the original size
+(remaster_shot_size), bonus 1 pink line (image row 128), bonus 2 = the tunnel's dot drawing cost; T3K powerup burst
+00310208 native); T2K performance plan for the end (PLAN.md "T2K performance plan": Deck measurement, a ~120 ms
+event stall, run-ahead / catch-up),
 T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
 
 ## T3K high scores (2026-11-16)
