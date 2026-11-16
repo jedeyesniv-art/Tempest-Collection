@@ -680,6 +680,52 @@ void RingPoints(const uint32_t* e, const Mem& mem, Picture* out) {
   }
 }
 
+// --- 00310208 powerup burst (806A5FB0 mode 2, handler 806A6182; tools/t3k_burstfit.py: the calls exactly) ---
+// Five rings of 16 discs around a 3D point (w0 / w1 projected by the pre-pass, w2 depth): ring n = size 16 - 3n,
+// radius $4000 + $3000 n, intensity 1, 4, 7, 10, 63 / 64, colour word n of the list at $8010B150; disc angles
+// A = w4 + w6 (+ $4000 a disc), B = w5 (+ $800 a disc). Row routine 0 (w7 & $7F) = the plain disc blend.
+
+bool BurstDrawable(const uint32_t* e) { return (e[7] & 0x7F) == 0; }
+
+void Burst(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t cam[3] = {}, cols[5] = {};
+  for (int k = 0; k < 3; ++k) Read(mem, 0x800DAD80u + 4 * uint32_t(k), &cam[k]);
+  for (int k = 0; k < 5; ++k) Read(mem, 0x8010B150u + 4 * uint32_t(k), &cols[k]);
+  const int32_t camy = int32_t(cam[0]), camx = int32_t(cam[1]);
+  const int32_t z0 = S32(int64_t(int32_t(e[2])) + int32_t(cam[2]));
+  if (z0 <= 0) return;
+  int32_t I = 0x01000000, n = 16, rad = 0x4000;
+  for (int ring = 0; n > 1; ++ring) {
+    int32_t A = S32(int64_t(int32_t(e[4])) + int32_t(e[6])), B = int32_t(e[5]);
+    for (int i = 0; i < 16; ++i, A = S32(int64_t(A) + 0x4000), B = S32(int64_t(B) + 0x800)) {
+      int32_t cA, sA, cB, sB;
+      SinCos(uint32_t(A) & 0xFFFF, &cA, &sA);
+      SinCos(uint32_t(B) & 0xFFFF, &cB, &sB);
+      const int32_t a = cA >> 14;
+      const int32_t dx = Mul(rad, Mul(cB, a, 30), 16), dy = Mul(rad, sA >> 14, 16), dz = Mul(rad, Mul(a, sB, 30), 16);
+      const int32_t x = S32(int64_t(int32_t(e[0])) + (int64_t(dx) << 5));
+      const int32_t y = S32(int64_t(int32_t(e[1])) + (int64_t(dy) << 5));
+      const int32_t d = S32(int64_t(S32(int64_t(z0) + (int64_t(dz) << 6))) + 0x800000);
+      if (d <= 0) continue;
+      const int32_t k = KOfDepth(int64_t(d) - 0x800000);
+      const int32_t X = Mul(k, S32(int64_t(x >> 1) + int64_t(camx) * 8), 19) + 0xB48000;
+      const int32_t Y = Mul(k, S32(int64_t(y >> 1) + int64_t(camy) * 8), 19) + 0x788000;
+      const int32_t size = std::clamp(Mul(k, n, 19), 2, 24);
+      Blob b;   // the call passes centre - size / 2; disc rows / columns as the other disc routines
+      b.x = float(double(X) / 65536.0 + 0.5);
+      b.y = float(double(Y) / 65536.0 - 0.5);
+      b.r = float(size) / 2.f;
+      b.colour = Colour(cols[ring] | 0xFF, 1.f);
+      b.colour.a = std::clamp(float(I) / 1073741824.f, 0.f, 1.f);
+      out->blobs.push_back(b);
+    }
+    I += 0x03000000;
+    n -= 3;
+    rad += 0x3000;
+    if (n == 4) I = 0x3F000000;
+  }
+}
+
 // --- 0031000E title dot field (806AFA80 mode 0, handler 806AFECA; tools/t3k_fieldfit.py) ---
 
 void TitleField(const uint32_t* e, const Mem& mem, Picture* out) {
@@ -1013,6 +1059,19 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         if (op.count) out->ops.push_back(op);
         break;
       }
+      case 0x00310208:   // powerup burst
+        if (BurstDrawable(e)) {
+          Op op{Op::kBlobs};
+          op.first = uint32_t(out->blobs.size());
+          Burst(e, mem, out);
+          op.count = uint32_t(out->blobs.size()) - op.first;
+          if (op.count) out->ops.push_back(op);
+        } else if (out->complete) {   // another row routine (not seen with this mode)
+          out->first_unknown = e[15];
+          std::memcpy(out->unknown_entry, e, sizeof out->unknown_entry);
+          out->complete = false;
+        }
+        break;
       case 0x00310209: {   // dot images
         Op op{Op::kBlobs};
         op.first = uint32_t(out->blobs.size());

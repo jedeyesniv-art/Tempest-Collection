@@ -732,6 +732,13 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   0.003 px: count, intensity), 3.6 on its pixels.
 - 0031020E (806AFA80 mode 2, 806AFC52): template rings of discs - DONE, tools/t3k_flowerfit.py (calls to 0.001 px,
   modelled literally from the code on the first try), 2.9 on its pixels.
+- 00310208 (806A5FB0 mode 2, handler 806A6182): the powerup-collect burst at the claw (2026-11-16, from the owner's
+  log_emulated dumps, logs	3k\p208) - DONE, tools/t3k_burstfit.py (80 disc calls a picture to 0.0005 px, sizes and
+  intensities exact): five rings of 16 discs (size 16 - 3n, radius $4000 + $3000 n, I 1/4/7/10/63 / 64, colour n of
+  $8010B150) around (w0, w1, w2) with the camera at $800DAD80; disc row routine = w7 & $7F (table at local $B8C):
+  0 = the plain disc blend (806A6944). Native check: 12 + 27 pictures complete over the four dumps. Seen there too:
+  a bright pink flash screen whose native background is ~9% darker (254,121,254 vs 231,113,232; the open
+  "brightest screens" item).
 - State play_f2880 (just before an enemy explosion: 00310209 / 0031020E / 00500005 at pictures 951-962).
 - Whole play pictures (no forcing, no type filter, full emulated truth): fields 2701-2960 from play_f2700: 85 of 85
   complete, mean error 2.86; 2881-2960 from play_f2880: 17 complete (2.87), 8 not (00500005); 3151-3299 from
