@@ -20,8 +20,10 @@ struct PSOutput {
 
 PSOutput main(PSInput input) {
   PSOutput output;
-  const float3 n = float3(16.0, 128.0, 128.0) / 255.0;
-  float3 s = u_texture.SampleLevel(u_sampler, input.v_uv, 0).rgb;
-  output.o_color = float4(saturate(n + (s - n) * fade.x), 1.0);
+  // in byte units, truncated like the module's fixed point (rounding instead lets chroma above neutral creep up a
+  // little every picture, which the brightening then amplifies into orange patches)
+  const float3 n = float3(16.0, 128.0, 128.0);
+  float3 s = u_texture.SampleLevel(u_sampler, input.v_uv, 0).rgb * 255.0;
+  output.o_color = float4(saturate(floor(n + (s - n) * fade.x + 1e-3) / 255.0), 1.0);
   return output;
 }
