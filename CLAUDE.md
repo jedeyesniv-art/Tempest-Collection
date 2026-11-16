@@ -146,7 +146,7 @@ T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
   feedback textures cover the view, full-width fills / planes (built 360 px wider each side) / zoom / ripple (shader
   view uniform) carry on past the edges, and the game already places particles, dots, streaks there. HUD stays in its
   4:3 spots. 4:3 unchanged (nativecheck play 2.39, boot 1.09). Tests: --nativeaspect=W:H with --nativeshot,
-  --winsize=WxH (window, not fullscreen). Shots: logs	3k\wide\.
+  --winsize=WxH (window, not fullscreen). Shots: logs/t3k/wide/.
 
 ## T3K high scores (2026-11-16)
 - The game saves nothing (BIOS log: no flash / MemDev calls; it has level passwords). Table: 8 x u32 scores at
