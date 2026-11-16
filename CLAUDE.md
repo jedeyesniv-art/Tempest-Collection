@@ -140,6 +140,17 @@ T2K to-do batch DONE 2026-11-16 (B / Backspace = back in menus, enemy bullets at
 event stall, run-ahead / catch-up),
 T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
 
+## T3K game speed + warp speed (2026-11-16)
+- game_speed = pictures a second, any 15-60 (default 24, owner); replaces flip_cap (--flipcap=F still works: 60 / F).
+  warp_speed (default 60, 0 = off) + warp_ramp (s, default 0.5): src/t3k_main.cpp SpeedControl sets the core's flip
+  interval after every field. Warp = a picture with zoom feedback and no web surface (warps between levels and after a
+  death, also game over); from the capture's entries headless, from the native picture in the window (the draw gate
+  leaves the capture empty). Pacing: each ring Slot carries its interval. Measured: warps 43-58 pictures/s (the core's
+  round budget caps them; the hardware estimate was 52-54), window holds 2 refreshes in the warp, 5 in play (120 Hz).
+- Display list types per screen: NUANCE_ENTRYLOG + tools/t3k_census.py. Memory searches by label:
+  tools/t3k_classsearch.py, tools/t3k_labelsearch.py (no single warp flag in memory: object-pool words only).
+  T3K_SPEED_LOG=1 (headless): warp / rate / interval / flips every 10 fields.
+
 ## T3K wide screens (2026-11-16)
 - Setting widescreen (default 1, menu Display "Wide screens"): native pictures fill any window wider than 4:3 (16:10,
   16:9, 21:9 checked); narrower windows get bars. Renderer::Draw / Seed / Redraw take a view around the 4:3 dst; the

@@ -31,8 +31,10 @@ void Install(bool from_launcher) {
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");
-  p.Choice("Game speed", "flip_cap", {"3", "2.5", "2", "1"},
-           {"20 pictures/s (best)", "24 pictures/s", "30 pictures/s", "60 pictures/s"});
+  p.Number("Game speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 24);
+  auto warp = [] { return settings::Num("warp_speed", 60) > 0; };
+  p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60 pictures/s (as the original)", "Game speed"});
+  p.Number("  Speed change (s)", "warp_ramp", 0, 2, 0.1, "%.1f", 0.5)->when = warp;
   p.Header("STICK");
   p.Choice("Stick mode", "stick_mode", {"stiff", "lr", "momentum", "off"},
            {"Stiff (T2K feel)", "Left / right", "Momentum (TxK feel)", "Off (stick = d-pad)"});

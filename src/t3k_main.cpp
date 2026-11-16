@@ -117,15 +117,21 @@ vsync = 1
 # real = Nuance's own timing (follows the PC clock: uneven).
 timing = emulated
 # Rounds per video field (one block on each of the 4 processors a round): more = the game draws more pictures a
-# second (up to the flip_cap rate) but needs a faster PC. 200000 holds 30 pictures/s everywhere seen so far.
+# second (up to the game_speed rate) but needs a faster PC. 200000 holds 30 pictures/s everywhere seen so far.
 nuon_rounds = 200000
 # Fields the emulation may work ahead (1-3): 2 lets a slow field borrow time from fast ones, for one field
 # (16.7 ms) more input lag. 1 = lowest lag, but busy moments may show a field for 1 or 3 refreshes.
 buffer_fields = 2
-# Game speed. Tempest 3000 moves a fixed step per picture, so its speed is its picture rate: the minimum video
-# fields between two pictures. 3 = 20 pictures/s (the owner's choice: most playable), 2 = 30, 1 = 60;
-# 2.5 = 24 (on a 120 Hz display still even: 5 refreshes a picture; elsewhere 2-then-3 fields).
-flip_cap = 3
+# Game speed in pictures a second (15-60). Tempest 3000 moves a fixed step per picture, so its picture rate is its
+# speed. 24 = the owner's choice; the original hardware probably managed about 30 in play. Rates that divide 120
+# (15, 20, 24, 30, 40, 60) step evenly on a 120 Hz display, those dividing 60 (15, 20, 30, 60) on a 60 Hz one; others
+# show pictures for uneven times (picture_blend / native_interpolate smooth that out).
+game_speed = 24
+# The light synth warp between levels (and after a lost life) at its own speed, as on the original, which drew those
+# light screens at about 60 a second while play ran slower: pictures a second (15-60), 0 = game_speed everywhere.
+warp_speed = 60
+# Seconds the speed takes to change between game_speed and warp_speed (0 = at once).
+warp_ramp = 0.5
 # 1 = cross-fade between the game's pictures (smooth-looking motion at any display rate, ~one picture more lag;
 # F3 toggles). 0 = each picture shown as it is.
 picture_blend = 1
@@ -369,6 +375,53 @@ struct AnalogHold { int frame; int x, y, len; };
 // a speed - it accelerates the claw up to a top speed, pushing against the motion brakes hard, and on release the
 // claw glides (friction) and a spring settles it on a lane centre. Our model runs in real time (per field); the game
 // claw follows it closed loop: each picture it is asked to move by (model - game position) + one picture ahead.
+// Game speed (game_speed) and the warp's own speed (warp_speed, ramped over warp_ramp): after every field, the minimum
+// fields between two pictures for the core's flip cap. The warp is told from the newest picture: zoom feedback
+// (00300004) and no web surface (0011000B) - play, the level start zoom and deaths all draw the web, the menus start
+// with a fill. (Also the game over screen.) From the capture's entries, or - when the draw gate skipped the renderers,
+// so nothing was fetched - from the picture built natively.
+struct SpeedControl {
+  double rate = 0;        // pictures a second now
+  double interval = 0;    // fields between pictures now (what the core was given)
+  bool warp = false;
+  uint32_t flip = 0;
+  void Field(const nuon::Capture* cap, const t3knative::Picture* pic = nullptr) {
+    if (pic && pic->flip != flip) {
+      flip = pic->flip;
+      bool zoom = false, web = false;
+      for (const t3knative::Op& op : pic->ops) {
+        zoom |= op.kind == t3knative::Op::kZoom;
+        web |= op.kind == t3knative::Op::kWeb;
+      }
+      warp = zoom && !web;
+    } else if (!pic && cap && cap->flip != flip && !cap->entries.empty()) {
+      flip = cap->flip;
+      bool zoom = false, web = false;
+      for (size_t i = 16; i < cap->entries.size(); i += 17) {
+        zoom |= cap->entries[i] == 0x00300004u;
+        web |= cap->entries[i] == 0x0011000Bu;
+      }
+      warp = zoom && !web;
+    }
+    const double game = std::clamp(settings::Num("game_speed", 24), 15.0, 60.0);
+    const double ws = settings::Num("warp_speed", 60);
+    const double warp_rate = ws > 0 ? std::clamp(ws, 15.0, 60.0) : game;
+    const double target = warp ? warp_rate : game;
+    if (rate <= 0) {
+      rate = target;
+    } else if (rate != target) {   // the whole change game <-> warp takes warp_ramp seconds (a field is 1/60 s)
+      const double ramp = settings::Num("warp_ramp", 0.5);
+      const double step = ramp > 0 ? std::max(std::fabs(warp_rate - game), 1.0) / (ramp * 60.0) : 1e9;
+      rate = rate < target ? std::min(target, rate + step) : std::max(target, rate - step);
+    }
+    const double iv = std::max(1.0, 60.0 / rate);
+    if (iv != interval) {
+      interval = iv;
+      nuon::SetFlipCap(iv);
+    }
+  }
+};
+
 struct ClawControl {
   // momentum mode
   double mo_v = 0;              // model velocity, lanes a second (+ = position increasing = stick right)
@@ -928,9 +981,11 @@ int main(int argc, char** argv) {
   if (!rounds_arg.empty()) settings::Set("nuon_rounds", rounds_arg);
   bool emulated = settings::Str("timing", "emulated") != "real";
   if (!nuon::SetTiming(emulated, settings::Num("nuon_rounds", 200000))) emulated = false;
-  if (!flipcap_arg.empty()) settings::Set("flip_cap", flipcap_arg);
-  double flip_cap = settings::Num("flip_cap", 3);   // (the settings menu can change it)
-  nuon::SetFlipCap(flip_cap);
+  // (--flipcap=F: fields between pictures, as before: game speed 60 / F)
+  if (!flipcap_arg.empty())
+    settings::Set("game_speed", std::to_string(60.0 / std::max(0.25, std::atof(flipcap_arg.c_str()))));
+  SpeedControl speed;   // game speed / warp speed: the core's flip cap, set after every field
+  speed.Field(nullptr);
   nuon::EnableCapture(check_f0 >= 0 ? 2 : 1);   // the native renderer's input (t3k_native); 2: + ground truth
   nuon::SetPictureCallback(gate::Callback);       // the draw gate (gate::mode: 0 = off)
   if (!headless && loadstate.frame >= 0) {         // the window starts from a saved state too (tests, repros)
@@ -1078,6 +1133,16 @@ int main(int argc, char** argv) {
         size_t n = 0;
         uint8_t* m = nuon::Memory(0, &n);
         t3kscores::AfterField(m, n);
+      }
+      {
+        static nuon::Capture scap;
+        speed.Field(nuon::GetCapture(&scap) ? &scap : nullptr);
+        if (std::getenv("T3K_SPEED_LOG") && f % 10 == 0) {   // tests: the speed control every 10 fields
+          nuon::RunStats rs{};
+          nuon::GetRunStats(&rs);
+          std::fprintf(stderr, "speed field %d: warp %d, %.1f pictures/s, interval %.3f, flips %u\n", f,
+                       int(speed.warp), speed.rate, speed.interval, rs.vid_flips);
+        }
       }
       if (!clawlog_path.empty() && f >= clawlog_f0 && f <= clawlog_f1) {
         if (!clawlog) clawlog = std::fopen(clawlog_path.c_str(), "w");
@@ -1410,6 +1475,7 @@ int main(int argc, char** argv) {
   // pic: the game's picture count after the field (VidConfig / VidChangeBase calls).
   struct Slot {
     int64_t field = -1; uint64_t due = 0; uint32_t pic = 0; nuon::Frame frame;
+    double interval = 1;   // fields between pictures (the game speed) when this field ran
     std::shared_ptr<const t3knative::Vectors> vec;   // the shown picture's vector layer (native renderer)
   };
   Slot ring[8];
@@ -1494,6 +1560,8 @@ int main(int argc, char** argv) {
         sl.pic = nuon::GetRunStats(&rs) ? rs.vid_flips : uint32_t(k);
         sl.frame = nuon::LastFrame();
         sl.vec = vec;
+        speed.Field(nullptr, vec.get());
+        sl.interval = speed.interval;
       }
       perf.Frame(uint64_t(k), t0, t1, SDL_GetTicksNS());
       fields_done = k + 1;
@@ -1503,11 +1571,12 @@ int main(int argc, char** argv) {
   });
 
   int64_t shown = -1;
-  // Picture pacing: with a fractional flip_cap (2.5: pictures come 2, 3, 2, 3 fields apart) each picture is shown
-  // flip_cap fields after the previous one - the later of that and "finished, plus one field" - so on a 120 Hz
-  // display every picture stays up for the same number of refreshes (5 at 2.5). Fields that repeat the picture
-  // follow it. At a whole flip_cap the two times are the same.
-  uint64_t picture_ns = (emulated && flip_cap > 0) ? uint64_t(flip_cap * double(field_ns)) : 0;
+  // Picture pacing: with a fractional interval (24 pictures/s = 2.5 fields: pictures come 2, 3, 2, 3 fields apart)
+  // each picture is shown its interval after the previous one - the later of that and "finished, plus one field" - so
+  // on a 120 Hz display every picture stays up for the same number of refreshes (5 at 2.5). Fields that repeat the
+  // picture follow it. At a whole interval the two times are the same. The interval is the game speed when the field
+  // ran (it changes for the warp); picture_ns = the shown picture's (0: no pacing, real timing).
+  uint64_t picture_ns = emulated ? uint64_t(speed.interval * double(field_ns)) : 0;
   struct Planned { int64_t field; uint64_t show_at; };
   std::vector<Planned> plan;
   int64_t planned_to = -1;
@@ -1610,16 +1679,6 @@ int main(int argc, char** argv) {
         }
         picture_blend = settings::Num("picture_blend", 1) != 0;
         show_rates = settings::Num("show_rates", 0) != 0;
-        const double fc = settings::Num("flip_cap", 3);
-        if (fc != flip_cap) {   // game speed: re-plan the picture pacing from the next field
-          flip_cap = fc;
-          nuon::SetFlipCap(flip_cap);
-          picture_ns = (emulated && flip_cap > 0) ? uint64_t(flip_cap * double(field_ns)) : 0;
-          std::lock_guard<std::mutex> lock(ring_mutex);
-          plan.clear();
-          plan_any = false;
-          planned_to = fields_done.load() - 1;
-        }
       }
       emu_pause = menu::IsOpen();
     }
@@ -1643,10 +1702,11 @@ int main(int argc, char** argv) {
           const Slot& sl = ring[(planned_to + 1) & 7];
           if (sl.field != planned_to + 1) break;
           const uint64_t ready = sl.due + field_ns;
+          const uint64_t pns = uint64_t(sl.interval * double(field_ns));
           uint64_t at;
           if (!plan_any || sl.pic == plan_pic) at = plan_any ? std::max(ready, plan_show) : ready;
-          else if (ready > plan_show + picture_ns + field_ns / 2) at = ready;   // the game fell behind: restart
-          else at = std::max(ready, plan_show + picture_ns);
+          else if (ready > plan_show + pns + field_ns / 2) at = ready;   // the game fell behind: restart
+          else at = std::max(ready, plan_show + pns);
           if (!plan_any || sl.pic != plan_pic) plan_show = at;
           plan_any = true;
           plan_pic = sl.pic;
@@ -1675,6 +1735,7 @@ int main(int argc, char** argv) {
       if (pick && pick->frame.width) {
         const nuon::Frame& f = pick->frame;
         const bool new_picture = !picture_ns || pick->pic != shown_pic || shown < 0;
+        if (picture_ns && new_picture) picture_ns = std::max<uint64_t>(1, uint64_t(pick->interval * double(field_ns)));
         if (new_picture && picture_ns) {   // blending: the previous picture stays underneath while this one fades in
           std::swap(tex, tex_prev);
           blend_from = pick_show_at ? pick_show_at : now;
@@ -1695,7 +1756,7 @@ int main(int argc, char** argv) {
         if (new_picture) {   // a new picture (or field without pacing)
           if (shown >= 0) {
             hold_hist[std::min(presents_of_shown, 7)]++;
-            if (odd_holds.size() < 4000 && presents_of_shown != (picture_ns ? int(std::lround(2 * flip_cap)) : 2))
+            if (odd_holds.size() < 4000 && presents_of_shown != (picture_ns ? int(std::lround(2.0 * double(picture_ns) / double(field_ns))) : 2))
               odd_holds.push_back(shown);
             if (!picture_ns) skipped += pick->field - shown - 1;
           }
