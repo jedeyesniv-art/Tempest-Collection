@@ -353,6 +353,10 @@ void SetOption(const std::string& key, const std::string& value) {
   g_options_changed = true;
 }
 
+void* CoreProc(const char* name) {
+  return g_core.dll ? reinterpret_cast<void*>(::GetProcAddress(g_core.dll, name)) : nullptr;
+}
+
 void Reset() {
   using Fn = void (*)();
   if (auto f = reinterpret_cast<Fn>(::GetProcAddress(g_core.dll, "retro_reset"))) f();

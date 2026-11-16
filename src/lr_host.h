@@ -28,6 +28,8 @@ enum Btn : int {
 void SetOption(const std::string& key, const std::string& value);
 // Restart the game (Vita3K: unloads and loads it again on a later frame, with the current options).
 void Reset();
+// A core's own export by name (our core patches, e.g. Vita3K's llama_vita_read); nullptr when it has none.
+void* CoreProc(const char* name);
 
 // core_dll: the core; game: the content path (TxK: its folder; MAME: the romset .zip); system_dir / save_dir: the
 // core's folders. Needs SDL video initialised.

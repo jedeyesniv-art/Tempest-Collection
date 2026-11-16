@@ -972,6 +972,37 @@ Open: tune the spinner feel with the owner; vector look (beam width / glow: MAME
 temptube) not selectable yet.
 
 ## Claw feel study: TxK and Tempest 4000 (planned 2026-11-15, to do 2026-11-16)
+
+### Results 2026-11-16 (done: TxK measured; T3K stick modes momentum + stiff; owner keeps STIFF)
+- TxK claw in memory (Vita3K core export llama_vita_read / llama_vita_next_range, branch llamasoft-vita; txk.exe
+  --memdump / --memseq / --peek with p>o pointer syntax): $810EC514 = floor(position), $810EC7F8 = round(position)
+  as lane ints (24-lane level 1 web; together: the claw within half a lane, frame exact). $810E4970 = the game's
+  processed stick (+-0.46 full). No sub-lane float found (the 810E6850>24 object and heap matches were camera values).
+  Route: Start 900, Cross 1300, play ~1800; hold Cross (fire) from 1990 or the claw dies within seconds.
+- TxK feel (tools/claw_fit.py, fitted to logs/claw/txk/run2.txt): the stick is a FORCE - acceleration ~ u^0.8
+  (deadzone ~8%), full stick 0.0139 lanes/frame^2 (top speed in ~21 frames); top 0.2875 lanes/frame = 17.3 lanes/s,
+  the same at half and full stick (a cap); pushing against the motion turns round in ~4 frames; on release friction
+  x0.9435 a frame (half-life 0.2 s) + a weak spring to the lane centre: ~4-5 lanes of glide from top speed.
+- T3K: stick_mode momentum = that model (mo_* settings, menu sliders). Owner: T3K is so fast on small webs that the
+  glide overshoots the target - asked for the opposite, T2K's stiff handling.
+- T3K stick_mode stiff (now the DEFAULT; st_* settings): T2K's lr law in real time with the owner's T2K tuning
+  (24.6 lanes/s = 0.41 a frame, 0.33 s smoothstep ramp from 5%, curve 1.5, deadzone 0.2, 0.05 s ease-off), then the
+  claw settles on a lane centre - the next one in the direction of travel once past it by st_snap_ahead 0.2 (a 4-6
+  frame tap = exactly one lane). Owner 2026-11-16: "feels good", testing more.
+- Shared driver (ClawControl::Momentum): our model runs per field; each picture the game is asked for (model - game
+  position) + claw_lead (0.5) pictures ahead via the speed scale. The d-pad is applied a picture LATE: on a direction
+  change that late picture is held still (scale 0) - this removed most overshoot. The claw signature blinks
+  (flags 80020401) for a field at a closed web's wrap: state survives up to 8 absent fields.
+- Tools: t3k --clawlog=F0:F1:file (field, stick, position, velocity, scale, picture, input, flags); tools/claw_fit.py,
+  tools/claw_compare.py (same script, several games / modes), tools/txk_memsearch.py / memview / memtrace / memmove.
+- Found: t3k headless --loadstate loses pad input (neither stick nor d-pad move the claw after a load) - use the
+  boot route (start 400, a 900..2500; claw controllable from field ~3487).
+- Open: T2K could get the same lane settle; Tempest 4000 not measured (needs the owner + recording); does TxK's
+  speed scale with lane count (only the 24-lane web measured); T3K's claw still moves once a picture (interpolate-all,
+  step 4, if it feels steppy); a practice aid (owner: "4 or 5 seconds to get a feel before I die") - e.g. an
+  invulnerable / slow-enemies test option.
+
+### The plan as written (2026-11-15)
 Owner: T3K's controls are "still strange" and need significant tuning; T2K's lr tuning was a guess (a successful one).
 TxK and T4K have a distinctive claw feel ("weight") worth measuring and offering in T2K / T3K. Do this BEFORE deciding on
 T3K game speed (PLAN "The hardware's picture rate": the estimate says 30 pictures/s, the owner plays at 24 and finds

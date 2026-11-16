@@ -25,14 +25,31 @@ void Install(bool from_launcher) {
                    {"c_right", "C-right"}, {"l", "L"}, {"r", "R"}, {"start", "Start"}, {"nuon", "Nuon button"}},
                   defaults);
 
-  auto lr = [] { return settings::Str("stick_mode", "lr") == "lr"; };
+  auto lr = [] { return settings::Str("stick_mode", "stiff") == "lr"; };
+  auto mo = [] { return settings::Str("stick_mode", "stiff") == "momentum"; };
+  auto st = [] { return settings::Str("stick_mode", "stiff") == "stiff"; };
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");
   p.Choice("Game speed", "flip_cap", {"3", "2.5", "2", "1"},
            {"20 pictures/s (best)", "24 pictures/s", "30 pictures/s", "60 pictures/s"});
   p.Header("STICK");
-  p.Choice("Stick mode", "stick_mode", {"lr", "off"}, {"Left / right", "Off (stick = d-pad)"});
+  p.Choice("Stick mode", "stick_mode", {"stiff", "lr", "momentum", "off"},
+           {"Stiff (T2K feel)", "Left / right", "Momentum (TxK feel)", "Off (stick = d-pad)"});
+  p.Number("  Top speed (lanes a second)", "st_top_speed", 8, 40, 0.5, "%.1f", 24.6)->when = st;
+  p.Number("  Ramp to top speed (s)", "st_ramp_time", 0.02, 1.0, 0.01, "%.2f", 0.33)->when = st;
+  p.Number("  First speed (of top)", "st_ramp_start", 0, 1, 0.05, "%.2f", 0.05)->when = st;
+  p.Number("  Deflection curve", "st_curve", 1, 3, 0.1, "%.1f", 1.5)->when = st;
+  p.Number("  Deadzone", "st_deadzone", 0.05, 0.5, 0.01, "%.2f", 0.20)->when = st;
+  p.Number("  Ease-off (s)", "st_ease_time", 0, 0.2, 0.01, "%.2f", 0.05)->when = st;
+  p.Choice("  Stop on a lane", "st_snap", {"1", "0"}, {"On", "Off"})->when = st;
+  p.Number("  Top speed (lanes a second)", "mo_top_speed", 6, 30, 0.5, "%.1f", 17.3)->when = mo;
+  p.Number("  Time to top speed (s)", "mo_accel_time", 0.05, 1.0, 0.05, "%.2f", 0.35)->when = mo;
+  p.Number("  Glide (speed half-life, s)", "mo_glide", 0, 0.6, 0.02, "%.2f", 0.20)->when = mo;
+  p.Number("  Lane settle", "mo_settle", 0, 3, 0.1, "%.1f", 1.0)->when = mo;
+  p.Number("  Reverse braking", "mo_brake", 1, 10, 0.5, "%.1f", 4)->when = mo;
+  p.Number("  Stick curve", "mo_curve", 0.4, 2, 0.1, "%.1f", 0.8)->when = mo;
+  p.Number("  Deadzone", "mo_deadzone", 0.02, 0.4, 0.01, "%.2f", 0.08)->when = mo;
   p.Number("  Top speed (lanes a picture)", "lr_max_speed", 0.30, 1.50, 0.01, "%.2f", 0.94)->when = lr;
   p.Number("  Ramp to top speed (pictures)", "lr_ramp_pictures", 1, 12, 1, "%.0f", 4)->when = lr;
   p.Number("  First-picture speed", "lr_ramp_start", 0, 1, 0.05, "%.2f", 0.30)->when = lr;

@@ -14,6 +14,13 @@
 //   --from-launcher                       started by tempest.exe (the menu's last item says "Return to launcher")
 //   --menu[=all]                          open the settings menu at start (all sections open; tests)
 //   --winshot=N:<file.bmp>                save the window after N presents, then quit (tests)
+//   --memdump=F:<file>                    after frame F, every allocated guest range ("VMEM", then per range u32 addr,
+//                                         u32 len, bytes; headless; for memory searches, tools/txk_memsearch.py)
+//   --memseq=F0:F1:<dir>:<start>:<len>    after each frame F0..F1, guest bytes start..start+len (hex) to <dir>/fNNNNN.bin
+//   --peek=F0:F1:<file>:<addr>[,<addr>..]  after each frame F0..F1, the 32-bit words at these guest addresses (hex)
+//                                         as text, one line per frame (headless; claw position logs). An address
+//                                         p>o reads the pointer at p, plus offset o; p>o0-o1 every word o0..o1.
+//                                         TxK claw: 810E6850>24 (position, float)
 // Settings (userdata\txk_settings.txt): fullscreen, vsync, and any vita3k_* key is handed to the core as an option.
 // Firmware: vita_firmware\PSVUPDAT.PUP (system) and PSP2UPDAT.PUP (fonts) are linked into system\vita3k\ as
 // firmware.pup / font.pup, the names the core tells the parts apart by.
@@ -70,6 +77,43 @@ picture_filter = smooth
 struct Shot { int frame; std::string path; };
 struct Press { int frame; int btn; int len; };
 struct StickHold { int frame; float x, y; int len; };
+struct MemDump { int frame; std::string path; };
+struct MemSeq { int f0, f1; std::string dir; uint32_t start, len; };
+// A peeked word: at addr, or (ptr) at the pointer stored at addr plus off.
+struct PeekAddr { uint32_t addr; uint32_t off; bool ptr; };
+struct PeekLog { int f0, f1; std::string path; std::vector<PeekAddr> addrs; FILE* out = nullptr; };
+
+using ReadFn = size_t (*)(uint32_t, void*, size_t);
+using RangeFn = uint32_t (*)(uint32_t, uint32_t*);
+
+bool DumpGuest(const std::string& path) {
+  auto rd = reinterpret_cast<ReadFn>(lr::CoreProc("llama_vita_read"));
+  auto next = reinterpret_cast<RangeFn>(lr::CoreProc("llama_vita_next_range"));
+  if (!rd || !next) { std::fprintf(stderr, "memdump: the core has no llama_vita_read\n"); return false; }
+  FILE* o = std::fopen(path.c_str(), "wb");
+  if (!o) return false;
+  std::fwrite("VMEM", 1, 4, o);
+  std::vector<uint8_t> buf;
+  uint64_t total = 0;
+  int ranges = 0;
+  for (uint32_t at = 0x1000, len = 0;; at += len) {
+    const uint32_t start = next(at, &len);
+    if (!start) break;
+    at = start;
+    if (start >= 0x60000000u && start < 0x7F000000u) continue;   // GPU memory (Vita3K's 0x6..., 0x7...): no game state
+    buf.resize(len);
+    rd(start, buf.data(), len);
+    std::fwrite(&start, 4, 1, o);
+    std::fwrite(&len, 4, 1, o);
+    std::fwrite(buf.data(), 1, len, o);
+    total += len;
+    ++ranges;
+    if (uint64_t(start) + len >= 0x100000000ull) break;
+  }
+  std::fclose(o);
+  std::fprintf(stderr, "memdump %s: %d ranges, %.1f MB\n", path.c_str(), ranges, total / 1048576.0);
+  return true;
+}
 
 int BtnByName(const std::string& n) {
   static const char* names[] = {"b", "y", "select", "start", "up", "down", "left", "right",
@@ -180,6 +224,9 @@ int main(int argc, char** argv) {
   std::vector<Shot> shots;
   std::vector<Press> presses;
   std::vector<StickHold> sticks;
+  std::vector<MemDump> memdumps;
+  std::vector<MemSeq> memseqs;
+  std::vector<PeekLog> peeks;
   std::vector<std::pair<std::string, std::string>> opts;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
@@ -208,6 +255,41 @@ int main(int argc, char** argv) {
     } else if (a.rfind("--shot=", 0) == 0) {
       auto v = val("--shot=");
       shots.push_back({std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)});
+    } else if (a.rfind("--memdump=", 0) == 0) {
+      auto v = val("--memdump=");
+      memdumps.push_back({std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)});
+    } else if (a.rfind("--memseq=", 0) == 0) {
+      MemSeq m{};
+      char dir[512] = {};
+      if (std::sscanf(val("--memseq=").c_str(), "%d:%d:%511[^:]:%x:%x", &m.f0, &m.f1, dir, &m.start, &m.len) == 5) {
+        m.dir = dir;
+        memseqs.push_back(m);
+      }
+    } else if (a.rfind("--peek=", 0) == 0) {
+      auto v = val("--peek=");
+      PeekLog p;
+      const size_t c1 = v.find(':'), c2 = v.find(':', c1 + 1), c3 = v.rfind(':');
+      p.f0 = std::atoi(v.substr(0, c1).c_str());
+      p.f1 = std::atoi(v.substr(c1 + 1, c2 - c1 - 1).c_str());
+      p.path = v.substr(c2 + 1, c3 - c2 - 1);
+      for (size_t at = c3 + 1; at < v.size();) {
+        size_t e = v.find(',', at);
+        if (e == std::string::npos) e = v.size();
+        const std::string item = v.substr(at, e - at);
+        const size_t gt = item.find('>');
+        const uint32_t ad = uint32_t(std::strtoul(item.substr(0, gt).c_str(), nullptr, 16));
+        if (gt == std::string::npos) {
+          p.addrs.push_back({ad, 0, false});
+        } else {   // addr>off or addr>off0-off1 (every word from off0 to off1 inclusive)
+          const std::string offs = item.substr(gt + 1);
+          const size_t dash = offs.find('-');
+          const uint32_t o0 = uint32_t(std::strtoul(offs.substr(0, dash).c_str(), nullptr, 16));
+          const uint32_t o1 = dash == std::string::npos ? o0 : uint32_t(std::strtoul(offs.substr(dash + 1).c_str(), nullptr, 16));
+          for (uint32_t o = o0; o <= o1; o += 4) p.addrs.push_back({ad, o, true});
+        }
+        at = e + 1;
+      }
+      peeks.push_back(p);
     } else if (a.rfind("--stick=", 0) == 0) {
       StickHold h{0, 0.f, 0.f, 6};
       std::sscanf(val("--stick=").c_str(), "%d:%f,%f:%d", &h.frame, &h.x, &h.y, &h.len);
@@ -303,6 +385,46 @@ int main(int argc, char** argv) {
       au.clear();
       for (auto& s : shots)
         if (s.frame == f && !WriteBmp(s.path, lr::LastFrame())) std::fprintf(stderr, "shot %s failed\n", s.path.c_str());
+      for (auto& d : memdumps)
+        if (d.frame == f) DumpGuest(d.path);
+      for (auto& m : memseqs) {
+        if (f < m.f0 || f > m.f1) continue;
+        auto rd = reinterpret_cast<ReadFn>(lr::CoreProc("llama_vita_read"));
+        if (!rd) continue;
+        std::vector<uint8_t> buf(m.len);
+        rd(m.start, buf.data(), m.len);
+        char name[64];
+        std::snprintf(name, sizeof name, "/f%05d.bin", f);
+        if (FILE* o = std::fopen((m.dir + name).c_str(), "wb")) {
+          std::fwrite(buf.data(), 1, buf.size(), o);
+          std::fclose(o);
+        }
+      }
+      for (auto& p : peeks) {
+        if (f < p.f0 || f > p.f1) continue;
+        auto rd = reinterpret_cast<ReadFn>(lr::CoreProc("llama_vita_read"));
+        if (!rd) continue;
+        if (!p.out) p.out = std::fopen(p.path.c_str(), "w");
+        if (!p.out) continue;
+        float sx = 0, sy = 0;
+        for (auto& h : sticks)
+          if (f >= h.frame && f < h.frame + h.len) { sx = h.x; sy = h.y; }
+        std::fprintf(p.out, "%d %.3f %.3f", f, sx, sy);
+        for (const PeekAddr& pa : p.addrs) {
+          uint32_t w = 0, ad = pa.addr;
+          if (pa.ptr) {
+            uint32_t base = 0;
+            rd(pa.addr, &base, 4);
+            ad = base + pa.off;
+          }
+          rd(ad, &w, 4);
+          float fl;
+          std::memcpy(&fl, &w, 4);
+          std::fprintf(p.out, " %08X %g", w, fl);
+        }
+        std::fprintf(p.out, "\n");
+        if (f == p.f1) { std::fclose(p.out); p.out = nullptr; }
+      }
       if ((f + 1) % 600 == 0) {
         static uint64_t last_new = 0;
         std::fprintf(stderr, "frame %d: %.1f s, picture %ux%u, %llu new pictures in the last 600 frames\n", f + 1,

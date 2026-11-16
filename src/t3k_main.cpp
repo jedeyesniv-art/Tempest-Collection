@@ -20,6 +20,8 @@
 //   --analog=F:x,y[:len]                  hold the Nuon analog stick at x,y (-128..127) from field F (headless)
 //   --poke=F:hexaddr:hexvalue[:len]       write a big-endian word into system RAM before fields F.. (headless)
 //   --stick=F:x[:len]                     hold the left stick at x (-1..1) for the claw controller (headless)
+//   --clawlog=F0:F1:<file>                headless: after each field F0..F1: field, stick x, claw position (lanes),
+//                                         velocity, scale, the game's picture counter (claw feel study)
 //   --memdump=F:<prefix>                  dump the Nuon's memory after field F (headless; repeatable)
 //   --perflog=<file.csv>                  one line per frame: timing and the core's run statistics
 //   --userdata=<dir>                      save folder (default userdata next to the program)
@@ -138,8 +140,10 @@ show_rates = 0
 high_res = 0
 
 # --- Stick controls for the claw (left stick; the d-pad keeps the original controls) ---
-# lr = push left / right: speed follows how far the stick is pushed, with a ramp; off = stick acts as the d-pad.
-stick_mode = lr
+# stiff = Tempest 2000's lr handling (speed follows the stick, slow start then quick, stops on a lane);
+# lr = push left / right: speed follows how far the stick is pushed, per picture; momentum = TxK's feel (below);
+# off = stick acts as the d-pad.
+stick_mode = stiff
 lr_deadzone = 0.20
 # Top speed at full deflection, in lanes per picture (the game's own d-pad top speed is 0.94).
 lr_max_speed = 0.94
@@ -150,6 +154,34 @@ lr_ramp_pictures = 4
 lr_ramp_start = 0.30
 # Pictures the claw keeps easing after the stick is released (0 = stop dead, like the original).
 lr_release_pictures = 1
+# momentum = TxK's feel (measured on TxK): the stick accelerates the claw (a force, not a speed) up to a top speed;
+# on release it glides and settles on a lane. The mo_ values below.
+# Top speed, lanes a second (TxK 17.3).
+mo_top_speed = 17.3
+# Seconds from rest to top speed at full stick (TxK 0.35).
+mo_accel_time = 0.35
+# Pushing against the motion: that many times the acceleration (TxK turns round in about 4 frames).
+mo_brake = 4
+# Glide after release: seconds for the speed to halve (TxK 0.2; 0 = stop at once, then settle).
+mo_glide = 0.2
+# Pull to the nearest lane centre while gliding (1 = TxK; 0 = none, the claw may stop between lanes).
+mo_settle = 1.0
+# Stick response: acceleration = deflection ^ this (TxK 0.8), past the deadzone.
+mo_curve = 0.8
+mo_deadzone = 0.08
+# stiff (T2K's lr, the owner's tuning there): top speed in lanes a second (T2K 0.41 a frame = 24.6), seconds of
+# smoothstep ramp from st_ramp_start of it, deflection curve, deadzone, seconds of ease-off after release, then the
+# claw settles on the nearest lane (st_snap 1) at st_snap_rate x the distance a second.
+st_top_speed = 24.6
+st_ramp_time = 0.33
+st_ramp_start = 0.05
+st_curve = 1.5
+st_deadzone = 0.2
+st_ease_time = 0.05
+st_snap = 1
+st_snap_rate = 20
+# Past the last lane centre by this much (lanes) on release, the claw goes on to the next one (a tap = one lane).
+st_snap_ahead = 0.2
 )";
 
 struct Shot { int frame; std::string path; };
@@ -209,7 +241,22 @@ struct AnalogHold { int frame; int x, y, len; };
 // velocity x scale to the position. So the stick presses the d-pad in its direction and sets the scale each field so
 // that the speed follows our curve and ramp; the game does the moving, wrapping and clamping itself.
 // Only while the object's signature is there (flags, and the renderer's copy at $800DC100 = the position).
+// stick_mode momentum: TxK's feel (measured on TxK 2026-11-16, PLAN.md "Claw feel study"): the stick is a force, not
+// a speed - it accelerates the claw up to a top speed, pushing against the motion brakes hard, and on release the
+// claw glides (friction) and a spring settles it on a lane centre. Our model runs in real time (per field); the game
+// claw follows it closed loop: each picture it is asked to move by (model - game position) + one picture ahead.
 struct ClawControl {
+  // momentum mode
+  double mo_v = 0;              // model velocity, lanes a second (+ = position increasing = stick right)
+  double mo_err = 0;            // model position - game position, lanes
+  double mo_prev = 0;           // game position last field
+  double mo_req = 0;            // displacement asked of the game for its next picture
+  bool mo_live = false;         // mo_prev valid
+  int mo_fields = 3;            // fields per picture, last interval
+  int mo_since = 0;             // fields since the last picture
+  int mo_stuck = 0;             // pictures in a row asked to move that didn't (the end of an open web)
+  int mo_absent = 0;            // fields in a row without the claw signature (it blinks for a field at a wrap)
+
   int last_dir = 0;            // -1 / +1 while pushing, 0 not
   uint32_t last_picture = 0;   // the game's picture counter ($80110AA0)
   int pictures_pushed = 0;     // pictures since this push started
@@ -226,25 +273,159 @@ struct ClawControl {
     q[0] = uint8_t(v >> 24); q[1] = uint8_t(v >> 16); q[2] = uint8_t(v >> 8); q[3] = uint8_t(v);
   }
 
+  // The game's speed for its coming picture at d-pad input `input` (40 on a new push, then 60, 80), lanes a picture.
+  static double GameSpeed(int input) { return std::abs(input) * 768.0 / 65536.0; }
+
+  // stick_mode stiff: Tempest 2000's lr handling (the owner's T2K tuning, in real time): speed follows the stick with a
+  // smoothstep ramp from a slow start (a short push moves about a lane, a held one gets quick), a short ease-off on
+  // release, then the claw settles on the nearest lane centre - it never stops between lanes.
+  int st_dir = 0;               // -1 / +1 while pushed
+  double st_held = 0;           // seconds of the current push
+  double st_release = 0;        // seconds since release (ease-off)
+  double st_v0 = 0;             // speed at release
+
+  void StiffModel(float stick_x, double pos, double dt) {
+    const double dz = settings::Num("st_deadzone", 0.2);
+    const double ax = std::fabs(stick_x);
+    const double d = ax > dz ? std::min(1.0, (ax - dz) / (1.0 - dz)) : 0.0;
+    if (d > 0) {
+      const int dir = stick_x > 0 ? 1 : -1;
+      if (dir != st_dir) { st_dir = dir; st_held = 0; }
+      st_held += dt;
+      const double t = std::clamp(st_held / std::max(0.01, settings::Num("st_ramp_time", 0.33)), 0.0, 1.0);
+      const double r0 = std::clamp(settings::Num("st_ramp_start", 0.05), 0.0, 1.0);
+      const double ramp = r0 + (1 - r0) * t * t * (3 - 2 * t);
+      mo_v = dir * settings::Num("st_top_speed", 24.6) * std::pow(d, settings::Num("st_curve", 1.5)) * ramp;
+      st_release = 0;
+      st_v0 = mo_v;
+      return;
+    }
+    st_dir = 0;
+    st_held = 0;
+    const double ease = settings::Num("st_ease_time", 0.05);
+    st_release += dt;
+    if (st_release < ease) {   // ease-off, as T2K's lr_release_frames
+      mo_v = st_v0 * (1.0 - st_release / ease);
+      return;
+    }
+    // Settle on a lane centre: the next one in the direction of travel once the claw is st_snap_ahead past the last
+    // (a tap = one lane), else back to it.
+    const double p = pos + mo_err;
+    const double ahead = st_v0 > 0 ? 1 : st_v0 < 0 ? -1 : 0;
+    const double centre = std::round(p + ahead * (0.5 - settings::Num("st_snap_ahead", 0.2))), gap = centre - p;
+    if (std::fabs(gap) < 0.01 || settings::Num("st_snap", 1) == 0) {
+      mo_v = 0;
+      if (std::fabs(gap) < 0.01) mo_err = centre - pos;
+      return;
+    }
+    const double v = gap * settings::Num("st_snap_rate", 20.0);   // lanes a second toward the centre
+    const double cap = std::fabs(gap) / dt;                          // never past it
+    mo_v = std::clamp(v, -cap, cap);
+  }
+
+  uint16_t Momentum(uint8_t* m, float stick_x, bool new_picture, bool stiff) {
+    const double dt = 1.0 / 60.0;   // one field
+    const double pos = int32_t(Get(m, 0x8003E9E0)) / 65536.0;
+    if (!mo_live) {
+      mo_live = true;
+      mo_prev = pos;
+      mo_v = mo_err = mo_req = 0;
+      mo_stuck = 0;
+      st_dir = 0;
+      st_held = 0;
+      st_release = 1e9;
+      st_v0 = 0;
+    }
+    double moved = pos - mo_prev;
+    mo_prev = pos;
+    if (new_picture) {
+      mo_fields = std::clamp(mo_since, 1, 6);
+      mo_since = 0;
+      // Round a closed web the game wraps the position; a jump bigger than any move = a wrap: count what was asked.
+      if (std::fabs(moved) > 3.0) moved = mo_req;
+      mo_err -= moved;
+      // Asked to move but didn't: the end of an open web (the game clamps). Stop there.
+      if (std::fabs(mo_req) > 0.05 && moved == 0) {
+        if (++mo_stuck >= 2) { mo_v = 0; mo_err = 0; }
+      } else {
+        mo_stuck = 0;
+      }
+    } else if (moved != 0) {
+      mo_err -= std::fabs(moved) > 3.0 ? mo_req : moved;
+    }
+    ++mo_since;
+
+    // The model, one field.
+    if (stiff) {
+      StiffModel(stick_x, pos, dt);
+    } else {
+    const double dz = settings::Num("mo_deadzone", 0.08);
+    const double ax = std::fabs(stick_x);
+    const double u = ax > dz ? std::pow(std::min(1.0, (ax - dz) / (1.0 - dz)), settings::Num("mo_curve", 0.8)) : 0.0;
+    const double top = settings::Num("mo_top_speed", 17.3);
+    if (u > 0) {
+      const int dir = stick_x > 0 ? 1 : -1;
+      double a = top / std::max(0.02, settings::Num("mo_accel_time", 0.35)) * u;
+      if (mo_v * dir < 0) a *= settings::Num("mo_brake", 4.0);   // pushing against the motion
+      mo_v = std::clamp(mo_v + dir * a * dt, -top, top);
+    } else {
+      const double half_life = settings::Num("mo_glide", 0.2);
+      mo_v *= half_life > 0.001 ? std::pow(0.5, dt / half_life) : 0.0;
+      const double p = pos + mo_err, centre = std::round(p);
+      mo_v += settings::Num("mo_settle", 1.0) * 27.8 * (centre - p) * dt;
+      if (std::fabs(mo_v) < 0.3 && std::fabs(centre - p) < 0.02) {   // settled: exactly on the lane
+        mo_v = 0;
+        mo_err = centre - pos;
+      }
+    }
+    }
+    mo_err += mo_v * dt;
+
+    // Ask the game for the model's position one picture ahead (it moves once a picture, a picture late).
+    mo_req = mo_err + mo_v * dt * mo_fields * settings::Num("claw_lead", 0.5);
+    const int input = int(Get(m, 0x801133D8));
+    if (std::fabs(mo_req) < 1e-4) {
+      mo_req = 0;
+      // Not pressing; while the game still applies its late input, hold that picture to nothing.
+      Put(m, 0x8003E9E8, input != 0 ? 0u : 0x10000u);
+      return 0;
+    }
+    const int press = mo_req > 0 ? 1 : -1;
+    const bool same = (input > 0 && press > 0) || (input < 0 && press < 0);
+    const int next = same ? std::min(80, std::abs(input) + (new_picture ? 0 : 20)) : 40;
+    double scale = std::clamp(std::fabs(mo_req) / GameSpeed(next), 0.0, 4.0);
+    // Turning round: the game's next picture still applies its old input (the d-pad is read a picture late), the old
+    // way - hold that picture still, the new way starts on the one after.
+    if (input != 0 && !same) scale = 0;
+    mo_req = press * scale * GameSpeed(next);
+    Put(m, 0x8003E9E8, uint32_t(scale * 65536.0 + 0.5));
+    return press > 0 ? uint16_t(1u << nuon::RIGHT) : uint16_t(1u << nuon::LEFT);
+  }
+
   // stick_x: -1..1; dpad_lr: the physical d-pad's left / right bits (they win). Returns the d-pad bits to press.
   uint16_t Update(float stick_x, uint16_t dpad_lr) {
     size_t n = 0;
     uint8_t* const m = nuon::Memory(0, &n);
     const bool claw = m && n >= 0x800000 && Get(m, 0x8003E9EC) == 0x80000401U &&
                       Get(m, 0x800DC100) == Get(m, 0x8003E9E0);
-    if (!claw || settings::Str("stick_mode", "lr") != "lr" || dpad_lr) {
+    const std::string mode = settings::Str("stick_mode", "stiff");
+    const bool ours = mode == "lr" || mode == "momentum" || mode == "stiff";
+    if (!claw || !ours || dpad_lr) {
       if (claw && Get(m, 0x8003E9E8) != 0x10000) Put(m, 0x8003E9E8, 0x10000);
       last_dir = 0;
       pictures_pushed = 0;
       release_left = 0;
+      if (claw || ++mo_absent > 8) mo_live = false;
       // No claw in play (menus, between lives): the stick is the d-pad, as in stick_mode off.
-      if (!claw && !dpad_lr && settings::Str("stick_mode", "lr") == "lr" && std::fabs(stick_x) > 0.5f)
+      if (!claw && !dpad_lr && ours && std::fabs(stick_x) > 0.5f)
         return stick_x > 0 ? uint16_t(1u << nuon::RIGHT) : uint16_t(1u << nuon::LEFT);
       return 0;
     }
     const uint32_t picture = Get(m, 0x80110AA0);
     const bool new_picture = picture != last_picture;
     last_picture = picture;
+    mo_absent = 0;
+    if (mode == "momentum" || mode == "stiff") return Momentum(m, stick_x, new_picture, mode == "stiff");
 
     const double dz = settings::Num("lr_deadzone", 0.2);
     const double ax = std::fabs(stick_x);
@@ -361,7 +542,8 @@ uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
     const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
     set(nuon::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -16000);
     set(nuon::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 16000);
-    const bool stick_lr = settings::Str("stick_mode", "lr") == "lr";   // then the claw controller handles x
+    const std::string sm = settings::Str("stick_mode", "stiff");
+    const bool stick_lr = sm == "lr" || sm == "momentum" || sm == "stiff";   // then the claw controller handles x
     set(nuon::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || (!stick_lr && lx < -16000));
     set(nuon::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || (!stick_lr && lx > 16000));
   }
@@ -451,6 +633,9 @@ int main(int argc, char** argv) {
   std::vector<Press> presses;
   std::vector<AnalogHold> analogs;   // --analog=F:x,y[:len] (-128..127)
   std::vector<Poke> pokes;           // --poke=F:hexaddr:hexvalue[:len] (system bus, big-endian 32-bit)
+  int clawlog_f0 = -1, clawlog_f1 = -1;
+  std::string clawlog_path;
+  FILE* clawlog = nullptr;
   struct StickHold { int frame; float x; int len; };
   std::vector<StickHold> sticks;     // --stick=F:x[:len] (-1..1): the left stick for the claw controller
   for (int i = 1; i < argc; ++i) {
@@ -478,6 +663,11 @@ int main(int argc, char** argv) {
       StickHold h{0, 0.f, 6};
       std::sscanf(val("--stick=").c_str(), "%d:%f:%d", &h.frame, &h.x, &h.len);
       sticks.push_back(h);
+    }
+    else if (a.rfind("--clawlog=", 0) == 0) {
+      char path[512] = {};
+      if (std::sscanf(val("--clawlog=").c_str(), "%d:%d:%511[^\n]", &clawlog_f0, &clawlog_f1, path) == 3)
+        clawlog_path = path;
     }
     else if (a.rfind("--poke=", 0) == 0) {
       Poke k{0, 0, 0, 1};
@@ -533,6 +723,7 @@ int main(int argc, char** argv) {
   for (auto& s : nativeshots) s.path = fs::absolute(s.path).string();
   if (!winshot_file.empty()) winshot_file = fs::absolute(winshot_file).string();
   for (auto& s : memdumps) s.path = fs::absolute(s.path).string();
+  if (!clawlog_path.empty()) clawlog_path = fs::absolute(clawlog_path).string();
   for (auto& s : savestates) s.path = fs::absolute(s.path).string();
   if (!loadstate.path.empty()) loadstate.path = fs::absolute(loadstate.path).string();
   const std::string sample_out = std::getenv("T3K_SAMPLE") ? fs::absolute(std::getenv("T3K_SAMPLE")).string() : "";
@@ -709,6 +900,20 @@ int main(int argc, char** argv) {
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
+      if (!clawlog_path.empty() && f >= clawlog_f0 && f <= clawlog_f1) {
+        if (!clawlog) clawlog = std::fopen(clawlog_path.c_str(), "w");
+        size_t n = 0;
+        if (const uint8_t* m = nuon::Memory(0, &n); clawlog && m && n >= 0x800000) {
+          float sx = 0.f;
+          for (auto& h : sticks)
+            if (f >= h.frame && f < h.frame + h.len) sx = h.x;
+          auto get = [&](uint32_t a) { return int32_t(ClawControl::Get(m, a)); };
+          std::fprintf(clawlog, "%d %.3f %.5f %.5f %.4f %d %d %08X\n", f, sx, get(0x8003E9E0) / 65536.0,
+                       get(0x8003E9E4) / 65536.0, get(0x8003E9E8) / 65536.0, get(0x80110AA0), get(0x801133D8),
+                       uint32_t(get(0x8003E9EC)));
+        }
+        if (f == clawlog_f1 && clawlog) { std::fclose(clawlog); clawlog = nullptr; }
+      }
       auto& au = nuon::Audio();
       if (!wav.empty()) wav_samples.insert(wav_samples.end(), au.begin(), au.end());
       au.clear();
