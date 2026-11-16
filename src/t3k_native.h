@@ -140,6 +140,9 @@ SDL_Renderer* CreateRenderer(SDL_Window* window);
 // hardware (its fades and clipping), converted to RGB for the window. False = not available (no GPU renderer /
 // T3K_NATIVE_RGB set): the RGB path.
 bool InitPipeline(SDL_Renderer* ren);
+// Sharp vectors: vector items up to max_size game pixels across (text, claw, enemies, HUD) drawn as a thin core
+// (core x the line's width) plus a glow at the original width (x glow); sharp = false: the original look.
+void SetLineStyle(bool sharp, float core, float glow, float max_size);
 // Clears the current target to black (YCrCb black in the pipeline).
 void ClearBlack(SDL_Renderer* ren);
 

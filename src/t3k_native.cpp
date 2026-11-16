@@ -17,6 +17,10 @@ namespace t3knative {
 // The YCrCb pipeline (InitPipeline): pictures' colours are YCrCb bytes / 255 (R = Y, G = Cr, B = Cb) and the renderer
 // works in YCrCb like the hardware, converting to RGB only for the window. Off = the old RGB path.
 bool g_ycc = false;
+// Sharp vectors (SetLineStyle): items up to g_sharp_size game pixels across (text, claw, enemies, HUD - not the web or
+// the full-screen streaks) get a thin core at g_core x the line's width plus a glow at its own width x g_glow.
+bool g_sharp = false;
+float g_core = 0.35f, g_glow = 0.4f, g_sharp_size = 100.f;
 
 namespace {
 
@@ -1205,6 +1209,29 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
       }
       case Op::kSegs: {
         part.assign(segs.begin() + op.first, segs.begin() + op.first + op.count);
+        bool sharpen = g_sharp && !part.empty();
+        if (sharpen) {   // only the small items: the web and the screen-wide streaks keep the original look
+          // small (claw, enemies, HUD) or made of short strokes (lines of text); the web and the streaks have long ones
+          float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, len = 0.f;
+          for (const Seg& sg : part) {
+            x0 = std::min({x0, sg.x0, sg.x1}); x1 = std::max({x1, sg.x0, sg.x1});
+            y0 = std::min({y0, sg.y0, sg.y1}); y1 = std::max({y1, sg.y0, sg.y1});
+            len += std::hypot(sg.x1 - sg.x0, sg.y1 - sg.y0);
+          }
+          sharpen = std::max(x1 - x0, y1 - y0) <= g_sharp_size || len / float(part.size()) <= 12.f;
+        }
+        if (!sharpen) {
+          DrawVectors(ren, part, full, false);
+          break;
+        }
+        if (g_glow > 0.f) {   // the glow: the original line, fainter
+          std::vector<Seg> glow = part;
+          for (Seg& sg : glow) { sg.c0.a *= g_glow; sg.c1.a *= g_glow; }
+          DrawVectors(ren, glow, full, false);
+        }
+        // the core: thin, full strength (never under ~1 window pixel)
+        const float min_r = 0.75f * 360.f / std::max(1.f, full.w);
+        for (Seg& sg : part) sg.r = std::max(sg.r * g_core, min_r);
         DrawVectors(ren, part, full, false);
         break;
       }
@@ -1464,6 +1491,13 @@ SDL_Renderer* CreateRenderer(SDL_Window* window) {
   SDL_DestroyProperties(props);
   if (!r) r = SDL_CreateRenderer(window, nullptr);
   return r;
+}
+
+void SetLineStyle(bool sharp, float core, float glow, float max_size) {
+  g_sharp = sharp;
+  g_core = std::clamp(core, 0.05f, 1.f);
+  g_glow = std::clamp(glow, 0.f, 1.f);
+  g_sharp_size = max_size;
 }
 
 bool InitPipeline(SDL_Renderer* ren) {

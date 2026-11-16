@@ -134,6 +134,13 @@ native_view = 0
 native_skip = 1
 # 1 = the native layer moves smoothly between the game's pictures (F6), 0 = it steps with them.
 native_interpolate = 1
+# Sharp vectors (native pictures): text, claw, enemies and HUD drawn as a thin core (sharp_core x the original line
+# width) with a glow at the original width (sharp_glow x its strength); vector shapes bigger than sharp_max_size game
+# pixels across (the web, the screen-wide streaks) keep the original look. 0 = the original 240p lines.
+sharp_vectors = 1
+sharp_core = 0.35
+sharp_glow = 0.4
+sharp_max_size = 100
 # 1 = the frame-rate counter (F4): the game's pictures a second, emulated fields a second.
 show_rates = 0
 # 1 = render at 720x480, twice the game's own 360x240 (experimental: some screens still have flaws; needs about 2.5x
@@ -334,6 +341,12 @@ std::shared_ptr<t3knative::Picture> Take(uint32_t flip) {
   return p;
 }
 }  // namespace gate
+// The native renderer's sharp vectors from the settings (sharp_vectors, sharp_core, sharp_glow, sharp_max_size).
+void ApplyLineStyle() {
+  t3knative::SetLineStyle(settings::Num("sharp_vectors", 1) != 0, float(settings::Num("sharp_core", 0.35)),
+                          float(settings::Num("sharp_glow", 0.4)), float(settings::Num("sharp_max_size", 100)));
+}
+
 struct Press { int frame; int btn; int len; };
 struct AnalogHold { int frame; int x, y, len; };
 
@@ -996,6 +1009,7 @@ int main(int argc, char** argv) {
     nren = nwin ? t3knative::CreateRenderer(nwin) : nullptr;
     if (nren) {
       t3knative::InitPipeline(nren);
+      ApplyLineStyle();
       nout = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, 1440, 1080);
       nemu = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 360, 240);
       SDL_SetTextureScaleMode(nemu, SDL_SCALEMODE_LINEAR);
@@ -1499,6 +1513,7 @@ int main(int argc, char** argv) {
   std::shared_ptr<const t3knative::Vectors> native_last_pic;
   int presents = 0;
   while (running) {
+    ApplyLineStyle();   // (sharp vectors: menu changes apply at once)
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) running = false;

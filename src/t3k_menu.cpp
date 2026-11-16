@@ -63,6 +63,10 @@ void Install(bool from_launcher) {
   p.Binds();
   p.Header("DISPLAY");
   p.Button("Fullscreen on / off", menu::kToggleFullscreen);
+  auto sharp = [] { return settings::Num("sharp_vectors", 1) != 0; };
+  p.Choice("Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp (text, claw, enemies)", "Original"});
+  p.Number("  Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;
+  p.Number("  Glow", "sharp_glow", 0, 1, 0.05, "%.2f", 0.4)->when = sharp;
   p.Choice("Picture blend (F3)", "picture_blend", {"1", "0"}, {"On", "Off"});
   p.Choice("Frame-rate counter (F4)", "show_rates", {"0", "1"}, {"Off", "On"});
   p.Choice("High resolution 720x480 (experimental, next start)", "high_res", {"0", "1"}, {"Off", "On"});
