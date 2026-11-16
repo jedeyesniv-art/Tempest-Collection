@@ -733,7 +733,7 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
 - 0031020E (806AFA80 mode 2, 806AFC52): template rings of discs - DONE, tools/t3k_flowerfit.py (calls to 0.001 px,
   modelled literally from the code on the first try), 2.9 on its pixels.
 - 00310208 (806A5FB0 mode 2, handler 806A6182): the powerup-collect burst at the claw (2026-11-16, from the owner's
-  log_emulated dumps, logs	3k\p208) - DONE, tools/t3k_burstfit.py (80 disc calls a picture to 0.0005 px, sizes and
+  log_emulated dumps, logs\t3k\p208) - DONE, tools/t3k_burstfit.py (80 disc calls a picture to 0.0005 px, sizes and
   intensities exact): five rings of 16 discs (size 16 - 3n, radius $4000 + $3000 n, I 1/4/7/10/63 / 64, colour n of
   $8010B150) around (w0, w1, w2) with the camera at $800DAD80; disc row routine = w7 & $7F (table at local $B8C):
   0 = the plain disc blend (806A6944). Native check: 12 + 27 pictures complete over the four dumps. Seen there too:
