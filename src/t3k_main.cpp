@@ -5,7 +5,6 @@
 //   --headless --frames=N                 run N fields without showing a window (as fast as the PC can; with
 //                                         --timing=real one takes a real 60th of a second)
 //   --timing=emulated|real --rounds=N     override settings timing / nuon_rounds
-//   --hires[=0|1]                         override settings high_res (render at 720x480)
 //   --shot=F:<file.bmp>                   save the picture after frame F (repeatable)
 //   --nativecheck=F0:F1:<dir>              headless: each game picture shown in fields F0..F1 drawn natively at
 //                                         360x240 on the emulated previous picture, against that picture's own
@@ -31,6 +30,7 @@
 //   --from-launcher                       started by tempest.exe (the menu's last item says "Return to launcher")
 //   --menu[=all]                          open the settings menu at start (all sections open; tests)
 //   --winshot=N:<file.bmp>                save the window after N presents, then quit (tests)
+//   --statetest=N:save|load               window tests: save / load the menu's state slot at present N
 //   --winsize=WxH                         window size (and not fullscreen; tests)
 //   T3K_PERF=1                            a timing summary every 5 s on stderr
 // Keys: arrows d-pad, Z = A, X = B, Enter = Start, Tab = Nuon, Q / E = L / R, I J K L = C up / left / down / right,
@@ -45,6 +45,7 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <ctime>
 #include <map>
 #include <memory>
@@ -132,16 +133,19 @@ game_speed = 24
 warp_speed = 60
 # Seconds the speed takes to change between game_speed and warp_speed (0 = at once).
 warp_ramp = 0.5
-# 1 = cross-fade between the game's pictures (smooth-looking motion at any display rate, ~one picture more lag;
-# F3 toggles). 0 = each picture shown as it is.
+# Renderer: 1 = Remaster (every picture redrawn natively at the window's resolution: sharp, wide screens, smooth
+# motion; a picture holding an effect it can't draw yet is shown emulated, with an orange note), 0 = Emulation (the
+# original 360x240 pictures as the hardware drew them, scaled up). F7 also cycles two test views (2 = the native lines
+# over the emulated picture, 3 = the lines alone).
+native_view = 1
+# Emulation renderer: 1 = cross-fade between the game's pictures (smooth-looking motion at any display rate, ~one
+# picture more lag; F3 toggles). 0 = each picture shown as it is.
 picture_blend = 1
-# Native renderer (in development, F7 cycles): 0 = off, 1 = native pictures (where every part is done; others stay
-# emulated), 2 = the native vector layer over the emulated picture (an alignment check), 3 = the vector layer alone.
-native_view = 0
 # With native_view 1: 1 = pictures we draw natively are skipped by the emulated renderers (the CPU saving: about
 # 2.4x less emulation time in play), 0 = the emulator still draws them too.
 native_skip = 1
-# 1 = the native layer moves smoothly between the game's pictures (F6), 0 = it steps with them.
+# Remaster: 1 = smooth motion - things move between the game's pictures and the feedback effects advance every
+# refresh (F6), 0 = it steps with the pictures.
 native_interpolate = 1
 # Sharp vectors (native pictures): text, claw, enemies and HUD drawn as a thin core (sharp_core x the original line
 # width) with a glow at the original width (sharp_glow x its strength); vector shapes bigger than sharp_max_size game
@@ -155,9 +159,8 @@ sharp_max_size = 100
 widescreen = 1
 # 1 = the frame-rate counter (F4): the game's pictures a second, emulated fields a second.
 show_rates = 0
-# 1 = render at 720x480, twice the game's own 360x240 (experimental: some screens still have flaws; needs about 2.5x
-# the CPU time). Read at start-up.
-high_res = 0
+# Save state slot (1-5) for the menu's Save state / Load state: userdata\states\t3k_slot<n>.state.
+state_slot = 1
 
 # 1 = when a picture can't be drawn natively yet (the emulator draws it), log it: userdata\emulated\emulated.log, and
 # for the first picture of each kind a save state + screenshot there (to port it from). A summary at exit.
@@ -228,11 +231,27 @@ struct Shot { int frame; std::string path; };
 // What each native_view (F7) setting does, for the toast and the corner label.
 const char* NativeViewName(int v, bool skip) {
   switch (v) {
-    case 0: return "F7 native: OFF";
-    case 1: return skip ? "F7 native: ON, emulator skips" : "F7 native: ON, emulator draws too";
-    case 2: return "F7 native: lines over emulated";
-    default: return "F7 native: lines alone";
+    case 0: return "Renderer: Emulation";
+    case 1: return skip ? "Renderer: Remaster" : "Renderer: Remaster (emulator draws too)";
+    case 2: return "Test view: native lines over emulated";
+    default: return "Test view: native lines alone";
   }
+}
+
+// Save states (menu): userdata\states\t3k_slot<n>.state (T2K's slots share build\userdata, so a prefix).
+fs::path StatePath(const fs::path& udir) {
+  return udir / "states" / ("t3k_slot" + std::to_string(int(settings::Num("state_slot", 1))) + ".state");
+}
+std::string SlotInfo(const fs::path& udir) {
+  std::error_code ec;
+  const fs::path p = StatePath(udir);
+  const std::string slot = "slot " + std::to_string(int(settings::Num("state_slot", 1)));
+  if (!fs::exists(p, ec)) return slot + ": empty";
+  const auto t = std::chrono::clock_cast<std::chrono::system_clock>(fs::last_write_time(p, ec));
+  const std::time_t tt = std::chrono::system_clock::to_time_t(t);
+  char buf[64];
+  std::strftime(buf, sizeof buf, "%d %b %H:%M", std::localtime(&tt));
+  return slot + ": " + buf;
 }
 
 // log_emulated (window): every picture the native renderer can't draw yet is counted by the type that blocked it; the
@@ -826,11 +845,12 @@ struct Perf {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg, flipcap_arg, hires_arg, winshot_file;
+  std::string disc, wav, perflog, userdata, timing_arg, rounds_arg, flipcap_arg, winshot_file;
   bool headless = false, novsync = false, from_launcher = false;
   int menu_test = 0, winshot_at = -1;
   float nativeaspect = 0.f;
   int winsize_w = 0, winsize_h = 0;
+  std::vector<std::pair<int, bool>> state_tests;   // --statetest=N:save|load (window: as the menu's items, at present N)
   int frames = -1;   // headless default 600; the window runs until closed unless given
   std::vector<Shot> shots, memdumps, nativeshots, savestates;
   Shot loadstate{-1, ""};   // --loadstate=F:file: continue from field F + 1
@@ -863,8 +883,6 @@ int main(int argc, char** argv) {
     else if (a.rfind("--timing=", 0) == 0) timing_arg = val("--timing=");
     else if (a.rfind("--rounds=", 0) == 0) rounds_arg = val("--rounds=");
     else if (a.rfind("--flipcap=", 0) == 0) flipcap_arg = val("--flipcap=");
-    else if (a == "--hires") hires_arg = "1";
-    else if (a.rfind("--hires=", 0) == 0) hires_arg = val("--hires=");
     else if (a.rfind("--perflog=", 0) == 0) perflog = val("--perflog=");
     else if (a.rfind("--disasm=", 0) == 0) disasms.push_back(val("--disasm="));
     else if (a.rfind("--stick=", 0) == 0) {
@@ -906,6 +924,10 @@ int main(int argc, char** argv) {
       auto v = a.substr(12);
       Shot s{std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)};
       if (save) savestates.push_back(s); else loadstate = s;
+    }
+    else if (a.rfind("--statetest=", 0) == 0) {
+      auto v = val("--statetest=");
+      state_tests.push_back({std::atoi(v.c_str()), v.substr(v.find(':') + 1) == "save"});
     }
     else if (a.rfind("--winsize=", 0) == 0) {
       auto v = val("--winsize=");
@@ -969,12 +991,6 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "load: %s\n", err.c_str());
     if (!headless) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 3000", err.c_str(), nullptr);
     return 1;
-  }
-  // High resolution: 720x480 rendering (before the first field).
-  if (!hires_arg.empty()) settings::Set("high_res", hires_arg);
-  if (settings::Num("high_res", 0) != 0) {
-    if (nuon::SetHighRes(true)) std::fprintf(stderr, "high resolution: 720x480\n");
-    else std::fprintf(stderr, "high resolution: not supported by this core\n");
   }
   std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", disc.c_str(), nuon::Fps(), nuon::SampleRate());
   if (!timing_arg.empty()) settings::Set("timing", timing_arg);
@@ -1490,6 +1506,25 @@ int main(int argc, char** argv) {
   std::atomic<int64_t> fields_done{0};
   // The field grid's origin, shared: the main thread nudges it away from the vblanks (see below).
   std::atomic<uint64_t> grid_start{SDL_GetTicksNS() + field_ns};
+  // Menu save / load: the main thread asks (1 save, 2 load, path in state_req_path), the emulation thread does it
+  // between fields (it owns the core) and answers in state_done (1 ok, 2 failed).
+  std::atomic<int> state_req{0}, state_done{0};
+  std::string state_req_path;
+  auto serve_state = [&] {
+    const int r = state_req.exchange(0);
+    if (!r) return;
+    std::error_code ec;
+    fs::create_directories(fs::path(state_req_path).parent_path(), ec);
+    bool ok = false;
+    if (r == 1) {
+      ok = nuon::SaveState(state_req_path);
+    } else if (fs::exists(state_req_path, ec)) {
+      ok = nuon::LoadState(state_req_path);
+      speed.flip = 0;   // (the picture counter starts over from the state's)
+    }
+    std::fprintf(stderr, "%s state %s: %s\n", r == 1 ? "save" : "load", state_req_path.c_str(), ok ? "ok" : "FAILED");
+    state_done = ok ? 1 : 2;
+  };
   nuon::ReleaseContext();   // the emulation thread takes the core's OpenGL context
   emulog::dir = (udir / "emulated").string();
   emulog::enabled = settings::Num("log_emulated", 1) != 0;
@@ -1498,11 +1533,15 @@ int main(int argc, char** argv) {
     for (int64_t k = 0; !emu_quit; ++k) {
       if (emu_pause) {
         emu_parked = true;
-        while (emu_pause && !emu_quit) SDL_Delay(2);
+        while (emu_pause && !emu_quit) {
+          serve_state();
+          SDL_Delay(2);
+        }
         emu_parked = false;
         if (emu_quit) break;
         grid_start = SDL_GetTicksNS() - uint64_t(k) * field_ns;   // carry on from now: no catching up
       }
+      serve_state();
       uint64_t due = 0;
       if (emulated) {
         due = grid_start.load() + uint64_t(k) * field_ns;
@@ -1604,14 +1643,17 @@ int main(int argc, char** argv) {
   std::string rates_text;
   uint64_t rates_t = SDL_GetTicksNS();
   uint32_t rates_flips = perf.flips.load(), rates_fields = perf.fields.load();
-  const bool high_res_on = settings::Num("high_res", 0) != 0;
   auto set_fullscreen = [&](bool on) {
     SDL_SetWindowFullscreen(win, on);
     settings::Save("fullscreen", on ? "1" : "0");
   };
   bool prev_back = false;
   uint32_t prev_held = 0;
-  int native_view = int(settings::Num("native_view", 0));
+  int native_view = int(settings::Num("native_view", 1));
+  menu::SetSlotInfo([&] { return SlotInfo(udir); });
+  bool state_req_save = false;
+  uint64_t effect_note_until = 0;   // the orange "new effect" note stays up this long after the last emulated picture
+  uint32_t effect_note_type = 0;
   const bool native_skip = settings::Num("native_skip", 1) != 0;
   gate::mode = (native_view == 1 && native_skip) ? 2 : 0;   // the draw gate follows the native view
   std::shared_ptr<const t3knative::Vectors> shown_vec, prev_vec;   // the shown picture's layer and the one before
@@ -1672,15 +1714,34 @@ int main(int argc, char** argv) {
         menu::Nav nav = menu::ReadNav(pad, SDL_GetKeyboardState(nullptr));
         for (int b = 0; b < controls::kButtonCount; ++b)
           if (pressed >> b & 1) { nav.new_button = b; break; }
-        switch (menu::Update(nav, now)) {
+        const int act = menu::Update(nav, now);
+        switch (act) {
           case menu::kQuit: running = false; break;
           case menu::kToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
+          case menu::kSaveState:
+          case menu::kLoadState:
+            if (!state_req.load()) {
+              state_req_path = StatePath(udir).string();
+              state_req = act == menu::kSaveState ? 1 : 2;
+              state_req_save = act == menu::kSaveState;
+            }
+            break;
           default: break;
         }
         picture_blend = settings::Num("picture_blend", 1) != 0;
         show_rates = settings::Num("show_rates", 0) != 0;
+        native_interp = settings::Num("native_interpolate", 1) != 0;
+        if (const int nv = int(settings::Num("native_view", 1)); nv != native_view) {
+          native_view = nv;
+          gate::mode = (native_view == 1 && native_skip) ? 2 : 0;
+        }
       }
       emu_pause = menu::IsOpen();
+      if (const int d = state_done.exchange(0)) {
+        const bool ok = d == 1;
+        menu::Toast(state_req_save ? (ok ? "State saved (" + SlotInfo(udir) + ")" : "Save failed")
+                                   : (ok ? "State loaded (" + SlotInfo(udir) + ")" : "No state in this slot"), now);
+      }
     }
     pad_buttons = ReadPad(pad, SDL_GetKeyboardState(nullptr));
     {
@@ -1844,8 +1905,8 @@ int main(int argc, char** argv) {
         const uint32_t fl = perf.flips.load(), fi = perf.fields.load();
         const double secs = (now - rates_t) / 1e9;
         char buf[128];
-        std::snprintf(buf, sizeof buf, "%.1f pictures/s  %.1f fields/s  %s", (fl - rates_flips) / secs,
-                      (fi - rates_fields) / secs, high_res_on ? "720x480" : "360x240");
+        std::snprintf(buf, sizeof buf, "%.1f pictures/s  %.1f fields/s", (fl - rates_flips) / secs,
+                      (fi - rates_fields) / secs);
         rates_text = buf;
         rates_t = now; rates_flips = fl; rates_fields = fi;
       }
@@ -1856,31 +1917,43 @@ int main(int argc, char** argv) {
         SDL_SetRenderScale(ren, 1.f, 1.f);
       }
     }
-    if (native_view != 0) {   // which renderer drew this picture (testing aid while the native renderer is in development)
-      std::string tag = NativeViewName(native_view, native_skip);
-      if (native_view == 1) {
-        if (shown_vec && shown_vec->complete) {
-          tag += " | NATIVE";
-        } else {
-          char buf[64];
-          std::snprintf(buf, sizeof buf, " | EMULATED (%08X)",
-                        shown_vec ? shown_vec->first_unknown : 0u);
-          tag += buf;
-        }
+    // Remaster: a picture with an effect the native renderer can't draw yet is shown emulated - an orange note says
+    // so (and which entry type, to port it), held 3 s after the last such picture. Nothing while every picture is ours.
+    // The test views (F7: 2, 3) name themselves.
+    std::string note;
+    if (native_view == 1) {
+      const uint64_t t = SDL_GetTicksNS();
+      if (shown_vec && !shown_vec->complete) {
+        effect_note_until = t + 3000000000ull;
+        effect_note_type = shown_vec->first_unknown;
       }
+      if (t < effect_note_until) {
+        char buf[96];
+        std::snprintf(buf, sizeof buf, "New effect - shown emulated (type %08X)", effect_note_type);
+        note = buf;
+      }
+    } else if (native_view >= 2) {
+      note = NativeViewName(native_view, native_skip);
+    }
+    if (!note.empty()) {
       SDL_SetRenderScale(ren, 2.f, 2.f);
       const float ty = float(wh) / 2.f - 14.f;
       SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-      const SDL_FRect bg{4.f, ty - 3.f, 8.f * float(tag.size()) + 8.f, 14.f};
+      const SDL_FRect bg{4.f, ty - 3.f, 8.f * float(note.size()) + 8.f, 14.f};
       SDL_RenderFillRect(ren, &bg);
-      if (native_view == 1 && shown_vec && shown_vec->complete) SDL_SetRenderDrawColor(ren, 80, 255, 120, 255);
-      else SDL_SetRenderDrawColor(ren, 255, 160, 60, 255);
-      SDL_RenderDebugText(ren, 8.f, ty, tag.c_str());
+      SDL_SetRenderDrawColor(ren, 255, 160, 60, 255);
+      SDL_RenderDebugText(ren, 8.f, ty, note.c_str());
       SDL_SetRenderScale(ren, 1.f, 1.f);
     }
     if (menu::Shown()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, SDL_GetTicksNS());
     if (menu_test && presents == 0) menu::Open(menu_test == 2);
+    for (auto& [at, save] : state_tests)
+      if (presents == at && !state_req.load()) {
+        state_req_path = StatePath(udir).string();
+        state_req_save = save;
+        state_req = save ? 1 : 2;
+      }
     // T3K_WINSEQ=<first present>:<count>:<dir> (tests): save each of those presents as <dir>/p<n>.bmp.
     if (static const char* ws = std::getenv("T3K_WINSEQ"); ws) {
       static int w0 = -1, wn = 0;

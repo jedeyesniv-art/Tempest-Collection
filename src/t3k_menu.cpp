@@ -33,8 +33,11 @@ void Install(bool from_launcher) {
   p.Header("GAME");
   p.Number("Game speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 24);
   auto warp = [] { return settings::Num("warp_speed", 60) > 0; };
-  p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60 pictures/s (as the original)", "Game speed"});
+  p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60/s (original)", "Game speed"});
   p.Number("  Speed change (s)", "warp_ramp", 0, 2, 0.1, "%.1f", 0.5)->when = warp;
+  p.Choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
+  p.Button("  Save state", menu::kSaveState)->slot_info = true;
+  p.Button("  Load state", menu::kLoadState, true)->slot_info = true;
   p.Header("STICK");
   p.Choice("Stick mode", "stick_mode", {"stiff", "lr", "momentum", "off"},
            {"Stiff (T2K feel)", "Left / right", "Momentum (TxK feel)", "Off (stick = d-pad)"});
@@ -65,14 +68,18 @@ void Install(bool from_launcher) {
   p.Binds();
   p.Header("DISPLAY");
   p.Button("Fullscreen on / off", menu::kToggleFullscreen);
-  p.Choice("Wide screens", "widescreen", {"1", "0"}, {"Fill the width", "4:3 with bars"});
-  auto sharp = [] { return settings::Num("sharp_vectors", 1) != 0; };
-  p.Choice("Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp (text, claw, enemies)", "Original"});
-  p.Number("  Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;
-  p.Number("  Glow", "sharp_glow", 0, 1, 0.05, "%.2f", 0.4)->when = sharp;
-  p.Choice("Picture blend (F3)", "picture_blend", {"1", "0"}, {"On", "Off"});
+  // Remaster (the native renderer) or Emulation (the original pictures); each one's options only show with it
+  auto rem = [] { return settings::Num("native_view", 1) == 1; };
+  auto emu = [] { return settings::Num("native_view", 1) != 1; };
+  auto sharp = [] { return settings::Num("native_view", 1) == 1 && settings::Num("sharp_vectors", 1) != 0; };
+  p.Choice("Renderer", "native_view", {"1", "0"}, {"Remaster", "Emulation (original)"});
+  p.Choice("  Wide screens", "widescreen", {"1", "0"}, {"Fill the width", "4:3 with bars"})->when = rem;
+  p.Choice("  Smooth motion (F6)", "native_interpolate", {"1", "0"}, {"On", "Off"})->when = rem;
+  p.Choice("  Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp (text, claw, enemies)", "Original"})->when = rem;
+  p.Number("    Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;
+  p.Number("    Glow", "sharp_glow", 0, 1, 0.05, "%.2f", 0.4)->when = sharp;
+  p.Choice("  Picture blend (F3)", "picture_blend", {"1", "0"}, {"On", "Off"})->when = emu;
   p.Choice("Frame-rate counter (F4)", "show_rates", {"0", "1"}, {"Off", "On"});
-  p.Choice("High resolution 720x480 (experimental, next start)", "high_res", {"0", "1"}, {"Off", "On"});
   p.Header("");
   p.Button(from_launcher ? "Return to launcher" : "Quit", menu::kQuit, true);
   menu::SetPage("TEMPEST 3000 - SETTINGS", std::move(p));

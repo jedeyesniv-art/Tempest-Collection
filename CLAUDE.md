@@ -140,6 +140,20 @@ T2K to-do batch DONE 2026-11-16 (B / Backspace = back in menus, enemy bullets at
 event stall, run-ahead / catch-up),
 T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
 
+## T3K menu cleanup, save states (2026-11-16)
+- Menu DISPLAY: Renderer = native_view (1 Remaster, default now; 0 Emulation); Remaster options (wide screens, smooth
+  motion = native_interpolate, vector lines) and Emulation's picture blend show only with their renderer. high_res
+  setting / --hires removed (the core keeps its code). F7 still cycles the test views 2 / 3 (they name themselves).
+- On screen: nothing while every picture is native; an orange "New effect - shown emulated (type X)" note for 3 s
+  after an emulated picture in Remaster.
+- Save states: menu GAME Save slot 1-5 -> userdata\states\t3k_slot<n>.state (~62 MB); done by the emulation thread
+  between fields (also while parked for the menu). Test: --statetest=N:save|load (window, at present N).
+- Core fix: retro_unserialize re-points the pad block (ControllerInitialize only runs at boot), so a session started
+  from a state takes input now (the old "--press after --loadstate does nothing" bug).
+- Cheats (paused by the owner): lives = $800BAC7C (a register spill of the game's context save at $80010200; holding
+  it at 3 keeps the game going through deaths). No "caught" flag found in sys / MPE3 memory yet. Max level (15 at
+  the menu) candidates: 800B2F4C 80139048 801B72AC 8024670C (untested).
+
 ## T3K game speed + warp speed (2026-11-16)
 - game_speed = pictures a second, any 15-60 (default 24, owner); replaces flip_cap (--flipcap=F still works: 60 / F).
   warp_speed (default 60, 0 = off) + warp_ramp (s, default 0.5): src/t3k_main.cpp SpeedControl sets the core's flip
