@@ -63,6 +63,7 @@ void Install(bool from_launcher) {
   p.Binds();
   p.Header("DISPLAY");
   p.Button("Fullscreen on / off", menu::kToggleFullscreen);
+  p.Choice("Wide screens", "widescreen", {"1", "0"}, {"Fill the width", "4:3 with bars"});
   auto sharp = [] { return settings::Num("sharp_vectors", 1) != 0; };
   p.Choice("Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp (text, claw, enemies)", "Original"});
   p.Number("  Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;

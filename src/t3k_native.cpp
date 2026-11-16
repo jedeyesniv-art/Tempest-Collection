@@ -871,12 +871,15 @@ void PlaneOp(const uint32_t* e, const Mem& mem, Picture* out) {
     *v = float((vv + p * dv + b * p * (p - 1) / 2) / 65536.0);
   };
   constexpr double kCell = 8.0;
-  pl.cols = std::max(1, int(std::ceil(w / kCell)));
+  // a plane across the whole width carries on past the 4:3 edges (wide windows), one screen width each side
+  const double ext = (x0 <= 0 && x0 + w >= 360) ? 360.0 : 0.0;
+  const double xa = -ext, xb = w + ext;
+  pl.cols = std::max(1, int(std::ceil((xb - xa) / kCell)));
   pl.rows = std::max(1, int(std::ceil(h / kCell)));
   pl.grid.resize(size_t(pl.cols + 1) * size_t(pl.rows + 1));
   for (int r = 0; r <= pl.rows; ++r)
     for (int c = 0; c <= pl.cols; ++c) {
-      const double X = std::min(c * kCell, w), Y = std::min(r * kCell, h);
+      const double X = std::min(xa + c * kCell, xb), Y = std::min(r * kCell, h);
       Web::Vertex& vx = pl.grid[size_t(r) * size_t(pl.cols + 1) + size_t(c)];
       vx.x = float(x0 + X);
       vx.y = float(y0 + Y);
@@ -1159,16 +1162,19 @@ Renderer::~Renderer() {
   if (disc_tex_) SDL_DestroyTexture(disc_tex_);
 }
 
-void Renderer::Redraw(SDL_Renderer* ren, const SDL_FRect& dst) {
-  if (tex_[cur_]) Pass(ren, tex_[cur_], g_ycc ? g_out : nullptr, &dst);
+void Renderer::Redraw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect* view) {
+  if (tex_[cur_]) Pass(ren, tex_[cur_], g_ycc ? g_out : nullptr, view ? view : &dst);
 }
 
-void Renderer::Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& dst) {
+void Renderer::Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& dst, const SDL_FRect* view) {
   if (!picture) return;
-  Resize(ren, dst);
+  const SDL_FRect vw = view ? *view : dst;
+  Resize(ren, vw);
   SDL_Texture* keep = SDL_GetRenderTarget(ren);
   SDL_SetRenderTarget(ren, tex_[cur_]);
-  Pass(ren, picture, g_ycc ? g_in : nullptr, nullptr);
+  ClearBlack(ren);
+  const SDL_FRect game{dst.x - vw.x, dst.y - vw.y, dst.w, dst.h};   // (the emulated picture: the 4:3 part)
+  Pass(ren, picture, g_ycc ? g_in : nullptr, &game);
   SDL_SetRenderTarget(ren, keep);
 }
 
@@ -1191,23 +1197,31 @@ void Renderer::Resize(SDL_Renderer* ren, const SDL_FRect& dst) {
 }
 
 void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg>& segs, const SDL_FRect& dst,
-                    float step) {
-  Resize(ren, dst);
+                    float step, const SDL_FRect* view) {
+  const SDL_FRect vw = view ? *view : dst;
+  Resize(ren, vw);
   const int w = w_, h = h_;
   SDL_Texture* prev = tex_[cur_];
   SDL_Texture* next = tex_[cur_ ^ 1];
   SDL_Texture* keep = SDL_GetRenderTarget(ren);
   SDL_SetRenderTarget(ren, next);
   ClearBlack(ren);
-  const SDL_FRect full{0, 0, float(w), float(h)};
-  const float sx = float(w) / 360.f, sy = float(h) / 240.f;
+  // Game pixel (x, y) -> texture (x sx + ox, y sy + oy): the 360 x 240 picture fills dst, the texture covers the view
+  // (wider: the game's world past the 4:3 edges). gx0..gx1 / gy0..gy1: the texture's extent in game pixels.
+  const float sx = dst.w / 360.f, sy = dst.h / 240.f;
+  const float ox = dst.x - vw.x, oy = dst.y - vw.y;
+  const SDL_FRect full{ox, oy, dst.w, dst.h};   // (DrawVectors: where the 360 x 240 picture goes)
+  const float gx0 = -ox / sx, gx1 = (float(w) - ox) / sx, gy0 = -oy / sy, gy1 = (float(h) - oy) / sy;
   std::vector<Seg> part;
   for (const Op& op : pic.ops) {
     switch (op.kind) {
       case Op::kFill: {
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
         SDL_SetRenderDrawColorFloat(ren, op.colour.r, op.colour.g, op.colour.b, 1.f);
-        const SDL_FRect r{op.x * sx, op.y * sy, op.w * sx, op.h * sy};
+        float x0 = op.x, x1 = op.x + op.w, y0 = op.y, y1 = op.y + op.h;
+        if (x0 <= 0.f && x1 >= 360.f) x0 = std::min(x0, gx0), x1 = std::max(x1, gx1);   // full width: to the edges
+        if (y0 <= 0.f && y1 >= 240.f) y0 = std::min(y0, gy0), y1 = std::max(y1, gy1);
+        const SDL_FRect r{x0 * sx + ox, y0 * sy + oy, (x1 - x0) * sx, (y1 - y0) * sy};
         SDL_RenderFillRect(ren, &r);
         break;
       }
@@ -1221,13 +1235,13 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           const float dx = px - op.cx, dy = py - op.cy;
           const float rx = (dx * ca - dy * sa) / zx, ry = (dx * sa + dy * ca) / zy;
           // (the module takes the nearest source pixel, floor(S) + 1/2, whose average is S itself)
-          return SDL_FPoint{(op.cx + rx) / 360.f, (op.cy + ry) / 240.f};
+          return SDL_FPoint{((op.cx + rx) * sx + ox) / float(w), ((op.cy + ry) * sy + oy) / float(h)};
         };
         const float f1 = std::min(fade, 1.f), f2 = std::max(fade - 1.f, 0.f);
         auto quad = [&](float k, SDL_BlendMode mode) {
           const SDL_FColor c{k, k, k, 1.f};
-          const SDL_Vertex v[4] = {{{0, 0}, c, uv(0, 0)}, {{float(w), 0}, c, uv(360, 0)},
-                                   {{0, float(h)}, c, uv(0, 240)}, {{float(w), float(h)}, c, uv(360, 240)}};
+          const SDL_Vertex v[4] = {{{0, 0}, c, uv(gx0, gy0)}, {{float(w), 0}, c, uv(gx1, gy0)},
+                                   {{0, float(h)}, c, uv(gx0, gy1)}, {{float(w), float(h)}, c, uv(gx1, gy1)}};
           const int idx[6] = {0, 1, 2, 1, 3, 2};
           SDL_SetTextureBlendMode(prev, mode);
           SDL_RenderGeometry(ren, prev, v, 4, idx, 6);
@@ -1253,7 +1267,8 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         const int idx[6] = {0, 1, 2, 1, 3, 2};
         SDL_SetTextureBlendMode(prev, SDL_BLENDMODE_NONE);
         if (g_ycc) {
-          const float u[8] = {op.x, op.y, op.w, op.h, op.colour.r, op.colour.g, op.colour.b, op.fade};
+          const float u[12] = {op.x, op.y, op.w, op.h, op.colour.r, op.colour.g, op.colour.b, op.fade,
+                               gx0, gy0, gx1 - gx0, gy1 - gy0};
           SDL_SetGPURenderStateFragmentUniforms(g_ripple, 0, u, sizeof(u));
           SDL_SetGPURenderState(ren, g_ripple);
           SDL_RenderGeometry(ren, prev, v, 4, idx, 6);
@@ -1289,7 +1304,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           DrawVectors(ren, glow, full, false);
         }
         // the core: thin, full strength (never under ~1 window pixel)
-        const float min_r = 0.75f * 360.f / std::max(1.f, full.w);
+        const float min_r = 0.75f * 360.f / std::max(1.f, dst.w);
         for (Seg& sg : part) sg.r = std::max(sg.r * g_core, min_r);
         DrawVectors(ren, part, full, false);
         break;
@@ -1314,7 +1329,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           const float a = std::clamp(1.f - q.v / 32.f, 0.f, 1.f);
           static const float uoff = std::getenv("T3K_WEB_UOFF") ? float(std::atof(std::getenv("T3K_WEB_UOFF"))) : 0.f;
           static const float voff = std::getenv("T3K_WEB_VOFF") ? float(std::atof(std::getenv("T3K_WEB_VOFF"))) : 0.f;
-          return SDL_Vertex{{q.x * sx, q.y * sy}, {1.f, 1.f, 1.f, a},
+          return SDL_Vertex{{q.x * sx + ox, q.y * sy + oy}, {1.f, 1.f, 1.f, a},
                             {(q.u + uoff + 0.5f) / 16.f, (q.v + op.fade + voff + 0.5f) / 16.f}};
         };
         // The module edge-walks each quad: on a scanline, (u, v) where it crosses the quad's left and right edges
@@ -1388,7 +1403,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         v.reserve(size_t(pl.cols) * size_t(pl.rows) * 6);
         const SDL_FColor white{1.f, 1.f, 1.f, 1.f};
         auto V = [&](const Web::Vertex& q) {   // (texel i at coordinate i; the GPU's texel centres at i + 1/2)
-          return SDL_Vertex{{q.x * sx, q.y * sy}, white, {(q.u + 0.5f) / 16.f, (q.v + 0.5f) / 16.f}};
+          return SDL_Vertex{{q.x * sx + ox, q.y * sy + oy}, white, {(q.u + 0.5f) / 16.f, (q.v + 0.5f) / 16.f}};
         };
         for (int r = 0; r < pl.rows; ++r)
           for (int c = 0; c < pl.cols; ++c) {
@@ -1423,7 +1438,8 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         v.reserve(size_t(op.count) * 6);
         for (uint32_t k = 0; k < op.count; ++k) {
           const Blob& b = pic.blobs[op.first + k];
-          const float x0 = (b.x - b.r) * sx, x1 = (b.x + b.r) * sx, y0 = (b.y - b.r) * sy, y1 = (b.y + b.r) * sy;
+          const float x0 = (b.x - b.r) * sx + ox, x1 = (b.x + b.r) * sx + ox;
+          const float y0 = (b.y - b.r) * sy + oy, y1 = (b.y + b.r) * sy + oy;
           const SDL_Vertex a{{x0, y0}, b.colour, {0, 0}}, bb{{x1, y0}, b.colour, {1, 0}};
           const SDL_Vertex c{{x1, y1}, b.colour, {1, 1}}, d{{x0, y1}, b.colour, {0, 1}};
           v.insert(v.end(), {a, bb, c, a, c, d});
@@ -1451,7 +1467,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           } else if (fresh) {
             SDL_UpdateTexture(t, nullptr, g.rgba.data(), g.pw * 4);
           }
-          const SDL_FRect r{g.x * sx, g.y * sy, g.w * sx, g.h * sy};
+          const SDL_FRect r{g.x * sx + ox, g.y * sy + oy, g.w * sx, g.h * sy};
           SDL_RenderTexture(ren, t, nullptr, &r);
         }
         break;
@@ -1460,7 +1476,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
   }
   glyph_flip_ = pic.flip;
   SDL_SetRenderTarget(ren, keep);
-  Pass(ren, next, g_ycc ? g_out : nullptr, &dst);
+  Pass(ren, next, g_ycc ? g_out : nullptr, &vw);
   cur_ ^= 1;
 }
 

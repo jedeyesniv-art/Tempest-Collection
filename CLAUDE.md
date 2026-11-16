@@ -140,6 +140,14 @@ T2K to-do batch DONE 2026-11-16 (B / Backspace = back in menus, enemy bullets at
 event stall, run-ahead / catch-up),
 T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
 
+## T3K wide screens (2026-11-16)
+- Setting widescreen (default 1, menu Display "Wide screens"): native pictures fill any window wider than 4:3 (16:10,
+  16:9, 21:9 checked); narrower windows get bars. Renderer::Draw / Seed / Redraw take a view around the 4:3 dst; the
+  feedback textures cover the view, full-width fills / planes (built 360 px wider each side) / zoom / ripple (shader
+  view uniform) carry on past the edges, and the game already places particles, dots, streaks there. HUD stays in its
+  4:3 spots. 4:3 unchanged (nativecheck play 2.39, boot 1.09). Tests: --nativeaspect=W:H with --nativeshot,
+  --winsize=WxH (window, not fullscreen). Shots: logs	3k\wide\.
+
 ## T3K high scores (2026-11-16)
 - The game saves nothing (BIOS log: no flash / MemDev calls; it has level passwords). Table: 8 x u32 scores at
   $80113420 (defaults 10000 9123 8456 7789 6123 5456 4789 3123); names only in the high-score screen text at $8010C3A0

@@ -152,11 +152,15 @@ class Renderer {
   ~Renderer();
   // Draw pic (its segments: segs, e.g. interpolated) into dst. step = how much of one game step the zoom feedback
   // advances (1 = a whole picture, as the original; less for in-between frames: zoom^step, angle x step, fade^step).
-  void Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg>& segs, const SDL_FRect& dst, float step);
+  // view (wide screens): the window area to fill, around dst - the feedback, full-screen fills and planes carry on
+  // past the 4:3 edges, and whatever the game places out there shows. nullptr = dst.
+  void Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg>& segs, const SDL_FRect& dst, float step,
+            const SDL_FRect* view = nullptr);
   // Show the last drawn picture again (nothing new to draw).
-  void Redraw(SDL_Renderer* ren, const SDL_FRect& dst);
-  // The previous picture was emulated: make it what the next native picture's feedback builds on.
-  void Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& dst);
+  void Redraw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect* view = nullptr);
+  // The previous picture was emulated: make it what the next native picture's feedback builds on (in dst; black
+  // around it).
+  void Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& dst, const SDL_FRect* view = nullptr);
 
  private:
   void Resize(SDL_Renderer* ren, const SDL_FRect& dst);

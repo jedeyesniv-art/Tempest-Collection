@@ -11,6 +11,7 @@
 //                                         360x240 on the emulated previous picture, against that picture's own
 //                                         frame buffer (ground truth): mean error per picture, images in <dir>.
 //                                         With NUANCE_ONLYTYPES=<types> the emulator draws only those types too.
+//   --nativeaspect=W:H                    --nativeshot: a view this wide around the 4:3 picture (wide screens)
 //   --nativeshot=F:<file.bmp>             headless: the native renderer's picture after frame F, 1440x1080 (one
 //                                         feedback step per game picture; emulated pictures where it can't yet)
 //   --press=F:<btn>[:len]                 hold a RetroPad button from frame F (default 6 frames)
@@ -30,6 +31,7 @@
 //   --from-launcher                       started by tempest.exe (the menu's last item says "Return to launcher")
 //   --menu[=all]                          open the settings menu at start (all sections open; tests)
 //   --winshot=N:<file.bmp>                save the window after N presents, then quit (tests)
+//   --winsize=WxH                         window size (and not fullscreen; tests)
 //   T3K_PERF=1                            a timing summary every 5 s on stderr
 // Keys: arrows d-pad, Z = A, X = B, Enter = Start, Tab = Nuon, Q / E = L / R, I J K L = C up / left / down / right,
 // A / D = the stick (claw), F3 picture blend, F4 frame-rate counter, F11 fullscreen, Esc = settings menu (pad: Back).
@@ -142,6 +144,9 @@ sharp_vectors = 1
 sharp_core = 0.35
 sharp_glow = 0.4
 sharp_max_size = 100
+# Wide screens (native pictures): 1 = fill the window's width - the background and whatever the game places past the
+# 4:3 edges show there; 0 = 4:3 with black bars. Windows narrower than 4:3 always get bars.
+widescreen = 1
 # 1 = the frame-rate counter (F4): the game's pictures a second, emulated fields a second.
 show_rates = 0
 # 1 = render at 720x480, twice the game's own 360x240 (experimental: some screens still have flaws; needs about 2.5x
@@ -771,6 +776,8 @@ int main(int argc, char** argv) {
   std::string disc, wav, perflog, userdata, timing_arg, rounds_arg, flipcap_arg, hires_arg, winshot_file;
   bool headless = false, novsync = false, from_launcher = false;
   int menu_test = 0, winshot_at = -1;
+  float nativeaspect = 0.f;
+  int winsize_w = 0, winsize_h = 0;
   int frames = -1;   // headless default 600; the window runs until closed unless given
   std::vector<Shot> shots, memdumps, nativeshots, savestates;
   Shot loadstate{-1, ""};   // --loadstate=F:file: continue from field F + 1
@@ -846,6 +853,16 @@ int main(int argc, char** argv) {
       auto v = a.substr(12);
       Shot s{std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)};
       if (save) savestates.push_back(s); else loadstate = s;
+    }
+    else if (a.rfind("--winsize=", 0) == 0) {
+      auto v = val("--winsize=");
+      winsize_w = std::atoi(v.c_str());
+      winsize_h = std::atoi(v.substr(v.find('x') + 1).c_str());
+    }
+    else if (a.rfind("--nativeaspect=", 0) == 0) {
+      auto v = val("--nativeaspect=");
+      const float aw = float(std::atof(v.c_str())), ah = float(std::atof(v.substr(v.find(':') + 1).c_str()));
+      if (aw > 0 && ah > 0) nativeaspect = aw / ah;
     }
     else if (a.rfind("--nativeshot=", 0) == 0) {
       auto v = val("--nativeshot="), c = v.substr(0, v.find(':'));
@@ -1008,14 +1025,17 @@ int main(int argc, char** argv) {
   uint32_t nflip = 0;
   nuon::Frame nprev_frame;
   int ncomplete = 0, nincomplete = 0;
-  const SDL_FRect ndst{0, 0, 1440, 1080};
+  // --nativeaspect=W:H: a wider view around the 1080-high picture (wide-screen tests)
+  const float naspect = nativeaspect > 4.f / 3.f ? nativeaspect : 4.f / 3.f;
+  const SDL_FRect nview{0, 0, std::round(1080.f * naspect), 1080};
+  const SDL_FRect ndst{(nview.w - 1440.f) / 2, 0, 1440, 1080};
   if (headless && (!nativeshots.empty() || check_f0 >= 0)) {
     nwin = SDL_CreateWindow("t3k native", 64, 64, SDL_WINDOW_HIDDEN);
     nren = nwin ? t3knative::CreateRenderer(nwin) : nullptr;
     if (nren) {
       t3knative::InitPipeline(nren);
       ApplyLineStyle();
-      nout = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, 1440, 1080);
+      nout = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, int(nview.w), 1080);
       nemu = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 360, 240);
       SDL_SetTextureScaleMode(nemu, SDL_SCALEMODE_LINEAR);
     } else {
@@ -1140,9 +1160,9 @@ int main(int argc, char** argv) {
                 SDL_SetTextureScaleMode(nemu, SDL_SCALEMODE_LINEAR);
               }
               SDL_UpdateTexture(nemu, nullptr, nprev_frame.pixels.data(), int(nprev_frame.width * 4));
-              nnative.Seed(nren, nemu, ndst);
+              nnative.Seed(nren, nemu, ndst, &nview);
             }
-            nnative.Draw(nren, pic, pic.segs, ndst, 1.f);
+            nnative.Draw(nren, pic, pic.segs, ndst, 1.f, &nview);
             ++ncomplete;
           } else {   // the emulated picture (and what the next native one's feedback builds on)
             const nuon::Frame& fr = nuon::LastFrame();
@@ -1155,7 +1175,7 @@ int main(int argc, char** argv) {
                                          int(fr.height));
               }
               SDL_UpdateTexture(nemu, nullptr, fr.pixels.data(), int(fr.width * 4));
-              nnative.Seed(nren, nemu, ndst);
+              nnative.Seed(nren, nemu, ndst, &nview);
               SDL_SetTextureBlendMode(nemu, SDL_BLENDMODE_NONE);
               SDL_RenderTexture(nren, nemu, nullptr, &ndst);
             }
@@ -1359,11 +1379,12 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  SDL_Window* win = SDL_CreateWindow("Tempest 3000", 1440, 1080, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+  SDL_Window* win = SDL_CreateWindow("Tempest 3000", winsize_w > 0 ? winsize_w : 1440, winsize_h > 0 ? winsize_h : 1080,
+                                     SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
   SDL_Renderer* ren = win ? t3knative::CreateRenderer(win) : nullptr;
   if (ren) t3knative::InitPipeline(ren);   // before the emulation thread builds any native picture
   if (!ren) { std::fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
-  if (settings::Num("fullscreen", 1) != 0) SDL_SetWindowFullscreen(win, true);
+  if (settings::Num("fullscreen", 1) != 0 && winsize_w <= 0) SDL_SetWindowFullscreen(win, true);
   const bool vsync_on = !novsync && settings::Num("vsync", 1) != 0;
   SDL_SetRenderVSync(ren, vsync_on ? 1 : 0);
   SDL_HideCursor();
@@ -1707,10 +1728,13 @@ int main(int argc, char** argv) {
         return native_segs;
       };
       const bool native_whole = native_view == 1 && shown_vec && shown_vec->complete;
+      // wide windows: native pictures fill the width (the 4:3 picture still in dst, the view around it)
+      const SDL_FRect wide{0, (wh - h) / 2, float(ww), h};
+      const SDL_FRect* view = (settings::Num("widescreen", 1) != 0 && float(ww) > w + 1.f) ? &wide : nullptr;
       if (native_whole) {
         // coming from emulated pictures: their last one is what this picture's feedback builds on
         if (!native_last_ns) {
-          native.Seed(ren, (picture_ns && tex_prev) ? tex_prev : tex, dst);
+          native.Seed(ren, (picture_ns && tex_prev) ? tex_prev : tex, dst, view);
           native_last_ns = std::min(now_ns, blend_from ? blend_from : now_ns);   // the step so far: since this slot began
           native_last_pic = shown_vec;
           native_step_left = 1.f;
@@ -1727,11 +1751,11 @@ int main(int argc, char** argv) {
           const float due = float(std::clamp(double(now_ns - native_last_ns) / double(picture_ns), 0.0, 1.0));
           const float take = std::min(native_step_left, due);
           native_step_left -= take;
-          native.Draw(ren, *shown_vec, native_segments(), dst, carry + take);
+          native.Draw(ren, *shown_vec, native_segments(), dst, carry + take, view);
         } else if (shown_vec != native_last_pic) {
-          native.Draw(ren, *shown_vec, shown_vec->segs, dst, 1.f);
+          native.Draw(ren, *shown_vec, shown_vec->segs, dst, 1.f, view);
         } else {
-          native.Redraw(ren, dst);
+          native.Redraw(ren, dst, view);
         }
         native_last_ns = now_ns;
         native_last_pic = shown_vec;
