@@ -140,6 +140,15 @@ T2K to-do batch DONE 2026-11-16 (B / Backspace = back in menus, enemy bullets at
 event stall, run-ahead / catch-up),
 T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
 
+## T3K claw on every level (2026-11-16)
+- Owner: controls differed by level (close on some, slow / stiff on others). Cause: the claw is an object in the pool
+  $8003C000..$80040000 and its slot depends on the level ($8003E9E0 on level 1-2, $8003EA50 on others); ClawControl
+  only looked at $8003E9E0, so elsewhere the stick fell back to the plain d-pad. Now ClawControl::FindClaw finds the
+  slot (flags +12 = $80000401, position +0 = $800DC100) and re-scans when it moves. --clawlog prints the slot too.
+- Measured (tools/t3k_clawlevels.py; aligned pushes on levels 2-12): the same path everywhere until the web's end.
+  The game moves ~1.69x the driver's GameSpeed per input on every level (the position feedback absorbs it).
+- Route to level L: right presses every 24 fields from 1524, A at 1540 + 24 L, A again 400 later.
+
 ## T3K menu cleanup, save states (2026-11-16)
 - Menu DISPLAY: Renderer = native_view (1 Remaster, default now; 0 Emulation); Remaster options (wide screens, smooth
   motion = native_interpolate, vector lines) and Emulation's picture blend show only with their renderer. high_res

@@ -460,6 +460,23 @@ struct ClawControl {
   double release_speed = 0;    // speed at release (lanes per picture)
   double last_speed = 0;
 
+  // The claw is an object in the game's pool ($8003C000..$80040000): which slot depends on the level ($8003E9E0 on
+  // level 1, $8003EA50 on others). Words: +0 position (16.16 lanes), +4 velocity, +8 the speed scale we drive, +12
+  // flags $80000401; the game keeps its position in $800DC100 too. claw_at = the slot last found.
+  uint32_t claw_at = 0x8003E9E0;
+  static bool IsClaw(const uint8_t* m, uint32_t a) {
+    return Get(m, a + 12) == 0x80000401U && Get(m, a) == Get(m, 0x800DC100);
+  }
+  bool FindClaw(const uint8_t* m) {
+    if (IsClaw(m, claw_at)) return true;
+    for (uint32_t a = 0x8003C000; a + 16 <= 0x80040000; a += 4)
+      if (IsClaw(m, a)) {
+        claw_at = a;
+        return true;
+      }
+    return false;
+  }
+
   static uint32_t Get(const uint8_t* m, uint32_t a) {
     const uint8_t* q = m + (a & 0x7FFFFF);
     return uint32_t(q[0]) << 24 | uint32_t(q[1]) << 16 | uint32_t(q[2]) << 8 | q[3];
@@ -544,7 +561,7 @@ struct ClawControl {
 
   uint16_t Momentum(uint8_t* m, float stick_x, bool new_picture, bool stiff) {
     const double dt = 1.0 / 60.0;   // one field
-    const double pos = int32_t(Get(m, 0x8003E9E0)) / 65536.0;
+    const double pos = int32_t(Get(m, claw_at)) / 65536.0;
     if (!mo_live) {
       mo_live = true;
       mo_prev = pos;
@@ -612,7 +629,7 @@ struct ClawControl {
     if (std::fabs(mo_req) < 1e-4) {
       mo_req = 0;
       // Not pressing; while the game still applies its late input, hold that picture to nothing.
-      Put(m, 0x8003E9E8, input != 0 ? 0u : 0x10000u);
+      Put(m, claw_at + 8, input != 0 ? 0u : 0x10000u);
       return 0;
     }
     const int press = mo_req > 0 ? 1 : -1;
@@ -623,7 +640,7 @@ struct ClawControl {
     // way - hold that picture still, the new way starts on the one after.
     if (input != 0 && !same) scale = 0;
     mo_req = press * scale * GameSpeed(next);
-    Put(m, 0x8003E9E8, uint32_t(scale * 65536.0 + 0.5));
+    Put(m, claw_at + 8, uint32_t(scale * 65536.0 + 0.5));
     return press > 0 ? uint16_t(1u << nuon::RIGHT) : uint16_t(1u << nuon::LEFT);
   }
 
@@ -631,12 +648,11 @@ struct ClawControl {
   uint16_t Update(float stick_x, uint16_t dpad_lr) {
     size_t n = 0;
     uint8_t* const m = nuon::Memory(0, &n);
-    const bool claw = m && n >= 0x800000 && Get(m, 0x8003E9EC) == 0x80000401U &&
-                      Get(m, 0x800DC100) == Get(m, 0x8003E9E0);
+    const bool claw = m && n >= 0x800000 && FindClaw(m);
     const std::string mode = settings::Str("stick_mode", "stiff");
     const bool ours = mode == "lr" || mode == "momentum" || mode == "stiff";
     if (!claw || !ours || dpad_lr) {
-      if (claw && Get(m, 0x8003E9E8) != 0x10000) Put(m, 0x8003E9E8, 0x10000);
+      if (claw && Get(m, claw_at + 8) != 0x10000) Put(m, claw_at + 8, 0x10000);
       last_dir = 0;
       pictures_pushed = 0;
       release_left = 0;
@@ -684,10 +700,10 @@ struct ClawControl {
       if (input != 0) {
         const double ease = settings::Num("lr_release_pictures", 1) > 0 ? last_speed * 0.5 : 0.0;
         const double game_speed = std::abs(input) * 768.0 / 65536.0;
-        Put(m, 0x8003E9E8, uint32_t(std::clamp(ease / game_speed, 0.0, 4.0) * 65536.0 + 0.5));
+        Put(m, claw_at + 8, uint32_t(std::clamp(ease / game_speed, 0.0, 4.0) * 65536.0 + 0.5));
         last_speed = ease;
-      } else if (Get(m, 0x8003E9E8) != 0x10000) {
-        Put(m, 0x8003E9E8, 0x10000);
+      } else if (Get(m, claw_at + 8) != 0x10000) {
+        Put(m, claw_at + 8, 0x10000);
       }
       return 0;
     }
@@ -698,7 +714,7 @@ struct ClawControl {
     const int next = same ? std::min(80, std::abs(input) + (new_picture ? 0 : 20)) : 40;
     const double game_speed = next * 768.0 / 65536.0;
     const double scale = std::clamp(speed / game_speed, 0.0, 4.0);
-    Put(m, 0x8003E9E8, uint32_t(scale * 65536.0 + 0.5));
+    Put(m, claw_at + 8, uint32_t(scale * 65536.0 + 0.5));
     last_speed = speed;
     return press > 0 ? uint16_t(1u << nuon::RIGHT) : uint16_t(1u << nuon::LEFT);
   }
@@ -1168,9 +1184,11 @@ int main(int argc, char** argv) {
           for (auto& h : sticks)
             if (f >= h.frame && f < h.frame + h.len) sx = h.x;
           auto get = [&](uint32_t a) { return int32_t(ClawControl::Get(m, a)); };
-          std::fprintf(clawlog, "%d %.3f %.5f %.5f %.4f %d %d %08X\n", f, sx, get(0x8003E9E0) / 65536.0,
-                       get(0x8003E9E4) / 65536.0, get(0x8003E9E8) / 65536.0, get(0x80110AA0), get(0x801133D8),
-                       uint32_t(get(0x8003E9EC)));
+          headless_claw.FindClaw(m);
+          const uint32_t ca = headless_claw.claw_at;
+          std::fprintf(clawlog, "%d %.3f %.5f %.5f %.4f %d %d %08X %08X\n", f, sx, get(ca) / 65536.0,
+                       get(ca + 4) / 65536.0, get(ca + 8) / 65536.0, get(0x80110AA0), get(0x801133D8),
+                       uint32_t(get(ca + 12)), ca);
         }
         if (f == clawlog_f1 && clawlog) { std::fclose(clawlog); clawlog = nullptr; }
       }
