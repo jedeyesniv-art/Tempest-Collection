@@ -1076,6 +1076,25 @@ D. Apply: settings presets ("txk", "t4k") for T2K / T3K's lr mode (+ any new mod
 Order for tomorrow: A first (all under our control): lr_host switches -> route into play -> memory search or
 tracking -> measurements. Then B (needs the owner at the PC for the OBS recording). Then C, D.
 
+## T2K performance plan (2026-11-16; owner: "save this as a plan for the end" - the Deck is over 60, good enough now)
+Tools: T2K_PERF=1 now breaks a frame down (src/perf.{h,cpp}): emulate (+ the run-ahead part), input + events, picture
+upload, remaster build / draw per layer, picture + hud, crt + menu, present; counters (lines, triangles, stars, dots,
+sprite rects); average and worst frame per report (T2K_PERF_SECONDS, 0 = at exit), T2K_PERF_FILE=<file> to a file
+(Deck: launch options T2K_PERF=1 T2K_PERF_FILE=perf.txt %command%). The first 1.5 s and --winshot frames are left
+out. tools/t2k_perfsurvey.py runs 19 screens (saved states + power-on) in a window and tabulates them; results of
+2026-11-16 in logs/perf/ (1280x800, owner settings with fullscreen 0).
+Survey (PC, 9700X / RTX 5070 Ti): every screen ~120 fps. Averages: emulate 1.4-2.2 ms (run-ahead ~1.2 of it), our
+remaster 0.05-0.1 ms (0.6 on game select: 15,700 sprite rects of text), compose 0.3-0.9 ms. Already fixed: the tunnel
+bonus's dots (72-vertex fans -> textured quads, compose 6.2 -> 0.9 ms).
+To do, at the end:
+1. Measure on the Deck (the file above): emulation + run-ahead per frame is the expected main cost there (~2.5-3x
+   the PC's); worst frames here 6-7 ms when a late frame catches up (up to 4 frames + run-ahead) - on the Deck that
+   can snowball past the 11 ms of 90 Hz.
+2. A ~120 ms one-off stall in "input + events" (SDL_PollEvent) in several survey runs (play-l1, melt, play-shots,
+   powerup); suspect SDL's periodic controller scan on Windows. Find it, check whether it happens on the Deck.
+3. Depending on 1: run-ahead 1 on the Deck (or adaptive), cap catch-up so one late frame can't cascade.
+4. Small: cache the game select menu's text (15,700 sprite rects drawn every frame) as a texture.
+
 ## Collection status and open items (2026-11-15, after the owner's Steam Deck test)
 Owner tested the play folder (dist\TempestCollection, built by tools\package_collection.ps1) on the Steam Deck: all our
 games "work really well indeed". Tempest 3000 runs "just about at frame rate" (little headroom).

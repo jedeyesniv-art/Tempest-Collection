@@ -12,6 +12,7 @@
 // Connection list: words; a vertex number, then the vertices it joins (high byte != 0: new colour), 0; ...; 0.
 // Lines: CRY pixels (colour << 8 | intensity), Gouraud between the ends; colour 1 = not drawn.
 // We keep the integer maths up to the rotation (the exact shape) and project in float.
+#include "perf.h"
 #include "remaster.h"
 
 #include <algorithm>
@@ -1551,19 +1552,38 @@ void Interpolate(float tf) {
   g_shot_objs.clear();
   g_pup_glows.clear();
   const Scene &a = g_scene_a, &b = g_scene_b;
-  Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
-  Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
-  Each(a.voo, b.voo, t, LerpVoo, [](const VooCall& c) { BuildVoo(c, g_pix_dots); });
-  Each(a.seg, b.seg, t, LerpSeg, [](const SegCall& c) { BuildStarseg(c, g_pix_dots); });
-  Each(a.sphere, b.sphere, t, LerpSphere, [](const SphereCall& c) { BuildSphere(c, g_rex_rects); });
+  { perf::Span sp("build stars");
+    Each(a.stars, b.stars, t, LerpStars, [](const StarCall& c) { BuildStars(c, g_dots, g_streaks); });
+  }
+  { perf::Span sp("build plane");
+    Each(a.plane, b.plane, t, LerpPlane, [](const PlaneCall& c) { BuildPlane(c, g_dots); });
+  }
+  { perf::Span sp("build voo (tunnel)");
+    Each(a.voo, b.voo, t, LerpVoo, [](const VooCall& c) { BuildVoo(c, g_pix_dots); });
+  }
+  { perf::Span sp("build starseg (tunnel)");
+    Each(a.seg, b.seg, t, LerpSeg, [](const SegCall& c) { BuildStarseg(c, g_pix_dots); });
+  }
+  { perf::Span sp("build sphere");
+    Each(a.sphere, b.sphere, t, LerpSphere, [](const SphereCall& c) { BuildSphere(c, g_rex_rects); });
+  }
   g_m7_shown.clear();
-  Each(a.m7, b.m7, t, LerpM7, [](const M7Call& c) { g_m7_shown.push_back(c); });
+  { perf::Span sp("build mode7");
+    Each(a.m7, b.m7, t, LerpM7, [](const M7Call& c) { g_m7_shown.push_back(c); });
+  }
   g_ripple_shown.clear();
-  Each(a.ripple, b.ripple, t, LerpRipple, [](const RippleCall& c) { g_ripple_shown.push_back(c); });
+  { perf::Span sp("build ripple");
+    Each(a.ripple, b.ripple, t, LerpRipple, [](const RippleCall& c) { g_ripple_shown.push_back(c); });
+  }
   g_poly_tris.clear();
+  { perf::Span sp("build poly");
   for (auto& c : b.poly) BuildPoly(c, g_poly_tris);
-  Each(a.webs, b.webs, t, LerpWeb, [](const WebCall& c) { BuildWeb(c, g_tris); });
-  Each(a.solids, b.solids, t, LerpSolid, [](const SolidCall& c) {
+  }
+  { perf::Span sp("build web");
+    Each(a.webs, b.webs, t, LerpWeb, [](const WebCall& c) { BuildWeb(c, g_tris); });
+  }
+  { perf::Span sp("build solids");
+    Each(a.solids, b.solids, t, LerpSolid, [](const SolidCall& c) {
     size_t n0 = g_solid_tris.size();
     BuildSolid(c, g_solid_tris);
     if (c.shot) {
@@ -1575,9 +1595,15 @@ void Interpolate(float tf) {
       AddShotGlow(c.obj, pts, cols);
     }
   });
-  Each(a.pix, b.pix, t, LerpPix, [](const PixCall& c) { BuildPix(c, g_pix_dots); });
-  Each(a.rex, b.rex, t, LerpRex, [](const RexCall& c) { BuildRex(c, g_rex_rects); });
-  Each(a.vec, b.vec, t, LerpVec, [](const VecCall& c) {
+  }
+  { perf::Span sp("build pixels");
+    Each(a.pix, b.pix, t, LerpPix, [](const PixCall& c) { BuildPix(c, g_pix_dots); });
+  }
+  { perf::Span sp("build rex sprites");
+    Each(a.rex, b.rex, t, LerpRex, [](const RexCall& c) { BuildRex(c, g_rex_rects); });
+  }
+  { perf::Span sp("build vectors");
+    Each(a.vec, b.vec, t, LerpVec, [](const VecCall& c) {
     size_t n0 = g_lines.size();
     BuildLines(c, g_lines);
     if (c.shot) {
@@ -1590,8 +1616,13 @@ void Interpolate(float tf) {
       AddShotGlow(c.obj, pts, cols);
     }
   });
-  Each(a.fl, b.fl, t, LerpFline, [](const FlineCall& c) { BuildFline(c, g_bolt_lines); });
-  Each(a.text, b.text, t, LerpText, [](const TextCall& c) { BuildText(c, g_rex_rects); });
+  }
+  { perf::Span sp("build bolts");
+    Each(a.fl, b.fl, t, LerpFline, [](const FlineCall& c) { BuildFline(c, g_bolt_lines); });
+  }
+  { perf::Span sp("build text");
+    Each(a.text, b.text, t, LerpText, [](const TextCall& c) { BuildText(c, g_rex_rects); });
+  }
 }
 
 void SetInterpolate(bool on) { g_interp = on; }
@@ -1995,10 +2026,22 @@ void DrawM7(SDL_Renderer* ren, const M7Call& m, const SDL_FRect& dst, float sx, 
 void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   if (!fw || !fh) return;
   float sx = dst.w / fw, sy = dst.h / fh;
+  perf::Count("lines", double(g_lines.size()));
+  perf::Count("web triangles", double(g_tris.size()));
+  perf::Count("solid triangles", double(g_solid_tris.size()));
+  perf::Count("stars", double(g_dots.size()));
+  perf::Count("particles / dots", double(g_pix_dots.size()));
+  perf::Count("sprite rects", double(g_rex_rects.size()));
+  uint64_t pt = perf::Now();
+  auto lap = [&](const char* n) { uint64_t t = perf::Now(); perf::Add(n, t - pt); pt = t; };
   for (const RippleCall& r : g_ripple_shown) DrawRipple(ren, r, dst, sx, sy);
+  lap("draw ripple");
   DrawTris(ren, g_poly_tris, dst, sx, sy);
+  lap("draw poly");
   DrawDots(ren, g_dots, dst, sx, sy);
+  lap("draw stars");
   for (const M7Call& m : g_m7_shown) DrawM7(ren, m, dst, sx, sy);
+  lap("draw mode7");
   if (!g_streaks.empty()) {
     std::swap(g_lines, g_streaks);   // draw the streaks with the line code (thin), then put things back
     float w = g_width;
@@ -2007,9 +2050,13 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
     g_width = w;
     std::swap(g_lines, g_streaks);
   }
+  lap("draw streaks");
   DrawTris(ren, g_tris, dst, sx, sy);
+  lap("draw web");
   DrawLines(ren, dst, sx, sy);
+  lap("draw lines");
   DrawTris(ren, g_solid_tris, dst, sx, sy);
+  lap("draw solids");
   DrawShotGlows(ren, dst, sx, sy);
   // The bolts, over the solids as the game draws them last: a wide additive glow, then a hot whitened core.
   if (g_bolt_glow) {
@@ -2020,7 +2067,9 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
   if (g_bolt_width > 0) DrawLineList(ren, g_bolt_lines, dst, sx, sy, g_bolt_width, 1.0f, 1.0f, SDL_BLENDMODE_BLEND,
                                      g_bolt_glow ? 0.35f : 0.f);
   else DrawLineList(ren, g_bolt_lines, dst, sx, sy);
+  lap("draw glows + bolts");
   DrawRects(ren, g_rex_rects, dst, sx, sy);
+  lap("draw sprites");
   if (!g_hard_pixels) {
     DrawDots(ren, g_pix_dots, dst, sx, sy, g_particle);
     DrawPupGlows(ren, dst, sx, sy);
@@ -2030,6 +2079,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, unsigned fw, unsigned fh) {
     for (auto& d : g_pix_dots) px.push_back({d.x - d.size * 0.5f, d.y - d.size * 0.5f, d.size, d.size, d.c, false});
     DrawRects(ren, px, dst, sx, sy);
   }
+  lap("draw particles");
 }
 
 // Lines as quads: a solid core `width` game pixels wide (0 = the vector rule: remaster_line_width, thinner for the

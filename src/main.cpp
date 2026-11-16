@@ -41,6 +41,7 @@ namespace {
 extern "C" uint8_t jagMemSpace[];
 extern "C" uint32_t vjOPSkipLo, vjOPSkipHi, vjOPSkip2Lo, vjOPSkip2Hi;   // core hook: an OP overlay range not drawn
 #include "menu.h"
+#include "perf.h"
 #include "t2k_menu.h"
 #include "settings.h"
 #include "t2k.h"
@@ -533,8 +534,7 @@ int main(int argc, char** argv) {
   menu::SetSlotInfo([&] { return SlotInfo(udir); });
   // T2K_PERF=1: every ~5 s, the average time a shown frame spends emulating (incl. run-ahead), composing (our layer,
   // picture, HUD, CRT) and presenting, and frames shown a second.
-  const bool perf = std::getenv("T2K_PERF") != nullptr;
-  uint64_t perf_emu = 0, perf_comp = 0, perf_pres = 0, perf_n = 0, perf_from = SDL_GetTicksNS(), perf_t1 = 0, perf_t2 = 0;
+  uint64_t perf_t1 = 0, perf_t2 = 0;   // (T2K_PERF: perf.h)
   while (running) {
     uint64_t now = SDL_GetTicksNS();
     SDL_Event e;
@@ -670,6 +670,9 @@ int main(int argc, char** argv) {
       vjOPSkip2Lo = fb ? 0x100000u : 0;
       vjOPSkip2Hi = fb ? 0x134800u + 0x34800u : 0;   // (screensize: 384 x 280 words)
     }
+    const uint64_t perf_t0 = perf::Now();
+    perf::Count("frames emulated", todo);
+    perf::Count("run-ahead frames", todo > 0 ? run_ahead : 0);
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
       // In the game's menus pad B means back: kept away from the game (where any button confirms).
@@ -686,6 +689,7 @@ int main(int argc, char** argv) {
       // Run-ahead after the last real frame of this batch only (its picture is the one shown).
       if (run_ahead > 0 && i == todo - 1) {
         remaster::AfterFrame(false);
+        perf::Span sp("  of it run-ahead");
         RunAhead(run_ahead, in, tp);
       } else {
         remaster::AfterFrame(i == todo - 1 || run_ahead == 0);
@@ -701,6 +705,8 @@ int main(int argc, char** argv) {
     }
 
     perf_t1 = SDL_GetTicksNS();
+    perf::Add("emulate", perf_t1 - perf_t0);
+    perf::Add("input + events", perf_t0 - now);
     int ww, wh;
     SDL_GetRenderOutputSize(ren, &ww, &wh);
     // The CRT (setting crt, F9): everything drawn into a window-sized scene, which the CRT then draws to the window.
@@ -773,6 +779,7 @@ int main(int argc, char** argv) {
         SDL_UpdateTexture(sh.x4, nullptr, px.data(), w * 4 * 4);
       };
       static std::vector<uint32_t> hud_px(384 * 48);
+      const uint64_t perf_pic = perf::Now();
       if (dirty) {
         // Black is see-through (alpha 0) so the remaster's layer, drawn first, shows where the game drew nothing.
         static std::vector<uint32_t> argb;
@@ -848,6 +855,8 @@ int main(int argc, char** argv) {
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
       }
+      perf::Add("picture upload", perf::Now() - perf_pic);
+      const uint64_t perf_rm = perf::Now();
       if (remaster::Enabled()) {
         remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
         remaster::SetEffects(float(settings::Num("remaster_bolt_width", 2.0)), settings::Num("remaster_bolt_glow", 1) != 0,
@@ -909,6 +918,8 @@ int main(int argc, char** argv) {
           remaster::Draw(ren, dst, fr.width, fr.height);
         }
       }
+      perf::Add("remaster (all)", perf::Now() - perf_rm);
+      const uint64_t perf_ov = perf::Now();
       // The emulated picture over ours (text, not-yet-ours), then the HUD layer.
       blit(pic_sharp, tex, nullptr, &dst);
       if (hud_layer && hudtex) {
@@ -941,9 +952,11 @@ int main(int argc, char** argv) {
         SDL_RenderTexture(ren, scene, nullptr, nullptr);
         SDL_SetRenderTarget(ren, frame_target);
       }
+      perf::Add("picture + hud", perf::Now() - perf_ov);
       crt_src_w = ww * float(fr.width) / dst.w;
       crt_src_h = wh * float(fr.height) / dst.h;
     }
+    const uint64_t perf_crt = perf::Now();
     SDL_SetRenderTarget(ren, nullptr);
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
@@ -956,27 +969,22 @@ int main(int argc, char** argv) {
     if (winshot_at >= 0 && (menu_test ? presents : int(frame_count)) >= winshot_at) {   // --winshot=N:<bmp>: the window after N frames
       if (SDL_Surface* shot = SDL_RenderReadPixels(ren, nullptr)) {
         SDL_SaveBMP(shot, winshot_file.c_str());
+        perf::DiscardFrame();
         SDL_DestroySurface(shot);
       }
       running = false;
     }
     perf_t2 = SDL_GetTicksNS();
+    perf::Add("crt + menu", perf_t2 - perf_crt);
+    perf::Add("compose", perf_t2 - perf_t1);
     SDL_RenderPresent(ren);
-    if (perf) {
+    {
       const uint64_t t3 = SDL_GetTicksNS();
-      perf_emu += perf_t1 - now;
-      perf_comp += perf_t2 - perf_t1;
-      perf_pres += t3 - perf_t2;
-      ++perf_n;
-      if (t3 - perf_from > 5000000000ull) {
-        const double n = double(perf_n);
-        std::fprintf(stderr, "perf %dx%d: %.1f fps shown | emulate %.2f ms, compose %.2f ms, present %.2f ms a frame\n",
-                     ww, wh, n / ((t3 - perf_from) / 1e9), perf_emu / n / 1e6, perf_comp / n / 1e6, perf_pres / n / 1e6);
-        perf_emu = perf_comp = perf_pres = perf_n = 0;
-        perf_from = t3;
-      }
+      perf::Add("present (+vsync)", t3 - perf_t2);
+      if (running) perf::EndFrame(t3 - now, ww, wh);
     }
   }
+  perf::Flush();
 
   eeprom.SaveIfChanged();
   host::Unload();
