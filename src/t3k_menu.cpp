@@ -36,13 +36,17 @@ void Install(bool from_launcher) {
   p.Header("STICK");
   p.Choice("Stick mode", "stick_mode", {"stiff", "lr", "momentum", "off"},
            {"Stiff (T2K feel)", "Left / right", "Momentum (TxK feel)", "Off (stick = d-pad)"});
-  p.Number("  Top speed (lanes a second)", "st_top_speed", 8, 40, 0.5, "%.1f", 24.6)->when = st;
-  p.Number("  Ramp to top speed (s)", "st_ramp_time", 0.02, 1.0, 0.01, "%.2f", 0.33)->when = st;
-  p.Number("  First speed (of top)", "st_ramp_start", 0, 1, 0.05, "%.2f", 0.05)->when = st;
-  p.Number("  Deflection curve", "st_curve", 1, 3, 0.1, "%.1f", 1.5)->when = st;
-  p.Number("  Deadzone", "st_deadzone", 0.05, 0.5, 0.01, "%.2f", 0.20)->when = st;
-  p.Number("  Ease-off (s)", "st_ease_time", 0, 0.2, 0.01, "%.2f", 0.05)->when = st;
-  p.Choice("  Stop on a lane", "st_snap", {"1", "0"}, {"On", "Off"})->when = st;
+  // the owner's tuning (2026-11-16) is each slider's default and its middle
+  p.Number("  Fine zone (stick push)", "st_fine_threshold", 0.3, 0.9, 0.05, "%.2f", 0.6)->when = st;
+  p.Number("  Fine speed (lanes a second)", "st_fine_speed", 0.5, 3.5, 0.25, "%.2f", 2.0)->when = st;
+  p.Choice("  Fine moves", "st_fine_click", {"1", "0"}, {"Click lane to lane", "Glide"})->when = st;
+  p.Number("  Top speed (lanes a second)", "st_top_speed", 8, 34, 0.5, "%.1f", 21.0)->when = st;
+  p.Number("  Ramp to top speed (s)", "st_ramp_time", 0.02, 1.98, 0.02, "%.2f", 1.0)->when = st;
+  p.Number("  First speed (of top)", "st_ramp_start", 0, 0.10, 0.01, "%.2f", 0.05)->when = st;
+  p.Number("  Sweep curve", "st_curve", 0.5, 2.5, 0.1, "%.1f", 1.5)->when = st;
+  p.Number("  Deadzone", "st_deadzone", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = st;
+  p.Number("  Ease-off (s)", "st_ease_time", 0, 0.2, 0.01, "%.2f", 0)->when = st;
+  p.Choice("  Stop on a lane (after a sweep)", "st_snap", {"0", "1"}, {"Off", "On"})->when = st;
   p.Number("  Top speed (lanes a second)", "mo_top_speed", 6, 30, 0.5, "%.1f", 17.3)->when = mo;
   p.Number("  Time to top speed (s)", "mo_accel_time", 0.05, 1.0, 0.05, "%.2f", 0.35)->when = mo;
   p.Number("  Glide (speed half-life, s)", "mo_glide", 0, 0.6, 0.02, "%.2f", 0.20)->when = mo;

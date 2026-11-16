@@ -176,13 +176,18 @@ mo_deadzone = 0.08
 # stiff (T2K's lr, the owner's tuning there): top speed in lanes a second (T2K 0.41 a frame = 24.6), seconds of
 # smoothstep ramp from st_ramp_start of it, deflection curve, deadzone, seconds of ease-off after release, then the
 # claw settles on the nearest lane (st_snap 1) at st_snap_rate x the distance a second.
-st_top_speed = 24.6
-st_ramp_time = 0.33
+st_top_speed = 21.0
+st_ramp_time = 1.0
 st_ramp_start = 0.05
 st_curve = 1.5
-st_deadzone = 0.2
-st_ease_time = 0.05
-st_snap = 1
+st_deadzone = 0.10
+st_ease_time = 0
+st_snap = 0
+# Fine adjustment: stick pushes up to st_fine_threshold move the claw slowly (up to st_fine_speed lanes a second, in
+# proportion), clicking lane to lane like T2K (st_fine_click 1; 0 = gliding smoothly); past the threshold it sweeps.
+st_fine_threshold = 0.6
+st_fine_speed = 2.0
+st_fine_click = 1
 st_snap_rate = 20
 # Past the last lane centre by this much (lanes) on release, the claw goes on to the next one (a tap = one lane).
 st_snap_ahead = 0.2
@@ -287,25 +292,48 @@ struct ClawControl {
   double st_held = 0;           // seconds of the current push
   double st_release = 0;        // seconds since release (ease-off)
   double st_v0 = 0;             // speed at release
+  bool st_fine = false;         // the last push was a fine adjustment (the claw clicks lane to lane)
 
   void StiffModel(float stick_x, double pos, double dt) {
-    const double dz = settings::Num("st_deadzone", 0.2);
+    // Two speeds, as Tempest is played: a gentle push (up to st_fine_threshold) fine-adjusts - slow, in proportion,
+    // the claw clicking lane to lane (st_fine_click) - and past it the claw sweeps, from the fine speed up to the top
+    // speed along the curve, with the ramp counted from crossing into the sweep.
+    const double dz = settings::Num("st_deadzone", 0.10);
+    const double thr = std::clamp(settings::Num("st_fine_threshold", 0.6), dz + 0.01, 0.99);
+    const double fine = settings::Num("st_fine_speed", 2.0);
     const double ax = std::fabs(stick_x);
-    const double d = ax > dz ? std::min(1.0, (ax - dz) / (1.0 - dz)) : 0.0;
-    if (d > 0) {
+    if (ax > dz) {
       const int dir = stick_x > 0 ? 1 : -1;
       if (dir != st_dir) { st_dir = dir; st_held = 0; }
-      st_held += dt;
-      const double t = std::clamp(st_held / std::max(0.01, settings::Num("st_ramp_time", 0.33)), 0.0, 1.0);
-      const double r0 = std::clamp(settings::Num("st_ramp_start", 0.05), 0.0, 1.0);
-      const double ramp = r0 + (1 - r0) * t * t * (3 - 2 * t);
-      mo_v = dir * settings::Num("st_top_speed", 24.6) * std::pow(d, settings::Num("st_curve", 1.5)) * ramp;
+      double speed;
+      if (ax <= thr) {   // fine
+        speed = fine * (ax - dz) / (thr - dz);
+        st_held = 0;
+        st_fine = true;
+      } else {           // sweep
+        st_held += dt;
+        const double u = std::min(1.0, (ax - thr) / (1.0 - thr));
+        const double t = std::clamp(st_held / std::max(0.01, settings::Num("st_ramp_time", 1.0)), 0.0, 1.0);
+        const double r0 = std::clamp(settings::Num("st_ramp_start", 0.05), 0.0, 1.0);
+        const double ramp = r0 + (1 - r0) * t * t * (3 - 2 * t);
+        const double top = std::max(fine, settings::Num("st_top_speed", 21.0));
+        speed = fine + (top - fine) * std::pow(u, settings::Num("st_curve", 1.5)) * ramp;
+        st_fine = false;
+      }
+      mo_v = dir * speed;
       st_release = 0;
       st_v0 = mo_v;
       return;
     }
     st_dir = 0;
     st_held = 0;
+    // Just released: the game was asked a little ahead of the model (claw_lead); if the claw is already further on in
+    // its direction of travel, that is where it stops - never a step back.
+    if (st_release == 0 && !st_fine && mo_err * st_v0 < 0) mo_err = 0;
+    if (st_fine) {   // released from a fine adjustment: the claw stays where it clicked to
+      mo_v = 0;
+      return;
+    }
     const double ease = settings::Num("st_ease_time", 0.05);
     st_release += dt;
     if (st_release < ease) {   // ease-off, as T2K's lr_release_frames
@@ -317,7 +345,7 @@ struct ClawControl {
     const double p = pos + mo_err;
     const double ahead = st_v0 > 0 ? 1 : st_v0 < 0 ? -1 : 0;
     const double centre = std::round(p + ahead * (0.5 - settings::Num("st_snap_ahead", 0.2))), gap = centre - p;
-    if (std::fabs(gap) < 0.01 || settings::Num("st_snap", 1) == 0) {
+    if (std::fabs(gap) < 0.01 || settings::Num("st_snap", 0) == 0) {
       mo_v = 0;
       if (std::fabs(gap) < 0.01) mo_err = centre - pos;
       return;
@@ -339,6 +367,7 @@ struct ClawControl {
       st_held = 0;
       st_release = 1e9;
       st_v0 = 0;
+      st_fine = false;
     }
     double moved = pos - mo_prev;
     mo_prev = pos;
@@ -387,6 +416,11 @@ struct ClawControl {
 
     // Ask the game for the model's position one picture ahead (it moves once a picture, a picture late).
     mo_req = mo_err + mo_v * dt * mo_fields * settings::Num("claw_lead", 0.5);
+    // Fine adjustment, T2K style: the model creeps, the claw clicks to the lane the model is nearest.
+    if (stiff && st_fine && settings::Num("st_fine_click", 1) != 0) {
+      mo_req = std::round(pos + mo_err) - pos;
+      if (mo_req * st_v0 < 0) mo_req = 0;   // never a click against the push (from between lanes: hold till ahead)
+    }
     const int input = int(Get(m, 0x801133D8));
     if (std::fabs(mo_req) < 1e-4) {
       mo_req = 0;
