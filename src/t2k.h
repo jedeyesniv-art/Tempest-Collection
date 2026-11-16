@@ -45,5 +45,14 @@ bool Paused();
 void SetPauseLine(const std::string& text);
 // Ends the current game and goes back to the title, the way the game's own * + # reset does.
 void ReturnToTitle();
+// Back in the game's own menus (pad B / Backspace). MenuScreen: a menu is up where B means back (the host then keeps
+// B away from the game, where it would confirm). MenuBack: the menu's own "exit" item (options, display / control /
+// rotary setup, duel; "no! no! no!" on clear cartridge), else the game's skip-the-title reset (z + misstit, as a
+// button in the demo does) to game select (Tempest Plus players, keys, rounds, level select) or, from game select,
+// the title; the reset's level unlocks (t2k_max ...) are put back afterwards. MenuTick: once per real frame before
+// the input is set; true = hold Jaguar B (fire) this frame to confirm the chosen exit item.
+bool MenuScreen();
+void MenuBack();
+bool MenuTick();
 
 }  // namespace t2k

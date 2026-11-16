@@ -340,6 +340,78 @@ void ReturnToTitle() {
   W16(kAuto, 0);
 }
 
+// --- Back in menus ---
+constexpr uint32_t kRoutine = 0xE326;
+constexpr uint32_t kTheOption = 0x83E6;
+constexpr uint32_t kSelected = 0x7FD2;
+constexpr uint32_t kMisstit = 0xEA46;
+constexpr uint32_t kOselector = 0x80476A, kSeldb = 0x8048CA;   // do_choose's routines
+constexpr uint32_t kZoomto = 0x802F3A, kWaitfor = 0x802F68, kZprev = 0x8030F6, kZnext = 0x803176, kZshow = 0x8031EA;   // level select
+constexpr uint32_t kOption1 = 0x8141CC, kOption2 = 0x7E02, kOption3 = 0x7FDE, kOption4 = 0x814590, kOption5 = 0x8026,
+                   kOption6 = 0x814356, kOption7 = 0x81436E, kOption8 = 0x83C6, kOption9 = 0x814386,
+                   kOption10 = 0x81439A, kOption11 = 0x8143B2;
+int g_back_fire = 0;          // frames Jag B is still held to confirm an exit item
+bool g_back_restore = false;  // put the level unlocks back once the reset has cleared z
+bool g_back_saw_z = false;
+uint16_t g_back_levels[4] = {};
+
+// What B does on the current screen: -2 none, -1 the reset, else the exit item to select.
+int BackAction() {
+  if (!g_installed || g_back_fire > 0 || g_back_restore || R16(kZ) != 0) return -2;
+  const uint32_t routine = R32(kRoutine);
+  if (R32(kMainloopRoutine) == kDrawOo &&
+      (routine == kZoomto || routine == kWaitfor || routine == kZprev || routine == kZnext || routine == kZshow))
+    return -1;
+  if (routine != kOselector && routine != kSeldb) return -2;
+  switch (R32(kTheOption)) {
+    case kOption2: return 3;    // past the end: gameopt falls through to game select
+    case kOption3: return 2;    // exit
+    case kOption4: return 3;    // exit
+    case kOption5: return 2;    // exit
+    case kOption6: return 2;    // exit
+    case kOption11: return 0;   // no! no! no!
+    case kOption1: case kOption7: case kOption8: case kOption9: case kOption10: return -1;
+    default: return -2;
+  }
+}
+
+bool MenuScreen() { return BackAction() != -2 || g_back_fire > 0; }
+
+void MenuBack() {
+  const int a = BackAction();
+  if (a == -2) return;
+  if (a >= 0) {
+    W16(kSelected, uint16_t(a));
+    g_back_fire = 4;
+    return;
+  }
+  const uint32_t routine = R32(kRoutine);
+  const bool to_title = (routine == kOselector || routine == kSeldb) && R32(kTheOption) == kOption1;
+  for (int k = 0; k < 4; ++k) g_back_levels[k] = R16(kT2kMax + 2 * uint32_t(k));   // t2k_max / high, trad_max / high
+  g_back_restore = true;
+  g_back_saw_z = false;
+  W16(kMisstit, to_title ? 0 : 1);
+  W16(kAuto, 0);
+  W16(kZ, 1);
+}
+
+bool MenuTick() {
+  if (!g_installed) return false;
+  if (g_back_restore) {   // rreset resets the levels while z is set, then clears z
+    if (R16(kZ) != 0) {
+      g_back_saw_z = true;
+    } else if (g_back_saw_z) {
+      for (int k = 0; k < 4; ++k) W16(kT2kMax + 2 * uint32_t(k), g_back_levels[k]);
+      g_back_restore = false;
+    }
+  }
+  if (g_back_fire > 0) {
+    --g_back_fire;
+    return true;
+  }
+  return false;
+}
+
 void BeforeFrame(const Pad& pad) {
   if (!g_installed) return;
   if (settings::Num("cheat_keys", 0) != 0) W16(kChenable, 1);

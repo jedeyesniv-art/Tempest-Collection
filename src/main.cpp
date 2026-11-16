@@ -24,6 +24,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -266,6 +267,7 @@ int main(int argc, char** argv) {
   std::vector<StickHold> sticks;
   std::vector<std::pair<std::string, std::string>> sets;
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
+  std::vector<int> menuback_at;   // --menuback=F[,F..]: B (back) in the game's menus at these frames
   std::string save_file, load_file, gpulog_spec, start_state, winshot_file;
   int winshot_at = -1;
   struct Poke { int frame; uint32_t addr, value; };
@@ -350,6 +352,9 @@ int main(int argc, char** argv) {
       gpulog_spec = val("--gpulog=");
     } else if (a.rfind("--title=", 0) == 0) {
       title_at = std::atoi(val("--title=").c_str());
+    } else if (a.rfind("--menuback=", 0) == 0) {
+      std::stringstream ss(val("--menuback="));
+      for (std::string t; std::getline(ss, t, ',');) menuback_at.push_back(std::atoi(t.c_str()));
     } else if (a.rfind("--pauseline=", 0) == 0) {
       pause_line = val("--pauseline=");
     } else if (a.rfind("--trace=", 0) == 0) {
@@ -418,6 +423,12 @@ int main(int argc, char** argv) {
       t2k::Pad tp;
       for (auto& s : sticks)
         if (f >= s.frame && f < s.frame + s.len) { tp.lx = s.x; tp.ly = s.y; }
+      for (int m : menuback_at)
+        if (f == m) {
+          std::fprintf(stderr, "frame %d: menu back (%s)\n", f, t2k::MenuScreen() ? "menu" : "not a menu");
+          t2k::MenuBack();
+        }
+      if (t2k::MenuTick()) in.buttons |= uint16_t(1u << host::B);
       host::SetInput(0, in);
       t2k::BeforeFrame(tp);
       t2k::SetPauseLine(pause_line);
@@ -606,6 +617,11 @@ int main(int argc, char** argv) {
       next = now;   // paused: no catching up afterwards
     } else {
       if (back && !prev_back) menu::Open();
+      // B (and Backspace) = back in the game's own menus.
+      static bool prev_bksp = false;
+      const bool bksp = keys[SDL_SCANCODE_BACKSPACE];
+      if (((pressed >> 1) & 1 || (bksp && !prev_bksp)) && t2k::MenuScreen()) t2k::MenuBack();
+      prev_bksp = bksp;
       if (fn_pressed(t2k_menu::kCamera)) {
         int v = (int(settings::Num("camera_view", 0)) + 1) % 3;
         settings::Save("camera_view", std::to_string(v));
@@ -656,7 +672,9 @@ int main(int argc, char** argv) {
     }
     for (int i = 0; i < todo; ++i) {
       t2k::Pad tp;
-      host::Input in = ReadPad(pad, held, keys, &tp);
+      // In the game's menus pad B means back: kept away from the game (where any button confirms).
+      host::Input in = ReadPad(pad, t2k::MenuScreen() ? held & ~2u : held, keys, &tp);
+      if (t2k::MenuTick()) in.buttons |= 1u << host::B;
       if (music_frames > 0) { in.buttons |= 1u << host::X; --music_frames; }
       if (quiet_frames > 0) --quiet_frames;
       host::SetInput(0, in);
