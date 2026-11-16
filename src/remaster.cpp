@@ -703,6 +703,9 @@ bool OnGpurun() {
           (*v)[y * 640 + x] = p;
           (*v)[y * 640 + 639 - x] = p;
         }
+      if (const char* d = std::getenv("RM_M7DUMP")) {   // debug: the captured image as raw 640 x 256 ARGB
+        if (FILE* f = std::fopen(d, "wb")) { std::fwrite(v->data(), 4, v->size(), f); std::fclose(f); }
+      }
       cache = v;
       cache_src = c.src;
       cache_sum = sum;
@@ -1782,37 +1785,56 @@ void DrawLineList(SDL_Renderer* ren, const std::vector<Line>& lines, const SDL_F
 
 // A dot: a small disc, full colour in the middle fading out at the edge (8-triangle fan); size in game pixels.
 // scale > 0: particles (the game's 1x1 / 2x2 pixels): a solid disc `size * scale` game px across, 1-px soft edge.
+// Dots as one textured quad each (4 vertices) with a soft-disc alpha texture: the tunnel bonus draws tens of thousands
+// (starseg rings + voo clouds), and the earlier 8-segment fans (72 vertices a particle) cost ~6 ms a frame. Same
+// shapes: without scale a cone (alpha 1 at the centre to 0 at r); with scale (particles) a solid disc of radius ri
+// with a 1 window px fade to ro = ri + 1 - the fade's share of ro picks one of kSoft textures.
 void DrawDots(SDL_Renderer* ren, const std::vector<Dot>& dots, const SDL_FRect& dst, float sx, float sy,
               float scale = 0) {
   if (dots.empty()) return;
-  std::vector<SDL_Vertex> d;
-  d.reserve(dots.size() * 24);
-  static float cs[9], sn[9];
-  if (cs[0] == 0)
-    for (int k = 0; k < 9; ++k) cs[k] = std::cos(k * float(M_PI) / 4), sn[k] = std::sin(k * float(M_PI) / 4);
-  for (auto& dt : dots) {
-    float r = std::max(1.2f, sx * 0.7f * dt.size);
-    float cx = dst.x + (dt.x + g_ox + 0.5f) * sx, cy = dst.y + (dt.y + g_oy + 0.5f) * sy;
-    SDL_FColor c{((dt.c >> 16) & 255) / 255.f, ((dt.c >> 8) & 255) / 255.f, (dt.c & 255) / 255.f, 1.f};
-    SDL_FColor e = c;
-    e.a = 0;
-    if (scale > 0) {
-      float ri = std::max(0.7f, sx * 0.5f * dt.size * scale), ro = ri + 1.0f;
-      for (int k = 0; k < 8; ++k) {
-        SDL_Vertex i0{{cx + cs[k] * ri, cy + sn[k] * ri}, c, {0, 0}}, i1{{cx + cs[k + 1] * ri, cy + sn[k + 1] * ri}, c, {0, 0}};
-        SDL_Vertex o0{{cx + cs[k] * ro, cy + sn[k] * ro}, e, {0, 0}}, o1{{cx + cs[k + 1] * ro, cy + sn[k + 1] * ro}, e, {0, 0}};
-        d.insert(d.end(), {SDL_Vertex{{cx, cy}, c, {0, 0}}, i0, i1, i0, o0, i1, i1, o0, o1});
-      }
-      continue;
-    }
-    for (int k = 0; k < 8; ++k) {
-      d.push_back({{cx, cy}, c, {0, 0}});
-      d.push_back({{cx + cs[k] * r, cy + sn[k] * r}, e, {0, 0}});
-      d.push_back({{cx + cs[k + 1] * r, cy + sn[k + 1] * r}, e, {0, 0}});
+  constexpr int kSoft = 6, kTex = kSoft + 1, kN = 64;   // texture 0: the cone; 1..kSoft: solid share 0.3 .. 0.9
+  static SDL_Texture* tex[kTex] = {};
+  if (!tex[0]) {
+    std::vector<uint32_t> px(kN * kN);
+    for (int t = 0; t < kTex; ++t) {
+      const float solid = t == 0 ? 0.f : 0.3f + 0.6f * float(t - 1) / float(kSoft - 1);
+      for (int y = 0; y < kN; ++y)
+        for (int x = 0; x < kN; ++x) {
+          const float dx = (x + 0.5f) / kN * 2 - 1, dy = (y + 0.5f) / kN * 2 - 1, d = std::sqrt(dx * dx + dy * dy);
+          const float al = std::clamp(t == 0 ? 1 - d : (1 - d) / (1 - solid), 0.f, 1.f);
+          px[size_t(y) * kN + x] = uint32_t(al * 255.f + 0.5f) << 24 | 0xFFFFFFu;
+        }
+      tex[t] = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, kN, kN);
+      SDL_UpdateTexture(tex[t], nullptr, px.data(), kN * 4);
+      SDL_SetTextureScaleMode(tex[t], SDL_SCALEMODE_LINEAR);
+      SDL_SetTextureBlendMode(tex[t], SDL_BLENDMODE_BLEND);
     }
   }
-  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-  SDL_RenderGeometry(ren, nullptr, d.data(), int(d.size()), nullptr, 0);
+  static std::vector<SDL_Vertex> v[kTex];
+  static std::vector<int> idx[kTex];
+  for (int t = 0; t < kTex; ++t) v[t].clear(), idx[t].clear();
+  for (auto& dt : dots) {
+    const float cx = dst.x + (dt.x + g_ox + 0.5f) * sx, cy = dst.y + (dt.y + g_oy + 0.5f) * sy;
+    const SDL_FColor c{((dt.c >> 16) & 255) / 255.f, ((dt.c >> 8) & 255) / 255.f, (dt.c & 255) / 255.f, 1.f};
+    float r;
+    int t = 0;
+    if (scale > 0) {
+      const float ri = std::max(0.7f, sx * 0.5f * dt.size * scale);
+      r = ri + 1.0f;
+      t = 1 + std::clamp(int(std::lround((ri / r - 0.3f) / 0.6f * (kSoft - 1))), 0, kSoft - 1);
+    } else {
+      r = std::max(1.2f, sx * 0.7f * dt.size);
+    }
+    auto& vv = v[t];
+    const int b = int(vv.size());
+    vv.push_back({{cx - r, cy - r}, c, {0, 0}});
+    vv.push_back({{cx + r, cy - r}, c, {1, 0}});
+    vv.push_back({{cx - r, cy + r}, c, {0, 1}});
+    vv.push_back({{cx + r, cy + r}, c, {1, 1}});
+    idx[t].insert(idx[t].end(), {b, b + 1, b + 2, b + 1, b + 3, b + 2});
+  }
+  for (int t = 0; t < kTex; ++t)
+    if (!v[t].empty()) SDL_RenderGeometry(ren, tex[t], v[t].data(), int(v[t].size()), idx[t].data(), int(idx[t].size()));
 }
 
 void DrawTris(SDL_Renderer* ren, const std::vector<Tri>& tris, const SDL_FRect& dst, float sx, float sy) {
@@ -1940,7 +1962,9 @@ void DrawM7(SDL_Renderer* ren, const M7Call& m, const SDL_FRect& dst, float sx, 
     int64_t r1 = (int64_t(m.in[2]) + int64_t(offs)) & 0xFFFFFF;
     r1 -= 0x7FFFFF;
     if (r1 < 0) r1 = (-r1) & 0x7FFFFF;
-    float vrow = float((r1 / 65536.0 + 0.5) / 256.0);
+    // (the blitter takes whole rows 0..127 here, 128 only at r1 = $800000 exactly; row 128 of the image is a pink
+    // line, so our smoothing between rows must stop at row 127's centre or the pink row bleeds in)
+    float vrow = float(std::min(r1 / 65536.0 + 0.5, 127.5) / 256.0);
     float shade = float(std::clamp(1.0 - (128.0 * z / zmax) / 255.0, 0.0, 1.0));   // 1 - the drop (shader)
     // Far lines: each samples a very different row from its neighbour (speckled stripes once they run past the
     // original's clipped 320 columns): fade them into the horizon over the last 30% of the depth.
