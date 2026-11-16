@@ -110,6 +110,7 @@ struct Picture {
   std::vector<Plane> planes;      // kPlane ops: Op::first indexes this
   bool complete = true;           // every entry type is one we draw
   uint32_t first_unknown = 0;     // (if not) the first type we don't draw
+  uint32_t unknown_entry[16] = {};  // (if not) that entry's words
 };
 using Vectors = Picture;          // (the vector layer: Picture::segs)
 

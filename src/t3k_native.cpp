@@ -863,6 +863,20 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
       std::snprintf(t, sizeof t, "%08X", e[15]);
       if (!std::strstr(only, t)) continue;
     }
+    // T3K_NATIVE_UNPORT=<type>[,..] (tests): treat these types as not ported (the picture goes to the emulator)
+    static const char* unport = std::getenv("T3K_NATIVE_UNPORT");
+    if (unport) {
+      char t[12];
+      std::snprintf(t, sizeof t, "%08X", e[15]);
+      if (std::strstr(unport, t)) {
+        if (out->complete) {
+          out->first_unknown = e[15];
+          std::memcpy(out->unknown_entry, e, sizeof out->unknown_entry);
+        }
+        out->complete = false;
+        continue;
+      }
+    }
     switch (e[15]) {
       case 0x00710001: {   // vector shape
         const uint32_t first = uint32_t(out->segs.size());
@@ -1025,7 +1039,10 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         break;
       case 0x00310108:   // 806A5FB0 mode 1 (806A630A): a 96-particle burst, drawn only when w4 bit 0 is set
         if (e[4] & 1) {   // (never seen in play so far: not ported)
-          if (out->complete) out->first_unknown = e[15];
+          if (out->complete) {
+            out->first_unknown = e[15];
+            std::memcpy(out->unknown_entry, e, sizeof out->unknown_entry);
+          }
           out->complete = false;
         }
         break;
@@ -1033,7 +1050,10 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         // T3K_NATIVE_FORCE=1 (tests): types not done yet are left out instead of making the picture emulated
         static const bool force = std::getenv("T3K_NATIVE_FORCE") != nullptr;
         if (force) break;
-        if (out->complete) out->first_unknown = e[15];
+        if (out->complete) {
+          out->first_unknown = e[15];
+          std::memcpy(out->unknown_entry, e, sizeof out->unknown_entry);
+        }
         out->complete = false;
         break;
       }

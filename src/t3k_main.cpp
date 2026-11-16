@@ -43,6 +43,7 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <ctime>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -139,6 +140,10 @@ show_rates = 0
 # the CPU time). Read at start-up.
 high_res = 0
 
+# 1 = when a picture can't be drawn natively yet (the emulator draws it), log it: userdata\emulated\emulated.log, and
+# for the first picture of each kind a save state + screenshot there (to port it from). A summary at exit.
+log_emulated = 1
+
 # 1 = start without the "your controller configuration has changed" screen (the pad counts as connected from
 # power-on); 0 = as the core always did.
 skip_controller_screen = 1
@@ -208,6 +213,93 @@ const char* NativeViewName(int v, bool skip) {
   }
 }
 
+// log_emulated (window): every picture the native renderer can't draw yet is counted by the type that blocked it; the
+// first of each type in a session leaves a save state, a window shot and the entry's words in userdata\emulated\
+// (log: emulated.log there), to reproduce and port it from. A summary per type at exit.
+namespace emulog {
+std::atomic<bool> enabled{false};
+std::mutex mu;
+std::map<uint32_t, uint64_t> counts;      // type -> pictures this session
+std::atomic<bool> want_state{false};      // the emulation thread saves a state after this frame
+std::atomic<bool> want_shot{false};       // the window thread saves its next frame
+std::string dir, pending_name, shot_path;
+uint32_t shot_flip = 0;                   // the shot waits until the window shows this picture
+uint32_t pending_type = 0, pending_flip = 0;
+uint32_t pending_words[16] = {};
+
+std::string Stamp(bool for_file) {
+  const std::time_t now = std::time(nullptr);
+  std::tm tm{};
+  localtime_s(&tm, &now);
+  char buf[32];
+  std::strftime(buf, sizeof buf, for_file ? "%Y%m%d-%H%M%S" : "%Y-%m-%d %H:%M:%S", &tm);
+  return buf;
+}
+
+void Line(const std::string& text) {
+  if (FILE* f = std::fopen((dir + "/emulated.log").c_str(), "a")) {
+    std::fprintf(f, "%s %s\n", Stamp(false).c_str(), text.c_str());
+    std::fclose(f);
+  }
+}
+
+// From the draw gate (emulation thread, inside a frame): an incomplete picture.
+void Note(const t3knative::Picture& pic, uint32_t flip) {
+  if (!enabled.load()) return;
+  std::lock_guard<std::mutex> lock(mu);
+  if (counts[pic.first_unknown]++ == 0 && !want_state.load()) {
+    pending_type = pic.first_unknown;
+    pending_flip = flip;
+    std::memcpy(pending_words, pic.unknown_entry, sizeof pending_words);
+    char name[64];
+    std::snprintf(name, sizeof name, "%08X_%s", pending_type, Stamp(true).c_str());
+    pending_name = name;
+    want_state = true;
+  }
+}
+
+// After a frame (emulation thread): the state for a pending first sighting, and the log line.
+void AfterFrame(uint64_t field) {
+  if (!want_state.load()) return;
+  std::string name, words;
+  uint32_t type, flip;
+  {
+    std::lock_guard<std::mutex> lock(mu);
+    name = pending_name;
+    type = pending_type;
+    flip = pending_flip;
+    char w[12];
+    for (uint32_t v : pending_words) { std::snprintf(w, sizeof w, " %08X", v); words += w; }
+  }
+  std::error_code ec;
+  fs::create_directories(dir, ec);
+  const std::string state = dir + "/" + name + ".state";
+  const bool ok = nuon::SaveState(state);
+  char head[160];
+  std::snprintf(head, sizeof head, "field %llu flip %u: first picture this session emulated because of type %08X; entry:",
+                (unsigned long long)field, flip, type);
+  Line(std::string(head) + words + " | state " + name + ".state" + (ok ? "" : " (FAILED)") + ", shot " + name + ".bmp");
+  {
+    std::lock_guard<std::mutex> lock(mu);
+    shot_path = dir + "/" + name + ".bmp";
+    shot_flip = flip;
+  }
+  want_shot = true;
+  want_state = false;
+}
+
+// At exit: pictures per type this session.
+void Summary() {
+  if (!enabled.load()) return;
+  std::lock_guard<std::mutex> lock(mu);
+  if (counts.empty()) return;
+  std::string text = "session end, emulated pictures by type:";
+  char b[40];
+  for (auto& [t, n] : counts) { std::snprintf(b, sizeof b, " %08X x %llu", t, (unsigned long long)n); text += b; }
+  Line(text);
+}
+}  // namespace emulog
+
 namespace gate {
 std::mutex mu;
 std::map<uint32_t, std::shared_ptr<t3knative::Picture>> built;
@@ -226,6 +318,7 @@ int Callback(int mpe, uint32_t flips) {
   // T3K_GATE_LOG=1: each decision (flip, skipped / drawn and the first type we don't draw)
   static const bool log = std::getenv("T3K_GATE_LOG") != nullptr;
   if (log) std::fprintf(stderr, "gatelog flip %u %s %08X\n", flips + 1, skip ? "skip" : "draw", pic->first_unknown);
+  if (!pic->complete) emulog::Note(*pic, flips + 1);
   std::lock_guard<std::mutex> lock(mu);
   built[flips + 1] = pic;
   while (built.size() > 8) built.erase(built.begin());
@@ -1282,6 +1375,8 @@ int main(int argc, char** argv) {
   // The field grid's origin, shared: the main thread nudges it away from the vblanks (see below).
   std::atomic<uint64_t> grid_start{SDL_GetTicksNS() + field_ns};
   nuon::ReleaseContext();   // the emulation thread takes the core's OpenGL context
+  emulog::dir = (udir / "emulated").string();
+  emulog::enabled = settings::Num("log_emulated", 1) != 0;
   std::thread emu([&] {
     // (grid_start may move: the main thread shifts it by half a refresh when the grid sits on the vblanks.)
     for (int64_t k = 0; !emu_quit; ++k) {
@@ -1313,6 +1408,7 @@ int main(int argc, char** argv) {
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
+      emulog::AfterFrame(uint64_t(k));
       // The native renderer's input: each new picture's display list, built into its vector layer once.
       static nuon::Capture cap;
       static std::shared_ptr<const t3knative::Vectors> vec;
@@ -1676,6 +1772,23 @@ int main(int argc, char** argv) {
           SDL_DestroySurface(sf);
         }
     }
+    bool shoot = false;
+    std::string path;
+    if (emulog::want_shot.load()) {
+      std::lock_guard<std::mutex> lock(emulog::mu);
+      // the picture itself, once the window shows it (or anything later, if it went by unseen)
+      if (shown_vec && shown_vec->flip >= emulog::shot_flip) {
+        shoot = true;
+        path = emulog::shot_path;
+        emulog::want_shot = false;
+      }
+    }
+    if (shoot) {
+      if (SDL_Surface* sf = SDL_RenderReadPixels(ren, nullptr)) {
+        SDL_SaveBMP(sf, path.c_str());
+        SDL_DestroySurface(sf);
+      }
+    }
     if (winshot_at >= 0 && presents == winshot_at) {
       if (SDL_Surface* sf = SDL_RenderReadPixels(ren, nullptr)) {
         if (!SDL_SaveBMP(sf, winshot_file.c_str())) std::fprintf(stderr, "winshot: %s\n", SDL_GetError());
@@ -1706,6 +1819,7 @@ int main(int argc, char** argv) {
   }
   emu_quit = true;
   emu.join();
+  emulog::Summary();
   std::fprintf(stderr, picture_ns ? "pictures shown for 0..7+ refreshes:" : "fields shown for 0..7+ refreshes:");
   for (auto n : hold_hist) std::fprintf(stderr, " %lld", (long long)n);
   std::fprintf(stderr, "; fields never shown: %lld; grid shifts: %d\n", (long long)skipped, grid_shifts);
