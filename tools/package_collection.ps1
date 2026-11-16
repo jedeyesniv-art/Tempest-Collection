@@ -23,7 +23,7 @@ $dist = Join-Path $repo "dist\TempestCollection"
 if (-not $SkipBuild) {
     $log = Join-Path $build "package_build.log"
     cmd /c "`"$repo\build.bat`" > `"$log`" 2>&1"
-    if ($LASTEXITCODE -ne 0 -or (Select-String -Path $log -Pattern "FAILED|error:" -Quiet)) {
+    if ($LASTEXITCODE -ne 0 -or (Select-String -Path $log -Pattern "FAILED|error:" -CaseSensitive -Quiet)) {
         Write-Error "build failed: see $log"
     }
     cmd /c "`"$repo\tools\build_t4k_helper.bat`" > `"$build\t4k_helper_build.log`" 2>&1"
