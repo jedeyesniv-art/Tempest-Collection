@@ -577,9 +577,9 @@ void RingPoints(const uint32_t* e, const Mem& mem, Picture* out) {
   for (int guard = 0; z > 0 && guard < 4096; ++guard) {
     int32_t c, s;
     SinCos(uint32_t(p2) & 0xFFFF, &c, &s);
-    const int32_t span = Sext(e[9], 16) + Mul(int32_t(e[5]) >> 16, c, 30);
+    const int32_t span = Sext(e[9], 16) + Mul(int32_t(e[5] >> 16), c, 30);   // w5 hi unsigned (the module; >= $8000 at the level select)
     SinCos(uint32_t(p1) & 0xFFFF, &c, &s);
-    const int32_t a0 = int32_t(e[6]) + Mul(int32_t(e[4]) >> 16, c, 30);
+    const int32_t a0 = int32_t(e[6]) + Mul(int32_t(e[4] >> 16), c, 30);
     p1 -= int32_t(e[4] & 0xFFFF);
     p2 -= int32_t(e[5] & 0xFFFF);
     const int32_t k = int32_t(17592186044416.0 / double(z));   // 2^44 / z
