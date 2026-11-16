@@ -961,6 +961,9 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         op.zy = float(e[5]) / 65536.f;
         op.angle = float(e[6] & 0xFFFF) * 6.2831853f / 65536.f;
         op.fade = float(e[7] >> 16) / 16384.f;
+        if (std::getenv("T3K_ZOOM_LOG"))
+          std::fprintf(stderr, "zoom flip %u: centre %.0f,%.0f zoom %.4f %.4f angle %.2f deg fade %.3f w6 %08X\n", cap.flip,
+                       op.cx, op.cy, op.zx, op.zy, op.angle * 57.29578f, op.fade, e[6]);
         out->ops.push_back(op);
         break;
       }

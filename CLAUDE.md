@@ -140,14 +140,22 @@ T2K to-do batch DONE 2026-11-16 (B / Backspace = back in menus, enemy bullets at
 event stall, run-ahead / catch-up),
 T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
 
+## T3K background spin / death "kaleidoscope" (2026-11-16, owner's state logs/t3k/rot/owner_rot.state)
+- Not a bug of ours: the Emulation picture does the same. The zoom feedback's angle (entry 00300004 w6, copied each
+  picture by $8001F736 from the background preset's +$40 into $800B84BC) comes from per-level presets: three blocks
+  at $8075FB30 / FC30 / FD30 ($100 apart), loaded from disc data (ISO 0x2C041CCC: "0000 A1C0 0280 ... FF70 4C5F ...").
+  "Crosseyed and Painless" has rotation $FF70 = -0.79 deg a picture; level 1 has 0 in play. A death's feedback keeps
+  88% of each picture, so with the spin the trails become the kaleidoscope. T3K_ZOOM_LOG=1 prints every zoom entry.
+- Level select with right presses 24 fields apart only reached levels 1, 7 (V Sign) and 15 (Dark Side of the Moo):
+  the claw fix above was measured on those three.
+
 ## T3K claw on every level (2026-11-16)
 - Owner: controls differed by level (close on some, slow / stiff on others). Cause: the claw is an object in the pool
   $8003C000..$80040000 and its slot depends on the level ($8003E9E0 on level 1-2, $8003EA50 on others); ClawControl
   only looked at $8003E9E0, so elsewhere the stick fell back to the plain d-pad. Now ClawControl::FindClaw finds the
   slot (flags +12 = $80000401, position +0 = $800DC100) and re-scans when it moves. --clawlog prints the slot too.
-- Measured (tools/t3k_clawlevels.py; aligned pushes on levels 2-12): the same path everywhere until the web's end.
+- Measured (tools/t3k_clawlevels.py; aligned pushes, levels 1 / 7 / 15): the same path until the web's end.
   The game moves ~1.69x the driver's GameSpeed per input on every level (the position feedback absorbs it).
-- Route to level L: right presses every 24 fields from 1524, A at 1540 + 24 L, A again 400 later.
 
 ## T3K menu cleanup, save states (2026-11-16)
 - Menu DISPLAY: Renderer = native_view (1 Remaster, default now; 0 Emulation); Remaster options (wide screens, smooth
