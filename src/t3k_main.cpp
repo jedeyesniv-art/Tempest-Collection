@@ -859,8 +859,9 @@ int main(int argc, char** argv) {
   const SDL_FRect ndst{0, 0, 1440, 1080};
   if (headless && (!nativeshots.empty() || check_f0 >= 0)) {
     nwin = SDL_CreateWindow("t3k native", 64, 64, SDL_WINDOW_HIDDEN);
-    nren = nwin ? SDL_CreateRenderer(nwin, nullptr) : nullptr;
+    nren = nwin ? t3knative::CreateRenderer(nwin) : nullptr;
     if (nren) {
+      t3knative::InitPipeline(nren);
       nout = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, 1440, 1080);
       nemu = SDL_CreateTexture(nren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 360, 240);
       SDL_SetTextureScaleMode(nemu, SDL_SCALEMODE_LINEAR);
@@ -1196,7 +1197,8 @@ int main(int argc, char** argv) {
   }
 
   SDL_Window* win = SDL_CreateWindow("Tempest 3000", 1440, 1080, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-  SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
+  SDL_Renderer* ren = win ? t3knative::CreateRenderer(win) : nullptr;
+  if (ren) t3knative::InitPipeline(ren);   // before the emulation thread builds any native picture
   if (!ren) { std::fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
   if (settings::Num("fullscreen", 1) != 0) SDL_SetWindowFullscreen(win, true);
   const bool vsync_on = !novsync && settings::Num("vsync", 1) != 0;

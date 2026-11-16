@@ -7,7 +7,16 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "shaders/ycc_fade.dxil.h"
+#include "shaders/ycc_in.dxil.h"
+#include "shaders/ycc_out.dxil.h"
+
 namespace t3knative {
+
+// The YCrCb pipeline (InitPipeline): pictures' colours are YCrCb bytes / 255 (R = Y, G = Cr, B = Cb) and the renderer
+// works in YCrCb like the hardware, converting to RGB only for the window. Off = the old RGB path.
+bool g_ycc = false;
+
 namespace {
 
 // --- the module's integer maths (806A3F50), bit-exact as tools/t3k_vecmodel.py ---
@@ -104,13 +113,62 @@ void Segment(const uint32_t* e, const Matrix& m, uint32_t cur, uint32_t prev, ui
 constexpr float kZPeak = 0.00888f;    // centre opacity per unit of the colour's 4th byte
 
 // A YCrCbZ colour word -> RGB as Nuance shows it (BT.601, video range), alpha = the line's centre opacity.
-SDL_FColor Colour(uint32_t w, float strength) {
+SDL_FColor RgbColour(uint32_t w, float strength) {
   auto cl = [](float v) { return std::clamp(v, 0.f, 1.f); };
   const float y = cl(float((w >> 24) & 0xFF) * (255.f / 219.f) / 255.f - 16.f / 219.f);
   const float cr = cl(float((w >> 16) & 0xFF) * (255.f / 224.f) / 255.f - 16.f / 224.f) - 0.5f;
   const float cb = cl(float((w >> 8) & 0xFF) * (255.f / 224.f) / 255.f - 16.f / 224.f) - 0.5f;
   return {cl(y + 1.402f * cr), cl(y - 0.34413f * cb - 0.714136f * cr), cl(y + 1.772f * cb),
           cl(kZPeak * float(w & 0xFF) * strength)};
+}
+
+// A YCrCbZ colour word as the pictures carry it: YCrCb bytes / 255 (the YCrCb pipeline), else RGB.
+SDL_FColor Colour(uint32_t w, float strength) {
+  if (!g_ycc) return RgbColour(w, strength);
+  return {float((w >> 24) & 0xFF) / 255.f, float((w >> 16) & 0xFF) / 255.f, float((w >> 8) & 0xFF) / 255.f,
+          std::clamp(kZPeak * float(w & 0xFF) * strength, 0.f, 1.f)};
+}
+
+// A picture colour (YCrCb in the pipeline) -> RGB, for drawing straight onto the window.
+SDL_FColor ToRgb(const SDL_FColor& c) {
+  if (!g_ycc) return c;
+  auto byte = [](float v) { return uint32_t(std::clamp(v * 255.f + 0.5f, 0.f, 255.f)); };
+  SDL_FColor o = RgbColour(byte(c.r) << 24 | byte(c.g) << 16 | byte(c.b) << 8, 1.f);
+  o.a = c.a;
+  return o;
+}
+
+// --- the YCrCb pipeline's shaders (GPU renderer only) ---
+SDL_GPUDevice* g_device = nullptr;
+SDL_GPUShader* g_shader[3] = {};
+SDL_GPURenderState* g_fade = nullptr;   // zoom feedback with fade (uniform: x = fade)
+SDL_GPURenderState* g_out = nullptr;    // YCrCb -> RGB
+SDL_GPURenderState* g_in = nullptr;     // RGB -> YCrCb
+
+SDL_GPURenderState* MakeState(SDL_Renderer* r, const unsigned char* code, size_t size, int uniforms, SDL_GPUShader** sh) {
+  SDL_GPUShaderCreateInfo info{};
+  info.code = code;
+  info.code_size = size;
+  info.entrypoint = "main";
+  info.format = SDL_GPU_SHADERFORMAT_DXIL;
+  info.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+  info.num_samplers = 1;
+  info.num_uniform_buffers = uint32_t(uniforms);
+  if (!(*sh = SDL_CreateGPUShader(g_device, &info))) return nullptr;
+  SDL_GPURenderStateCreateInfo state{};
+  state.fragment_shader = *sh;
+  return SDL_CreateGPURenderState(r, &state);
+}
+
+// Draws tex over the whole current target through a render state (nullptr = plain copy).
+void Pass(SDL_Renderer* ren, SDL_Texture* tex, SDL_GPURenderState* st, const SDL_FRect* dst) {
+  SDL_BlendMode mode;
+  SDL_GetTextureBlendMode(tex, &mode);
+  SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+  if (st) SDL_SetGPURenderState(ren, st);
+  SDL_RenderTexture(ren, tex, nullptr, dst);
+  if (st) SDL_SetGPURenderState(ren, nullptr);
+  SDL_SetTextureBlendMode(tex, mode);
 }
 
 // What the builders read: the words MPE0 read while drawing (capture), or the emulator's memory itself (live: the
@@ -661,7 +719,7 @@ void PlaneOp(const uint32_t* e, const Mem& mem, Picture* out) {
 }  // namespace
 
 uint32_t YccToXrgb(uint32_t ycc) {
-  const SDL_FColor c = Colour(ycc | 0xFF, 1.f);
+  const SDL_FColor c = RgbColour(ycc | 0xFF, 1.f);
   return uint32_t(c.r * 255.f + 0.5f) << 16 | uint32_t(c.g * 255.f + 0.5f) << 8 | uint32_t(c.b * 255.f + 0.5f);
 }
 
@@ -871,7 +929,7 @@ Renderer::~Renderer() {
 }
 
 void Renderer::Redraw(SDL_Renderer* ren, const SDL_FRect& dst) {
-  if (tex_[cur_]) SDL_RenderTexture(ren, tex_[cur_], nullptr, &dst);
+  if (tex_[cur_]) Pass(ren, tex_[cur_], g_ycc ? g_out : nullptr, &dst);
 }
 
 void Renderer::Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& dst) {
@@ -879,11 +937,7 @@ void Renderer::Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& ds
   Resize(ren, dst);
   SDL_Texture* keep = SDL_GetRenderTarget(ren);
   SDL_SetRenderTarget(ren, tex_[cur_]);
-  SDL_BlendMode mode;
-  SDL_GetTextureBlendMode(picture, &mode);
-  SDL_SetTextureBlendMode(picture, SDL_BLENDMODE_NONE);
-  SDL_RenderTexture(ren, picture, nullptr, nullptr);
-  SDL_SetTextureBlendMode(picture, mode);
+  Pass(ren, picture, g_ycc ? g_in : nullptr, nullptr);
   SDL_SetRenderTarget(ren, keep);
 }
 
@@ -900,8 +954,7 @@ void Renderer::Resize(SDL_Renderer* ren, const SDL_FRect& dst) {
   SDL_Texture* keep = SDL_GetRenderTarget(ren);
   for (SDL_Texture* t : tex_) {
     SDL_SetRenderTarget(ren, t);
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-    SDL_RenderClear(ren);
+    ClearBlack(ren);
   }
   SDL_SetRenderTarget(ren, keep);
 }
@@ -914,8 +967,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
   SDL_Texture* next = tex_[cur_ ^ 1];
   SDL_Texture* keep = SDL_GetRenderTarget(ren);
   SDL_SetRenderTarget(ren, next);
-  SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-  SDL_RenderClear(ren);
+  ClearBlack(ren);
   const SDL_FRect full{0, 0, float(w), float(h)};
   const float sx = float(w) / 360.f, sy = float(h) / 240.f;
   std::vector<Seg> part;
@@ -949,13 +1001,21 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           SDL_SetTextureBlendMode(prev, mode);
           SDL_RenderGeometry(ren, prev, v, 4, idx, 6);
         };
+        if (g_ycc) {   // the module's fade: every component about its neutral value, clipped to a byte
+          const float u[4] = {fade, 0, 0, 0};
+          SDL_SetGPURenderStateFragmentUniforms(g_fade, 0, u, sizeof(u));
+          SDL_SetGPURenderState(ren, g_fade);
+          quad(1.f, SDL_BLENDMODE_NONE);
+          SDL_SetGPURenderState(ren, nullptr);
+          break;
+        }
         quad(f1, SDL_BLENDMODE_NONE);
         if (f2 > 0.f) quad(std::min(f2, 1.f), SDL_BLENDMODE_ADD);   // brightening (level start): add the excess
         break;
       }
       case Op::kSegs: {
         part.assign(segs.begin() + op.first, segs.begin() + op.first + op.count);
-        DrawVectors(ren, part, full);
+        DrawVectors(ren, part, full, false);
         break;
       }
       case Op::kWeb: {
@@ -1124,8 +1184,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
   }
   glyph_flip_ = pic.flip;
   SDL_SetRenderTarget(ren, keep);
-  SDL_SetTextureBlendMode(next, SDL_BLENDMODE_NONE);
-  SDL_RenderTexture(ren, next, nullptr, &dst);
+  Pass(ren, next, g_ycc ? g_out : nullptr, &dst);
   cur_ ^= 1;
 }
 
@@ -1169,7 +1228,7 @@ void Interpolate(const Picture& prev, const Picture& cur, float t, std::vector<S
   }
 }
 
-void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRect& dst) {
+void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRect& dst, bool rgb) {
   if (segs.empty()) return;
   const float sx = dst.w / 360.f, sy = dst.h / 240.f;
   // The module samples coverage at integer pixel coordinates (a pixel's corner): shift half a pixel to centres.
@@ -1183,11 +1242,12 @@ void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRec
     if (len > 1e-4f) { dx /= len; dy /= len; } else { dx = 1.f; dy = 0.f; }
     const float nx = -dy * s.r, ny = dx * s.r;      // perpendicular, in game pixels
     const float ex = dx * s.r, ey = dy * s.r;       // along, for the end caps
-    SDL_FColor e0 = s.c0, e1 = s.c1;
+    const SDL_FColor k0 = rgb ? ToRgb(s.c0) : s.c0, k1 = rgb ? ToRgb(s.c1) : s.c1;
+    SDL_FColor e0 = k0, e1 = k1;
     e0.a = 0.f;
     e1.a = 0.f;
     auto V = [&](float x, float y, SDL_FColor c) { return SDL_Vertex{{X(x), Y(y)}, c, {0, 0}}; };
-    const SDL_Vertex c0 = V(s.x0, s.y0, s.c0), c1 = V(s.x1, s.y1, s.c1);
+    const SDL_Vertex c0 = V(s.x0, s.y0, k0), c1 = V(s.x1, s.y1, k1);
     const SDL_Vertex l0 = V(s.x0 + nx, s.y0 + ny, e0), l1 = V(s.x1 + nx, s.y1 + ny, e1);
     const SDL_Vertex r0 = V(s.x0 - nx, s.y0 - ny, e0), r1 = V(s.x1 - nx, s.y1 - ny, e1);
     const SDL_Vertex t0 = V(s.x0 - ex, s.y0 - ey, e0), t1 = V(s.x1 + ex, s.y1 + ey, e1);
@@ -1196,6 +1256,37 @@ void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRec
   }
   SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
   SDL_RenderGeometry(ren, nullptr, v.data(), int(v.size()), nullptr, 0);
+}
+
+void ClearBlack(SDL_Renderer* ren) {
+  if (g_ycc) SDL_SetRenderDrawColor(ren, 16, 128, 128, 255);   // YCrCb black
+  else SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+  SDL_RenderClear(ren);
+}
+
+SDL_Renderer* CreateRenderer(SDL_Window* window) {
+  SDL_PropertiesID props = SDL_CreateProperties();
+  SDL_SetPointerProperty(props, SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, window);
+  const char* name = SDL_getenv("T3K_RENDERER");   // tests: another renderer (direct3d11, ...)
+  SDL_SetStringProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING, name ? name : "gpu");
+  SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_DXIL_BOOLEAN, true);
+  SDL_Renderer* r = SDL_CreateRendererWithProperties(props);
+  SDL_DestroyProperties(props);
+  if (!r) r = SDL_CreateRenderer(window, nullptr);
+  return r;
+}
+
+bool InitPipeline(SDL_Renderer* ren) {
+  g_ycc = false;
+  if (SDL_getenv("T3K_NATIVE_RGB")) return false;   // tests: the old RGB path
+  g_device = SDL_GetGPURendererDevice(ren);
+  if (!g_device || !(SDL_GetGPUShaderFormats(g_device) & SDL_GPU_SHADERFORMAT_DXIL)) return false;
+  g_fade = MakeState(ren, k_ycc_fade_dxil, sizeof(k_ycc_fade_dxil), 1, &g_shader[0]);
+  g_out = MakeState(ren, k_ycc_out_dxil, sizeof(k_ycc_out_dxil), 0, &g_shader[1]);
+  g_in = MakeState(ren, k_ycc_in_dxil, sizeof(k_ycc_in_dxil), 0, &g_shader[2]);
+  g_ycc = g_fade && g_out && g_in;
+  if (!g_ycc) std::fprintf(stderr, "t3k native: no YCrCb pipeline (%s), RGB\n", SDL_GetError());
+  return g_ycc;
 }
 
 }  // namespace t3knative

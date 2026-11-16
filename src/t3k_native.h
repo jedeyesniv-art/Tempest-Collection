@@ -128,8 +128,18 @@ inline void BuildVectors(const nuon::Capture& cap, Picture* out) { BuildPicture(
 // unmatched ones, or moves of more than max_move game pixels, are drawn as in cur.
 void Interpolate(const Picture& prev, const Picture& cur, float t, std::vector<Seg>* out, float max_move = 30.f);
 
-// Draw segments into dst (the window rectangle the 360 x 240 picture fills).
-void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRect& dst);
+// Draw segments into dst (the window rectangle the 360 x 240 picture fills). rgb: onto the window (picture colours
+// converted from YCrCb when the YCrCb pipeline is on); false: into a native picture (colours as they are).
+void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRect& dst, bool rgb = true);
+
+// The GPU renderer (SDL "gpu", DXIL shaders) for windows that show native pictures; the default renderer if not.
+SDL_Renderer* CreateRenderer(SDL_Window* window);
+// The YCrCb pipeline on ren (call once, before building pictures): the native pictures are kept in YCrCb like the
+// hardware (its fades and clipping), converted to RGB for the window. False = not available (no GPU renderer /
+// T3K_NATIVE_RGB set): the RGB path.
+bool InitPipeline(SDL_Renderer* ren);
+// Clears the current target to black (YCrCb black in the pipeline).
+void ClearBlack(SDL_Renderer* ren);
 
 // Whole native pictures, with the feedback the game builds them on kept in our own textures (window resolution).
 class Renderer {
