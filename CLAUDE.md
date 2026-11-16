@@ -114,7 +114,30 @@ Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
 
-## T3K native renderer (start here; current focus, state end of 2026-11-15)
+## Where we are (end of 2026-11-16; start here next time)
+T3K, all committed:
+- Every picture is native from power-on (all 18 + the last three types: 0031000E title field, 00310409 title wave,
+  0000000F ripple feedback). Full route fields 60-9000: 2980 of 2980 native, mean error 2.78 against the emulator.
+- YCrCb pipeline: native pictures + feedback kept in YCrCb like the hardware (fade about 16 / 128, clip per byte,
+  truncating), SDL GPU renderer + src/shaders/ycc_{fade,out,in,ripple}.hlsl (tools/build_shaders.py; afterwards
+  `git checkout` T2K's regenerated *.dxil.h - newer dxc output, same source). The light machine is no longer white.
+- Sharp vectors (owner: "gorgeous"): small items / short-stroke items (text, claw, enemies, HUD) = thin core + glow;
+  web and streaks keep the 240p look. Settings sharp_vectors / sharp_core / sharp_glow (menu Display).
+- Controls: stick_mode stiff (default) with a fine zone (<= 60%: creep + click lane to lane, T2K style) and a sweep
+  zone (owner's tuning: top 21 lanes/s, ramp 1 s, curve 1.5, deadzone 0.10) - owner happy, still tweaking.
+  Momentum (TxK feel, measured) kept as an option. PLAN.md "Claw feel study" Results.
+- No controller-changed nag at boot (skip_controller_screen). log_emulated: unported pictures -> userdata\emulated\
+  (log + save state + shot of the first per type).
+- Bug found + fixed: point rings 00310008 sign (level-select dots). Lesson: whole-picture mean error hides sparse
+  errors and the checks never ran the native feedback CHAIN or high_res - use the sweep (emulated | native every 300
+  fields from boot) and per-type checks; the native renderer has no high_res handling (owner set high_res 0).
+Next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"): T3K high scores / settings
+(flash not saved), repackage the play folder for the Deck (today's work isn't on it), interpolation for everything +
+run-ahead, orange patches on the brightest warp / bonus screens, sharpen the glowing text (0010000D) if wanted,
+T2K to-do batch (B = back in menus, yellow polygon enemy shots, pink line in bonus 1 clouds, bonus 2 speed),
+T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
+
+## T3K native renderer (reference; state end of 2026-11-15, see "Where we are" above for newer)
 Owner: decouple game speed from frame rate, Steam Deck = min spec -> draw T3K's display lists natively on the GPU
 instead of emulating its renderer MPEs; the renderer work is the priority. Ordered to-do: PLAN.md "Native renderer
 status" (end of the T3K section); per-type details in the PLAN sections above it.

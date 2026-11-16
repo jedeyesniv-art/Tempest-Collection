@@ -870,6 +870,12 @@ Next, in order (owner 2026-11-15: tools first, then the work; estimate steps 2-4
    out = s + (w2 - s) w7; tools/t3k_ripplefit.py 0.33, shader ycc_ripple). Full route from boot (fields 60-9000,
    menus, play, warps, bonus, attract): 2980 of 2980 pictures native, mean error 2.78. Also 2026-11-16: YCrCb
    pipeline (step 7's fade shader, done), point-ring sign fix; open: orange patches on the brightest warp / bonus.
+6b. DONE 2026-11-16: clarity - sharp vectors (t3k_native.cpp kSegs: items <= 100 game px across or averaging
+   <= 12 px a stroke get a core at sharp_core x the width + the original line at sharp_glow; web / streaks untouched).
+   Not yet: the glowing text 0010000D (images), discs / particles, the thick title logo (long strokes).
+6c. Open: orange patches on the brightest warp / bonus feedback screens (chain only; single steps match; not
+   sampling, not the line blend, not rounding - tools/t3k_fadefit.py, t3k_chromafit.py); high_res has no native
+   support (pictures are built from transformed entries) - native view should force 360x240 or high_res be dropped.
 7. Polish: YCrCb fade shader for the zoom's brightening phase; wide screen; CRT looks; the web module's per-lane
    colour pulses / special lane mode if any picture needs them.
 8. Endgame add-on (owner: later): the web texture's lightsynth generator natively (find its writer with NUANCE_WATCH).
