@@ -139,6 +139,10 @@ show_rates = 0
 # the CPU time). Read at start-up.
 high_res = 0
 
+# 1 = start without the "your controller configuration has changed" screen (the pad counts as connected from
+# power-on); 0 = as the core always did.
+skip_controller_screen = 1
+
 # --- Stick controls for the claw (left stick; the d-pad keeps the original controls) ---
 # stiff = Tempest 2000's lr handling (speed follows the stick, slow start then quick, stops on a lane);
 # lr = push left / right: speed follows how far the stick is pushed, per picture; momentum = TxK's feel (below);
@@ -774,6 +778,9 @@ int main(int argc, char** argv) {
     }
     std::fprintf(stderr, "loadstate %s\n", loadstate.path.c_str());
   }
+  // The pad is there from power-on: no "your controller configuration has changed" screen (setting
+  // skip_controller_screen, default on).
+  nuon::SetPadPresentAtBoot(settings::Num("skip_controller_screen", 1) != 0);
   // T3K_PAD_PROPS=<hex>: extra controller properties reported to the game (tests).
   if (const char* pp = std::getenv("T3K_PAD_PROPS")) nuon::SetPadProperties(uint32_t(std::strtoul(pp, nullptr, 16)));
   std::fprintf(stderr, "timing: %s\n",

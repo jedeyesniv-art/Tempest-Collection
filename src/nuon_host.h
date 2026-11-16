@@ -59,6 +59,9 @@ bool SetFlipCap(double fields);
 bool SetHighRes(bool on);
 // Extra controller properties to report (CTRLR_ANALOG1 = 0x10, ...: joystick.h); set before the game starts.
 bool SetPadProperties(uint32_t extra);
+// The pad counts as connected from power-on (no "controller configuration has changed" screen at boot); set before
+// the first frame.
+bool SetPadPresentAtBoot(bool on);
 // The analog axes (-128..127), applied with the buttons each frame.
 void SetAnalog(int x, int y, int x2, int y2);
 // Dump a code module (system-bus src, len bytes, as loaded at base in MPE mpe) for tools/t3k_aot.py.

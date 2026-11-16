@@ -324,6 +324,13 @@ bool SetPadProperties(uint32_t extra) {
   return true;
 }
 
+bool SetPadPresentAtBoot(bool on) {
+  auto f = reinterpret_cast<void (*)(int)>(::GetProcAddress(g_core.dll, "nuance_set_pad_present_at_boot"));
+  if (!f) return false;
+  f(on ? 1 : 0);
+  return true;
+}
+
 void SetAnalog(int x, int y, int x2, int y2) {
   static auto f = reinterpret_cast<void (*)(int, int, int, int)>(::GetProcAddress(g_core.dll, "nuance_set_analog"));
   if (f) f(x, y, x2, y2);
