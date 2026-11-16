@@ -523,7 +523,7 @@ bool g_feedback = true;   // SetFeedback (setting remaster_feedback)
 bool settings_feedback() { return g_feedback; }
 float g_width = 1.5f;   // line width in game pixels (setting remaster_line_width)
 // Effects (SetEffects): bolt core width in game px (0 = the original thin line), glow on / off, particle size scale.
-float g_bolt_width = 2.0f, g_particle = 1.5f, g_shot_glow = 0.25f;
+float g_bolt_width = 2.0f, g_particle = 1.5f, g_shot_glow = 0.25f, g_shot_size = 0.5f;
 float g_pup_floor = 0.7f, g_pup_glow = 1.0f;   // SetPowerUps: power-up ring minimum brightness (0-1), glow strength
 bool g_bolt_glow = true;
 
@@ -1485,6 +1485,33 @@ void AfterFrame(bool publish) {
   if (publish) Interpolate(1.f);
 }
 
+// Enemy bullet pieces (s_shot's chevron, three thin slivers) at the original's size: the Jaguar fills them at 326 x
+// 240, where every sliver covers whole pixels and reads as a solid yellow blob; drawn exactly at window resolution
+// they are hair-thin and blend into the blue web. Each edge of the triangles from n0 on gets a band g_shot_size game
+// px wide on both sides (two triangles, extended past the corners by the same amount): the pieces grown by about
+// that much all round, like a stroked polygon.
+void FattenShot(std::vector<Tri>& tris, size_t n0) {
+  const float r = g_shot_size;
+  if (r <= 0) return;
+  const size_t n1 = tris.size();
+  for (size_t i = n0; i < n1; ++i) {
+    const Tri t = tris[i];
+    for (int k = 0; k < 3; ++k) {
+      const int j = (k + 1) % 3;
+      float dx = t.x[j] - t.x[k], dy = t.y[j] - t.y[k];
+      const float len = std::sqrt(dx * dx + dy * dy);
+      if (len < 1e-4f) continue;
+      dx /= len, dy /= len;
+      const float nx = -dy * r, ny = dx * r, ex = dx * r, ey = dy * r;
+      const float ax = t.x[k] - ex, ay = t.y[k] - ey, bx = t.x[j] + ex, by = t.y[j] + ey;
+      Tri q1{{ax + nx, bx + nx, bx - nx}, {ay + ny, by + ny, by - ny}, {t.c[k], t.c[j], t.c[j]}};
+      Tri q2{{ax + nx, bx - nx, ax - nx}, {ay + ny, by - ny, ay - ny}, {t.c[k], t.c[j], t.c[k]}};
+      tris.push_back(q1);
+      tris.push_back(q2);
+    }
+  }
+}
+
 // An enemy bullet's halo: centred on the points built for it, its colour the brightest of theirs (at full
 // brightness: a far bullet is depth-dimmed, the halo should still show it), its radius their extent.
 void AddShotGlow(uint32_t obj, const std::vector<std::pair<float, float>>& pts, const std::vector<uint32_t>& cols) {
@@ -1537,6 +1564,7 @@ void Interpolate(float tf) {
     size_t n0 = g_solid_tris.size();
     BuildSolid(c, g_solid_tris);
     if (c.shot) {
+      FattenShot(g_solid_tris, n0);
       std::vector<std::pair<float, float>> pts;
       std::vector<uint32_t> cols;
       for (size_t i = n0; i < g_solid_tris.size(); ++i)
@@ -1577,7 +1605,8 @@ void SetPowerUps(float floor, float glow) {
   g_pup_floor = std::clamp(floor, 0.f, 1.f);
   g_pup_glow = std::clamp(glow, 0.f, 3.f);
 }
-void SetEffects(float bw, bool glow, float particle, float shot_glow) {
+void SetEffects(float bw, bool glow, float particle, float shot_glow, float shot_size) {
+  g_shot_size = std::clamp(shot_size, 0.f, 3.f);
   g_shot_glow = std::clamp(shot_glow, 0.f, 3.f) * 0.5f;   // setting 0.5 = the owner's pick (strength 0.25)
   g_bolt_width = std::clamp(bw, 0.f, 8.f);
   g_bolt_glow = glow;

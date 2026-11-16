@@ -336,6 +336,11 @@ $81EB52 (polyo2d solid polygons, pixel rings, sphere), donky $81F6A2 (web3d soli
 - Checked in the window on logs/play.state (+60 / +100, glow on vs 0). Vector mode not checked yet. Window only
   (--rmshot does not draw it).
 
+- 2026-11-16: bullet size. The Jaguar fills the three chevron slivers at 326 x 240 (each covers whole pixels: a solid
+  yellow blob); exact geometry at window resolution left them hair-thin and blended into the blue web (smaller,
+  bluer). FattenShot widens every edge by remaster_shot_size game px each side (default 0.5 = the GPU picture's
+  size, checked with RM_NOSKIP + RM_OURS on logs/shots/owner_shots.state; menu DISPLAY "Enemy bullet size").
+
 ## Step 17 (2026-11-13): power-ups readable from where they spawn
 - Owner: power-ups seem to pop in late, near the top of the web. They are drawn all along (same in Original mode):
   a power-up is xcamel 6 pring rings - opupring $80768C (a ring collapsing onto the spot over 75 frames, 48(a6) 300

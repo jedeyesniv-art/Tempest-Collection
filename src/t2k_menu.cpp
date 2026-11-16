@@ -57,6 +57,7 @@ void Install(bool from_launcher) {
   p.Number("Lightning width (0 = original)", "remaster_bolt_width", 0.0, 5.0, 0.25, "%.2f", 2.0);
   p.Choice("Lightning glow", "remaster_bolt_glow", {"1", "0"}, {"On", "Off"});
   p.Number("Enemy bullet glow (0 = off)", "remaster_shot_glow", 0.0, 3.0, 0.1, "%.1f", 0.5);
+  p.Number("Enemy bullet size (0 = exact)", "remaster_shot_size", 0.0, 2.0, 0.1, "%.1f", 0.5);
   p.Number("Power-up min brightness (0 = original)", "remaster_pup_floor", 0.0, 1.0, 0.05, "%.2f", 0.7);
   p.Number("Power-up glow (0 = off)", "remaster_pup_glow", 0.0, 3.0, 0.1, "%.1f", 1.0);
   p.Header("CHEATS");

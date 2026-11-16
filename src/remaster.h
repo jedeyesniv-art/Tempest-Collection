@@ -64,7 +64,8 @@ void SetLineWidth(float game_pixels);   // setting remaster_line_width (default 
 // Settings remaster_bolt_width (game px, 0 = the original thin line; default 2), remaster_bolt_glow (default on),
 // remaster_particle_size (power-up / explosion pixels, x the original; default 1.5), remaster_shot_glow (a halo
 // around enemy bullets; 0 = off, default 0.5).
-void SetEffects(float bolt_width, bool bolt_glow, float particle_size, float shot_glow);
+// shot_size: game px each enemy bullet piece is widened by on every side (0 = the exact thin geometry).
+void SetEffects(float bolt_width, bool bolt_glow, float particle_size, float shot_glow, float shot_size);
 // Settings remaster_pup_floor (power-up ring minimum brightness 0-1, 0 = the original depth fade; default 0.7),
 // remaster_pup_glow (glow on the rings, 0 = off; default 1).
 void SetPowerUps(float floor, float glow);
