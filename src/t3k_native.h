@@ -89,7 +89,8 @@ struct Plane {
 };
 
 struct Op {
-  enum Kind { kFill, kZoom, kSegs, kWeb, kText, kBlobs, kPlane } kind;
+  enum Kind { kFill, kZoom, kSegs, kWeb, kText, kBlobs, kPlane, kRipple } kind;
+  // kRipple: x / y = the displacement's base / slope along x, w / h = along y (16.16 units / 65536), colour, fade
   float x = 0, y = 0, w = 0, h = 0;          // fill rectangle (game pixels)
   SDL_FColor colour{};                         // fill colour
   float cx = 0, cy = 0, zx = 1, zy = 1;        // zoom: centre (game pixels), zoom

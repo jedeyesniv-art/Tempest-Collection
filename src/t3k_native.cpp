@@ -10,6 +10,7 @@
 #include "shaders/ycc_fade.dxil.h"
 #include "shaders/ycc_in.dxil.h"
 #include "shaders/ycc_out.dxil.h"
+#include "shaders/ycc_ripple.dxil.h"
 
 namespace t3knative {
 
@@ -140,7 +141,8 @@ SDL_FColor ToRgb(const SDL_FColor& c) {
 
 // --- the YCrCb pipeline's shaders (GPU renderer only) ---
 SDL_GPUDevice* g_device = nullptr;
-SDL_GPUShader* g_shader[3] = {};
+SDL_GPUShader* g_shader[4] = {};
+SDL_GPURenderState* g_ripple = nullptr;   // ripple feedback (uniforms: ripple, colour)
 SDL_GPURenderState* g_fade = nullptr;   // zoom feedback with fade (uniform: x = fade)
 SDL_GPURenderState* g_out = nullptr;    // YCrCb -> RGB
 SDL_GPURenderState* g_in = nullptr;     // RGB -> YCrCb
@@ -674,6 +676,123 @@ void RingPoints(const uint32_t* e, const Mem& mem, Picture* out) {
   }
 }
 
+// --- 0031000E title dot field (806AFA80 mode 0, handler 806AFECA; tools/t3k_fieldfit.py) ---
+
+void TitleField(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t cam_y = 0, cam_x = 0;
+  Read(mem, 0x800DC108, &cam_y);
+  Read(mem, 0x800DC10C, &cam_x);
+  const int32_t cx0 = -2 * int32_t(cam_x), cy0 = -2 * int32_t(cam_y);
+  const int32_t hi1 = int32_t(e[1]) >> 16;
+  int32_t p1 = int32_t(e[4] & 0xFFFF) * hi1, p2 = int32_t(e[5] & 0xFFFF) * hi1;
+  const int32_t w9 = int32_t(e[9]), w10 = int32_t(e[10]), w11 = int32_t(e[11]);
+  const int32_t w12 = int32_t(e[12]), w13 = int32_t(e[13]), w14 = int32_t(e[14]), w3 = int32_t(e[3]);
+  if (w10 <= 0 || w11 <= 0 || w11 > 4096 || w13 <= 0 || w13 > 256) return;
+  int64_t z = 0x3000000 - ((int64_t(e[1] & 0xFFFF) * w10) >> 16);
+  const int32_t step_copy = (1 << 16) / w11;
+  for (int guard = 0; z > 0 && guard < 4096; ++guard) {
+    int32_t c, s;
+    SinCos(uint32_t(p2) & 0xFFFF, &c, &s);
+    const int32_t b = Mul(c, int32_t(e[5] >> 16), 30);   // w5 / w4 hi unsigned
+    SinCos(uint32_t(p1) & 0xFFFF, &c, &s);
+    const int32_t a = Mul(c, int32_t(e[4] >> 16), 30);
+    p1 -= int32_t(e[4] & 0xFFFF);
+    p2 -= int32_t(e[5] & 0xFFFF);
+    if (((int64_t(a) * a) >> 16) + ((int64_t(b) * b) >> 16) >= 0x2000) {
+      // the colour pixel: Y $1FFF0000, Cr a << 12, Cb b << 12 (2.30) -> bytes
+      const uint32_t cr = uint32_t(((S32(int64_t(a) << 14) >> 2) >> 22) + 128) & 0xFF;
+      const uint32_t cb = uint32_t(((S32(int64_t(b) << 14) >> 2) >> 22) + 128) & 0xFF;
+      const uint32_t ycc = (0x1FFF0000u >> 22) << 24 | cr << 16 | cb << 8 | 0xFF;
+      const int32_t rx = Mul(w12, S32(int64_t(b) << 7), 16), ry = Mul(w12, S32(int64_t(a) << 7), 16);
+      int32_t sc = 0x20000;
+      int64_t zz = z;
+      for (int32_t ring = 0; ring < w13; ++ring) {
+        if (zz > 0) {
+          const int32_t k = int32_t(17592186044416.0 / double(zz));   // 2^44 / z
+          const int32_t I = (std::min(Mul(Mul(sc, int32_t(e[7] >> 16), 16), k, 20), 0x3FFF) << 16) |
+                            int32_t(e[7] & 0xFFFF);
+          int32_t size = Mul(k, 0xC0000, 21);
+          if (size >= 0x10000) {
+            size = std::min(size, 0x1E0000);
+            const int32_t RX = Mul(k, rx, 20), RY = Mul(k, ry, 20);
+            const int32_t ccx = Mul(k, cx0, 20), ccy = Mul(k, cy0, 20);
+            const int32_t step = Mul(w9, step_copy, 16);
+            int32_t ang = int32_t(e[6]);
+            for (int32_t i = 0; i < w11; ++i, ang += step) {
+              SinCos(uint32_t(ang) & 0xFFFF, &c, &s);
+              const int32_t x = S32(int64_t(Mul(RX, c, 30)) - Mul(RY, s, 30));
+              const int32_t y = S32(int64_t(Mul(RX, s, 30)) + Mul(RY, c, 30));
+              for (int32_t xx : {x, -x}) {
+                Blob bl;   // centre (the call passes centre - size / 2); disc rows / columns as the other disc routines
+                bl.x = float(double(int64_t(xx) + ccx + 0xB48000) / 65536.0 + 0.5);
+                bl.y = float(double(int64_t(y) + ccy + 0x788000) / 65536.0 - 0.5);
+                bl.r = float(size >> 16) / 2.f;
+                bl.colour = Colour(ycc, 1.f);
+                bl.colour.a = std::clamp(float(I) / 1073741824.f, 0.f, 1.f);
+                out->blobs.push_back(bl);
+              }
+            }
+          }
+        }
+        sc = Mul(sc, w3, 16);
+        zz = (zz - w14) & 0x7FFFFFF;
+      }
+    }
+    z -= w10;
+  }
+}
+
+// --- 00310409 title wave (806A8990 mode 4, handler 806A8C48; tools/t3k_wavefit.py): a fixed shape at w0 ---
+
+void TitleWave(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t cols[2] = {};
+  Read(mem, 0x8010DB60, &cols[0]);
+  Read(mem, 0x8010DB64, &cols[1]);
+  const int64_t x0 = int64_t(e[0] >> 16) << 16, y0 = int64_t(e[0] & 0xFFFF) << 16;
+  const int32_t w8 = int32_t(e[8]);
+  const int32_t I = S32(int64_t(0x10000 - w8) << 12);
+  auto step = [](uint32_t v) { return (v & 1) ? v >> 1 : (v >> 1) ^ 0xA3000000u; };
+  auto add = [&](int64_t tlx, int64_t tly, uint32_t colour) {
+    Blob b;   // top-left + size / 2 = centre; disc rows / columns as the other disc routines
+    b.x = float(double(tlx) / 65536.0 + 4.0 + 0.5);
+    b.y = float(double(tly) / 65536.0 + 4.0 - 0.5);
+    b.r = 4.f;
+    b.colour = Colour(colour | 0xFF, 1.f);
+    b.colour.a = std::clamp(float(I) / 1073741824.f, 0.f, 1.f);
+    out->blobs.push_back(b);
+  };
+  uint32_t r8 = 0x23956329u, r9 = 0x49352850u;
+  int64_t xs = 0;
+  int32_t a = 0x4000;
+  for (int i = 0; i < 96; ++i, a += 0x400) {
+    int32_t c, s;
+    SinCos(uint32_t(a) & 0xFFFF, &c, &s);
+    int64_t x, y;
+    if (a >= 0x18000) {        // the closing arc
+      x = xs - Mul(0x120000, s, 30);
+      y = 0x90000 + Mul(0x120000, c, 30);
+    } else if (a >= 0x8000) {  // the wave
+      x = xs;
+      y = Mul(0x90000, c, 30);
+      xs += 0x400 << 6;
+    } else {                   // the opening arc
+      x = -int64_t(Mul(0x120000, s, 30));
+      y = 0x90000 + Mul(0x120000, c, 30);
+    }
+    r8 = step(r8);
+    r9 = step(r9);
+    const int32_t jx = Mul(int32_t(r8) >> 10, w8, 16), jy = Mul(int32_t(r9) >> 10, w8, 16);
+    add(S32(x0 + x + jx), S32(y0 + y + jy), cols[0]);
+  }
+  a = w8 >> 2;
+  const int32_t R = 0x80000 + (w8 << 6);
+  for (int i = 0; i < 32; ++i, a += 0x800) {   // the circle
+    int32_t c, s;
+    SinCos(uint32_t(a) & 0xFFFF, &c, &s);
+    add(S32(x0 + 0x350000 + Mul(R, s, 30)), S32(y0 - 0x40000 + Mul(R, c, 30)), cols[1]);
+  }
+}
+
 // --- 00100200 textured plane (806A3108 mode 2; tools/t3k_planefit.py) ---
 
 void PlaneOp(const uint32_t* e, const Mem& mem, Picture* out) {
@@ -821,6 +940,35 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         op.first = uint32_t(out->planes.size());
         PlaneOp(e, mem, out);
         if (out->planes.size() > op.first) out->ops.push_back(op);
+        break;
+      }
+      case 0x0000000F: {   // ripple feedback (boot / title logo screens; tools/t3k_ripplefit.py)
+        Op op{Op::kRipple};
+        auto s32 = [](uint32_t v) { return int32_t(v); };
+        // the module's A = (w10 << 17) + x w4, B = w11 + y w5 + A: only bits 16-21 matter, so keep them mod 2^22
+        op.x = float(((e[10] << 17) & 0x3FFFFF) / 65536.0);
+        op.y = float(s32(e[4]) / 65536.0);
+        op.w = float((e[11] & 0x3FFFFF) / 65536.0);
+        op.h = float(s32(e[5]) / 65536.0);
+        op.colour = Colour(e[2] | 0xFF, 1.f);
+        op.fade = float(s32(e[7]) / 1073741824.0);
+        out->ops.push_back(op);
+        break;
+      }
+      case 0x00310409: {   // title wave
+        Op op{Op::kBlobs};
+        op.first = uint32_t(out->blobs.size());
+        TitleWave(e, mem, out);
+        op.count = uint32_t(out->blobs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
+        break;
+      }
+      case 0x0031000E: {   // title dot field
+        Op op{Op::kBlobs};
+        op.first = uint32_t(out->blobs.size());
+        TitleField(e, mem, out);
+        op.count = uint32_t(out->blobs.size()) - op.first;
+        if (op.count) out->ops.push_back(op);
         break;
       }
       case 0x00310008: {   // point rings
@@ -1011,6 +1159,28 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         }
         quad(f1, SDL_BLENDMODE_NONE);
         if (f2 > 0.f) quad(std::min(f2, 1.f), SDL_BLENDMODE_ADD);   // brightening (level start): add the excess
+        break;
+      }
+      case Op::kRipple: {
+        // The previous picture through the ripple displacement, faded toward the colour (one picture's step; an
+        // in-between frame shows the step whole, as the module has no rate to scale).
+        const SDL_FColor c{1, 1, 1, 1};
+        const SDL_Vertex v[4] = {{{0, 0}, c, {0, 0}}, {{float(w), 0}, c, {1, 0}}, {{0, float(h)}, c, {0, 1}},
+                                 {{float(w), float(h)}, c, {1, 1}}};
+        const int idx[6] = {0, 1, 2, 1, 3, 2};
+        SDL_SetTextureBlendMode(prev, SDL_BLENDMODE_NONE);
+        if (g_ycc) {
+          const float u[8] = {op.x, op.y, op.w, op.h, op.colour.r, op.colour.g, op.colour.b, op.fade};
+          SDL_SetGPURenderStateFragmentUniforms(g_ripple, 0, u, sizeof(u));
+          SDL_SetGPURenderState(ren, g_ripple);
+          SDL_RenderGeometry(ren, prev, v, 4, idx, 6);
+          SDL_SetGPURenderState(ren, nullptr);
+        } else {   // no shaders: the previous picture faded, without the ripple
+          const float k = 1.f - op.fade;
+          SDL_Vertex vv[4];
+          for (int i = 0; i < 4; ++i) { vv[i] = v[i]; vv[i].color = {k, k, k, 1}; }
+          SDL_RenderGeometry(ren, prev, vv, 4, idx, 6);
+        }
         break;
       }
       case Op::kSegs: {
@@ -1284,7 +1454,8 @@ bool InitPipeline(SDL_Renderer* ren) {
   g_fade = MakeState(ren, k_ycc_fade_dxil, sizeof(k_ycc_fade_dxil), 1, &g_shader[0]);
   g_out = MakeState(ren, k_ycc_out_dxil, sizeof(k_ycc_out_dxil), 0, &g_shader[1]);
   g_in = MakeState(ren, k_ycc_in_dxil, sizeof(k_ycc_in_dxil), 0, &g_shader[2]);
-  g_ycc = g_fade && g_out && g_in;
+  g_ripple = MakeState(ren, k_ycc_ripple_dxil, sizeof(k_ycc_ripple_dxil), 1, &g_shader[3]);
+  g_ycc = g_fade && g_out && g_in && g_ripple;
   if (!g_ycc) std::fprintf(stderr, "t3k native: no YCrCb pipeline (%s), RGB\n", SDL_GetError());
   return g_ycc;
 }

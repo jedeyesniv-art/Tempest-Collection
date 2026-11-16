@@ -862,7 +862,14 @@ Next, in order (owner 2026-11-15: tools first, then the work; estimate steps 2-4
 4. Interpolation for everything: matching by type + shape + nearest (3D-placed objects: game-space w8 / w9 before the
    pre-pass), velocity prediction, step what's ambiguous; continuous feedback is done.
 5. Save states (retro_serialize) + run-ahead to cancel the interpolation delay (one game step, up to 50 ms at 20/s).
-6. Menus / title / attract: 0000000F feedback background, 0031000E / 00310409 / 00310008 particle fields.
+6. DONE 2026-11-16: menus / title / attract / boot. 0031000E title dot field (806AFA80 mode 0, handler 806AFECA;
+   tools/t3k_fieldfit.py, 1424 of 1424 calls, colour pixel exact), 00310409 title wave (806A8990 mode 4, handler
+   806A8C48: a fixed 96 + 32 dot shape at w0, LFSR jitter x w8; tools/t3k_wavefit.py, 128 of 128 calls; check 0.06),
+   0000000F ripple feedback (806B0B30: per pixel A = (w10 << 17) + x w4, B = w11 + y w5 + A, bits 16-21 index
+   T[i] = sin(2 pi (i + 1) / 64) px at local $201004C0 -> dx, dy; bilinear previous picture at (x + dx, y + dy);
+   out = s + (w2 - s) w7; tools/t3k_ripplefit.py 0.33, shader ycc_ripple). Full route from boot (fields 60-9000,
+   menus, play, warps, bonus, attract): 2980 of 2980 pictures native, mean error 2.78. Also 2026-11-16: YCrCb
+   pipeline (step 7's fade shader, done), point-ring sign fix; open: orange patches on the brightest warp / bonus.
 7. Polish: YCrCb fade shader for the zoom's brightening phase; wide screen; CRT looks; the web module's per-lane
    colour pulses / special lane mode if any picture needs them.
 8. Endgame add-on (owner: later): the web texture's lightsynth generator natively (find its writer with NUANCE_WATCH).
