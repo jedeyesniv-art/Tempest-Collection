@@ -137,6 +137,16 @@ run-ahead, orange patches on the brightest warp / bonus screens, sharpen the glo
 T2K to-do batch (B = back in menus, yellow polygon enemy shots, pink line in bonus 1 clouds, bonus 2 speed),
 T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
 
+## T3K high scores (2026-11-16)
+- The game saves nothing (BIOS log: no flash / MemDev calls; it has level passwords). Table: 8 x u32 scores at
+  $80113420 (defaults 10000 9123 8456 7789 6123 5456 4789 3123); names only in the high-score screen text at $8010C3A0
+  ("^Pn:^X " + 14-char name + "^M" + 10-char score digits). src/t3k_scores.cpp restores userdata	3k_highscores.txt
+  (score|name lines) once the defaults are in memory, saves on change (every 60 fields) and at exit; a run whose
+  table isn't the defaults (a later save state) neither restores nor saves. Setting keep_high_scores.
+- Score $800DC240 (u32), lives probably $800DC274. Core NUANCE_BIOSLOG=1 (first 20 calls per BIOS index, 2 = all).
+- Known bug: headless --press after --loadstate does nothing (from boot it works). Options / fx / music levels
+  not saved yet.
+
 ## T3K native renderer (reference; state end of 2026-11-15, see "Where we are" above for newer)
 Owner: decouple game speed from frame rate, Steam Deck = min spec -> draw T3K's display lists natively on the GPU
 instead of emulating its renderer MPEs; the renderer work is the priority. Ordered to-do: PLAN.md "Native renderer

@@ -63,6 +63,7 @@
 #include "settings.h"
 #include "t3k_menu.h"
 #include "t3k_native.h"
+#include "t3k_scores.h"
 
 namespace fs = std::filesystem;
 
@@ -154,6 +155,9 @@ log_emulated = 1
 # 1 = start without the "your controller configuration has changed" screen (the pad counts as connected from
 # power-on); 0 = as the core always did.
 skip_controller_screen = 1
+
+# 1 = keep the high-score table between sessions (userdata\t3k_highscores.txt; the game itself saves nothing).
+keep_high_scores = 1
 
 # --- Stick controls for the claw (left stick; the d-pad keeps the original controls) ---
 # stiff = Tempest 2000's lr handling (speed follows the stick, slow start then quick, stops on a lane);
@@ -883,6 +887,7 @@ int main(int argc, char** argv) {
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "t3k_settings.txt").string());   // (build/userdata is shared with t2k.exe)
   t3k_menu::Install(from_launcher);
+  t3kscores::Init((udir / "t3k_highscores.txt").string(), settings::Num("keep_high_scores", 1) != 0);
   disc = FindDisc(disc);
   if (disc.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 3000",
@@ -1049,6 +1054,11 @@ int main(int argc, char** argv) {
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
+      {
+        size_t n = 0;
+        uint8_t* m = nuon::Memory(0, &n);
+        t3kscores::AfterField(m, n);
+      }
       if (!clawlog_path.empty() && f >= clawlog_f0 && f <= clawlog_f1) {
         if (!clawlog) clawlog = std::fopen(clawlog_path.c_str(), "w");
         size_t n = 0;
@@ -1339,6 +1349,11 @@ int main(int argc, char** argv) {
     if (sampler.joinable()) { sampling = false; sampler.join(); }
     if (!wav.empty()) WriteWav(wav, wav_samples, uint32_t(nuon::SampleRate()));
     if (perf.csv) std::fclose(perf.csv);
+    {
+      size_t n = 0;
+      const uint8_t* m = nuon::Memory(0, &n);
+      t3kscores::Flush(m, n);
+    }
     nuon::Unload();
     SDL_Quit();
     return 0;
@@ -1422,6 +1437,11 @@ int main(int argc, char** argv) {
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
+      {
+        size_t n = 0;
+        uint8_t* m = nuon::Memory(0, &n);
+        t3kscores::AfterField(m, n);
+      }
       emulog::AfterFrame(uint64_t(k));
       // The native renderer's input: each new picture's display list, built into its vector layer once.
       static nuon::Capture cap;
@@ -1834,6 +1854,11 @@ int main(int argc, char** argv) {
   }
   emu_quit = true;
   emu.join();
+  {
+    size_t n = 0;
+    const uint8_t* m = nuon::Memory(0, &n);
+    t3kscores::Flush(m, n);
+  }
   emulog::Summary();
   std::fprintf(stderr, picture_ns ? "pictures shown for 0..7+ refreshes:" : "fields shown for 0..7+ refreshes:");
   for (auto n : hold_hist) std::fprintf(stderr, " %lld", (long long)n);
