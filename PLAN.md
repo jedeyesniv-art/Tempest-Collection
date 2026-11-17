@@ -1131,7 +1131,56 @@ To do, at the end:
 3. Depending on 1: run-ahead 1 on the Deck (or adaptive), cap catch-up so one late frame can't cascade.
 4. Small: cache the game select menu's text (15,700 sprite rects drawn every frame) as a texture.
 
-## Collection status and open items (2026-11-15, after the owner's Steam Deck test)
+## Collection status and open items (refreshed 2026-11-17 with the owner; the 2026-11-15 list is below as history)
+
+### Verified on the Steam Deck (owner, 2026-11-17)
+- Launcher: new look, sound stings, takes the front and the pad back after every game (Steam games too); Y = Steam
+  art works on the Deck.
+- TxK: T4K-style buttons good, rewritten on-screen prompts correct (tap not reported separately).
+- Tempest 2000: the 60 lock is "very good, even when the screen is at 90".
+- Tempest 3000: "excellent on deck now, 90 all the way, around 30-40% CPU / GPU" (native renderer + draw gate).
+- Tempest 4000: music plays (launcher renames Win7-8's Tracks_xwma under Proton) - all our games and both Steam games
+  run from the launcher.
+
+### To do (owner's decisions 2026-11-17)
+1. MENUS (yes - marked to do): restyle the shared in-game settings menu (src/menu.cpp, still the SDL debug font) in
+   the launcher's look (glowing pixel font, colours, panels), AND make the ordering and options consistent and useful
+   across the games (t2k_menu / t3k_menu / t81_menu / txk_menu): same sections in the same order, same names for the
+   same things (fullscreen, CRT, smooth motion, frame rate, controls, save states, return to launcher), drop what
+   nobody uses. Survey all four menus side by side first, propose the common layout to the owner.
+2. COMPRESS THE T3K DISC (yes): a tool that converts the owner's Tempest 3000 .iso (743 MB, almost all raw 16-bit
+   PCM in nuon.dat) to a smaller form, then ASKS before deleting the original (always ask - never delete on its own).
+   Needs the core (third_party/NuanceResurrection, media.cpp) to read the new form: a map of music vs data first
+   (NUANCE_MEDIALOG=<file> logs every disc read), then compressed audio (FLAC lossless ~ -230 MB; lossy more) served
+   back as the same bytes / or decoded where the game reads them. Verify: game plays identically (states / pictures)
+   from both forms.
+3. T81 ALTERNATE VERSIONS (could be neat): pick the other sets in tempest.zip (rev 1, rev 2, Tempest Tubes ...) from
+   t81's menu, with our vector renderer / framing on all of them (check their monitor geometry and HUD positions -
+   the wide framing's HUD boxes were measured on the parent set).
+4. PUBLISH VERSION (when the owner decides to publish): a blank package without ROMs, disc images, BIOS / firmware
+   (KEEP the art: owner - it is all from public sites). The launcher then has to say what is missing and where each
+   file goes (per game: file name, expected checksum or size, folder), and start the games once they are there.
+   Never publish without the owner's go.
+5. LAUNCHER SETTINGS SCREEN (maybe - owner unsure what belongs there): the one idea so far is an overall resolution
+   option - render below native resolution, applied to every game the launcher starts (each game's own render scale /
+   window size from one launcher setting). Revisit when there are more candidates.
+6. T3K CHEATS (maybe): infinite lives found ($800BAC7C, verified); god mode not found yet; max level candidates
+   untested. See CLAUDE.md "T3K menu cleanup, save states".
+7. NEON MODE (big maybe, much later): plan below ("Neon Mode plan").
+
+### Decided against / parked (owner 2026-11-17)
+- Launcher: high scores on the panels (too cluttered), remembering the last game, a controls card - no.
+- Space Giraffe "hi-res objects" not saved, TxK save states: annoying but likely hard - parked.
+- Defender 2000: not right now.
+- T2K performance plan (above): not needed for now (Deck fine with the 60 lock); keep it for the end.
+
+### Housekeeping
+- CLAUDE.md "Where we are" is long session history: trim it to the current state + pointers here.
+- A one-command smoke test before packaging (every game boots headless to play, the launcher renders, the README
+  lines come out literally) - suggested, not decided.
+
+### History: the list of 2026-11-15
+(2026-11-15, after the owner's first Steam Deck test; items 1, 2, 5 (T3K), 6b and 7 are done since)
 Owner tested the play folder (dist\TempestCollection, built by tools\package_collection.ps1) on the Steam Deck: all our
 games "work really well indeed". Tempest 3000 runs "just about at frame rate" (little headroom).
 

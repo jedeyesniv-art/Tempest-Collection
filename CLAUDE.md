@@ -135,54 +135,35 @@ Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
 
-## Where we are (end of the 2026-11-17 session; start here next time)
-All committed; play folder rebuilt 2026-11-17 12:27 (dist\TempestCollection, 1.21 GB). Owner is testing it on the Deck.
-Done this session (details in the dated sections below):
-- Space Giraffe (Steam 27800) in the launcher with our d3d9 helper: Acid / Nuxx choice (Acid default), dialogs
-  answered, borderless full screen at desktop res + refresh (120 fps; speed normal, owner checked), 20% stick
-  deadzone. Owner on the Deck: works. PARKED: "hi-res objects" is never saved (a game bug, also on the Deck).
-- Launcher: list in date order (SG between T3K and TxK); Steam games found on the Deck (STEAM_COMPAT_CLIENT_INSTALL_PATH
-  -> Z:\, manifests), both helpers copied on every start (T4K's xinput DLLs too), steam:// works from Proton (owner),
-  setup instructions when not installed / launch option missing (Steam's localconfig.vdf, read only), Steam games
-  brought to the front on Windows and waited for; on the Deck the launcher watches Z:\proc and takes focus + pad back
-  when the game ends (UNTESTED on the Deck: whether Z:\proc shows other Proton containers).
-- TxK: T4K-style buttons (LB = Select, LT / RT = hold / jump, RB free, Back = our menu), its prompts rewritten for
-  the Xbox pad in guest memory (core llama_vita_write), touchscreen = left mouse / touch on the picture (Supertapper
-  tap). TxK's own saves work (userdata\vita3k). Owner to test on the Deck: buttons, prompts, tap.
-- T3K options found but not kept (owner: not needed): notes in "T3K options".
-Waiting on the owner's Deck test: TxK buttons / prompts / tap; launcher focus after a Steam game.
-- 2026-11-17 later: t81 draws the vectors itself (beams + glow, width by intensity, white-hot core) with framing
-  fill (default, owner) / wide (in play the web fills the screen, HUD in the top corners) / whole monitor, shape
-  round (default, owner) or arcade 3:4.
-- 2026-11-17 later: T3K orange patches fixed (warp / bonus): float feedback textures + the zoom fade rounded once per
-  picture, toward neutral when brightening. PLAN.md "Orange patches". Owner to look in the window / on the Deck. PLAN.md "t81 vectors drawn by us". Waiting on the owner's look on the Deck.
-- 2026-11-17 later: T3K stick_mode step (new default; menu STICK): a push past sp_deadzone (0.20, 30% hysteresis) =
-  exactly one lane (rapid nudges add up), held sp_repeat_delay 0.15 s it sweeps (sp_ramp_start 0.25 of sp_top_speed 25
-  over sp_ramp_time 0.40 s), released after a sweep: sp_release back (owner: "stop short of danger"; last lane passed,
-  by the SEEN claw) / nearest / ahead / off (stops where seen: mo_err = 0, as the model trails the game). Reverse =
-  release + a nudge. Headless (logs/t3k/step, from play_f2700): nudge 7 -> 8, three -> 10, wiggle RLRRL 8 7 8 9 8,
-  first move 4 fields after the push (the game's late read). Owner's stiff tuning (Transfers file) = stiff defaults.
-  Waiting on the owner's feel test (play folder rebuilt 15:08, userdata stick_mode = step).
-- 2026-11-17 later: owner: no input on the title after a game over. Cause (every stick mode): the claw object stays in
-  the pool from the first level select on, so ClawControl took every later menu for play (stick lost its d-pad role,
-  a leftover correction could hold a direction). Now "in play" = the newest picture draws the web surface
-  (SpeedControl::web, both renderers); else the stick is the d-pad and the scale is reset. Rejected markers: pool
-  handler $800B3090 (drops mid-play), $800DC100 rewrite probe (not rewritten each picture). Step also: no lead past a
-  nudge's end (overshoot), back release counts a centre within sp_back_grace 0.15 as reached, settled < 0.01 = stop
-  asking. Headless (logs/t3k/go/w): game over -> title -> A works, level select = the real d-pad; a save state
-  from play_f2700 goes black after its game over even with the stick off (state artifact; from boot it's fine).
-- 2026-11-17 end: owner's step tune = the defaults ("as good as we can get it for now"): sp_release off,
-  sp_repeat_delay 0.10, sp_ramp_time 0.30, sp_ramp_start 0.30, sp_step_time 0.09 (sliders widened / re-centred);
-  momentum mo_top_speed 22, mo_accel_time 0.70, mo_glide 0.04, mo_settle 0.3. build\userdata = the play folder's file.
-Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
-- T3K cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found
-  yet: next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested).
-  See "T3K menu cleanup, save states".
-- T3K: interpolation for everything + run-ahead; sharpen the
-  glowing text (0010000D) if wanted; the claw fix was measured on levels 1 / 7 / 15 only.
-- SG hi-res objects (parked; heap scan + pointer, or hook the code that reads it).
-- T2K performance plan for the end (PLAN.md "T2K performance plan"); t81 CRT; TxK save states (none in Vita3K; only
-  an in-session "pause instead of quit" is realistic). Defender 2000 later.
+## Where we are (end of 2026-11-17; start here next time)
+All committed; play folder current (dist\TempestCollection, ~1.23 GB). The owner tested everything on the Steam Deck:
+all six games run from the launcher, T3K holds 90 at 30-40% CPU / GPU, T2K's 60 lock is good, TxK buttons / prompts
+are right, the launcher takes the front back after every game, Steam art works there, T4K has its music.
+THE TO-DO LIST (owner's decisions, ordered): PLAN.md "Collection status and open items" - first the in-game menu
+restyle + consistent menus across the games, then the T3K disc compression tool (asks before deleting the .iso), t81
+alternate versions, the publish version (no ROMs / BIOS, art kept), maybe a launcher settings screen (resolution for
+all games), maybe T3K cheats, Neon Mode much later. Decided against: high scores / last game / controls card in the
+launcher. Parked: SG hi-res objects, TxK save states, Defender 2000.
+This session's work (details in the dated sections below and in the Layout notes): launcher look + stings + Steam
+button + jokes, Steam art (tools/steam_art.py), T3K step stick mode + game-over input fix + CRT+ option + spin fixes,
+T2K frame_cap, T4K music on the Deck.
+
+## T3K stick: step mode, owner's tuning, game-over input (2026-11-17)
+- stick_mode step (default; menu STICK): a push past sp_deadzone (0.20, 30% hysteresis) = exactly one lane (rapid
+  nudges add up); held sp_repeat_delay it sweeps (from sp_ramp_start of sp_top_speed over sp_ramp_time); release
+  after a sweep: sp_release off (owner's default: stops where seen, mo_err = 0 as the model trails the game) / back
+  (last lane passed by the SEEN claw, a centre within sp_back_grace 0.15 counts as reached) / nearest / ahead. Reverse
+  = release + a nudge. No lead past a nudge's end (it overshot). Headless (logs/t3k/step, from play_f2700): nudge
+  7 -> 8, three -> 10, wiggle RLRRL 8 7 8 9 8; first move 4 fields after the push (the game's late read).
+- Owner's tune = the defaults ("as good as we can get it for now"): sp_release off, sp_repeat_delay 0.10,
+  sp_ramp_time 0.30, sp_ramp_start 0.30, sp_step_time 0.09; stiff and momentum keep the owner's earlier tunes.
+- No input on the title after a game over (every stick mode): the claw object stays in the pool from the first level
+  select on, so ClawControl took every later menu for play. Now "in play" = the newest picture draws the web surface
+  (SpeedControl::web, both renderers); else the stick is the d-pad. Rejected markers: pool handler $800B3090 (drops
+  mid-play), a $800DC100 rewrite probe (not rewritten each picture). A save state from play_f2700 goes black after its
+  game over even with the stick off (state artifact; from boot it's fine).
+- Still open there: T3K cheats (infinite lives $800BAC7C verified; god mode not found; max level candidates
+  untested - "T3K menu cleanup, save states"); interpolation for everything + run-ahead (not needed for speed now).
 
 ## Where we were (end of the 2026-11-16 evening session; history)
 T3K, all committed; play folder repackaged 2026-11-17 with all of it. Owner: "playing and feeling very well".
