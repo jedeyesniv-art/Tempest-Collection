@@ -10,14 +10,18 @@
 // userdata\launcher_settings.txt: fullscreen.
 // --shot=<file.bmp> saves the first frame and exits (tests); --autostart=N starts game N at once and logs the focus
 // hand-over on stderr (tests).
-// Keys: Up / Down (d-pad, left stick) choose, Enter / A start, F11 fullscreen, Esc / B quit.
+// Keys: Up / Down (d-pad, left stick) choose, Left / Right the variant (Space Giraffe: Acid / Nuxx), Enter / A start,
+// F11 fullscreen, Esc / B quit. Steam games: Tempest 4000; Space Giraffe (the helper d3d9.dll is copied next to the game
+// and its flavour written to sg_helper.txt there before Steam starts it).
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #define NOMINMAX
 #include <windows.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -32,9 +36,13 @@ const char kDefaults[] =
     "# Tempest Collection launcher settings (key = value; '#' starts a comment).\n"
     "\n"
     "# 1 = start fullscreen (F11 toggles and remembers).\n"
-    "fullscreen = 1\n";
+    "fullscreen = 1\n"
+    "\n"
+    "# Space Giraffe flavour: acid or nuxx (LEFT / RIGHT on its entry changes and remembers).\n"
+    "sg_flavour = acid\n";
 
 constexpr const char* kSteamAppT4K = "688140";   // Tempest 4000 on Steam (store.steampowered.com/app/688140)
+constexpr const char* kSteamAppSG = "27800";     // Space Giraffe on Steam (store.steampowered.com/app/27800)
 
 enum class Kind { Program, Steam, NotYet };
 
@@ -46,6 +54,106 @@ struct Game {
   std::string status;   // why it can't start (empty = ready)
 };
 
+// The program a Steam game runs as (the launcher waits for it to hand it the front and to come back when it quits).
+const wchar_t* SteamExe(const char* app) {
+  if (std::strcmp(app, kSteamAppSG) == 0) return L"SpaceGiraffePC.exe";
+  if (std::strcmp(app, kSteamAppT4K) == 0) return L"Tempest4000.exe";
+  return nullptr;
+}
+
+// A running process by program name (opened for waiting on), or nullptr.
+HANDLE FindProcess(const wchar_t* exe) {
+  HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snap == INVALID_HANDLE_VALUE) return nullptr;
+  PROCESSENTRY32W pe{};
+  pe.dwSize = sizeof(pe);
+  HANDLE found = nullptr;
+  for (BOOL ok = Process32FirstW(snap, &pe); ok && !found; ok = Process32NextW(snap, &pe))
+    if (_wcsicmp(pe.szExeFile, exe) == 0)
+      found = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID);
+  CloseHandle(snap);
+  return found;
+}
+
+// ---- Space Giraffe: the helper (src/sg/d3d9_proxy.cpp) next to the game, and its flavour setting ----
+
+std::string ReadFile(const fs::path& p) {
+  std::string s;
+  if (FILE* f = _wfopen(p.c_str(), L"rb")) {
+    char buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) s.append(buf, n);
+    std::fclose(f);
+  }
+  return s;
+}
+
+// The value of the first "key" "value" pair after `from` in a Steam .vdf / .acf text.
+std::string VdfValue(const std::string& s, const std::string& key, size_t from = 0) {
+  const size_t k = s.find("\"" + key + "\"", from);
+  if (k == std::string::npos) return "";
+  const size_t a = s.find('"', k + key.size() + 2);
+  const size_t b = a == std::string::npos ? a : s.find('"', a + 1);
+  if (b == std::string::npos) return "";
+  std::string v = s.substr(a + 1, b - a - 1);
+  for (size_t i = 0; (i = v.find("\\\\", i)) != std::string::npos; ++i) v.erase(i, 1);   // "C:\\x" -> "C:\x"
+  return v;
+}
+
+// The game's install folder (Steam's library folders, each with steamapps\appmanifest_<id>.acf); empty if not found.
+fs::path SteamGameDir(const char* app) {
+  char steam[MAX_PATH] = {};
+  DWORD size = sizeof(steam);
+  if (RegGetValueA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath", RRF_RT_REG_SZ, nullptr, steam, &size) !=
+      ERROR_SUCCESS)
+    return {};
+  std::vector<fs::path> libs = {fs::path(steam)};
+  const std::string vdf = ReadFile(fs::path(steam) / "steamapps" / "libraryfolders.vdf");
+  for (size_t at = 0; (at = vdf.find("\"path\"", at)) != std::string::npos; at += 6)
+    libs.push_back(fs::path(VdfValue(vdf, "path", at)));
+  for (const auto& lib : libs) {
+    const std::string acf = ReadFile(lib / "steamapps" / (std::string("appmanifest_") + app + ".acf"));
+    const std::string dir = acf.empty() ? "" : VdfValue(acf, "installdir");
+    if (!dir.empty() && fs::exists(lib / "steamapps" / "common" / dir)) return lib / "steamapps" / "common" / dir;
+  }
+  return {};
+}
+
+// Puts the helper next to SpaceGiraffePC.exe (when missing or different) and the flavour into its sg_helper.txt
+// (other lines kept). Returns an error message, or empty.
+std::string PrepareSpaceGiraffe(const fs::path& base, const std::string& flavour) {
+  const fs::path dir = SteamGameDir(kSteamAppSG);
+  if (dir.empty()) return "";   // (e.g. under Proton): Steam starts it as it is (a hand-installed helper still works)
+  std::error_code ec;
+  for (const fs::path& src : {base / "Space Giraffe helper" / "d3d9.dll", base / "sg" / "d3d9.dll"}) {
+    if (!fs::exists(src)) continue;
+    const fs::path dst = dir / "d3d9.dll";
+    if (!fs::exists(dst) || ReadFile(src) != ReadFile(dst)) {
+      fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
+      if (ec) return "could not copy the helper into Space Giraffe's folder";
+    }
+    break;
+  }
+  const fs::path cfg = dir / "sg_helper.txt";
+  std::string text = ReadFile(cfg), out;
+  bool done = false;
+  for (size_t at = 0; at < text.size();) {
+    size_t nl = text.find('\n', at);
+    if (nl == std::string::npos) nl = text.size();
+    std::string line = text.substr(at, nl - at);
+    if (line.rfind("flavour", 0) == 0) { line = "flavour = " + flavour; done = true; }
+    out += line + "\n";
+    at = nl + 1;
+  }
+  if (!done) out += "flavour = " + flavour + "\n";
+  if (FILE* f = _wfopen(cfg.c_str(), L"wb")) {
+    std::fwrite(out.data(), 1, out.size(), f);
+    std::fclose(f);
+  } else {
+    return "could not write sg_helper.txt";
+  }
+  return "";
+}
+
 std::vector<Game> MakeGames(const fs::path& base) {
   std::vector<Game> g = {
       {"TEMPEST", "1981  ARCADE", Kind::Program, "t81.exe", ""},
@@ -53,6 +161,7 @@ std::vector<Game> MakeGames(const fs::path& base) {
       {"TEMPEST 3000", "2000  NUON", Kind::Program, "t3k.exe", ""},
       {"TxK", "2014  PS VITA", Kind::Program, "txk.exe", ""},
       {"TEMPEST 4000", "2018  STEAM", Kind::Steam, kSteamAppT4K, ""},
+      {"SPACE GIRAFFE", "2008  STEAM", Kind::Steam, kSteamAppSG, ""},
   };
   for (auto& x : g) {
     if (x.kind == Kind::NotYet) x.status = "coming later";
@@ -142,6 +251,8 @@ int main(int argc, char** argv) {
   int child_pushed = 0;        // times the game's window was brought to the front
   std::string starting;        // "Starting TxK..." shown underneath while the game loads
   uint64_t ignore_until = 0;   // input that arrives just after a game quits is not for us
+  const wchar_t* steam_wait = nullptr;   // a Steam game's program we wait to appear (then it is `child`)
+  uint64_t steam_wait_start = 0, last_push = 0;
   float stick_y = 0.f;
   bool running = true;
 
@@ -165,9 +276,28 @@ int main(int argc, char** argv) {
       return;
     }
     if (g.kind == Kind::Steam) {
+      if (std::strcmp(g.target, kSteamAppSG) == 0) {
+        const std::string err = PrepareSpaceGiraffe(base, settings::Str("sg_flavour", "acid"));
+        if (!err.empty()) {
+          message = err;
+          return;
+        }
+      }
+      // We have the front now: let the game (started by Steam, not by us) take it when its window appears.
+      AllowSetForegroundWindow(ASFW_ANY);
       const std::string url = std::string("steam://rungameid/") + g.target;
-      if (!SDL_OpenURL(url.c_str())) message = "could not open Steam";
-      else message = "starting Tempest 4000 in Steam...";
+      if (!SDL_OpenURL(url.c_str())) {
+        message = "could not open Steam";
+        return;
+      }
+      if (const wchar_t* exe = SteamExe(g.target)) {   // wait for its process underneath, as for our own games
+        starting = std::string("STARTING ") + g.title + "...";
+        draw_starting();
+        steam_wait = exe;
+        steam_wait_start = SDL_GetTicksNS();
+      } else {
+        message = std::string("starting ") + g.title + " in Steam...";
+      }
       return;
     }
     // The launcher stays underneath the game: draw "Starting ..." first (a black screen while the game loads).
@@ -186,9 +316,42 @@ int main(int argc, char** argv) {
     sel = (sel + d + int(games.size())) % int(games.size());
     message.clear();
   };
+  // LEFT / RIGHT: the selected game's variant (Space Giraffe's flavour).
+  auto variant = [&](int) {
+    if (std::strcmp(games[sel].target, kSteamAppSG) != 0) return;
+    settings::Save("sg_flavour", settings::Str("sg_flavour", "acid") == "acid" ? "nuxx" : "acid");
+    message.clear();
+  };
+  stick_y = 0.f;
+  float stick_x = 0.f;
 
   if (autostart >= 0 && autostart < int(games.size())) start(autostart);
+  HWND me = static_cast<HWND>(
+      SDL_GetPointerProperty(SDL_GetWindowProperties(win), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
   while (running) {
+    if (steam_wait && !child) {   // Steam is starting a game: wait for its program (60 s; Esc gives up)
+      SDL_Delay(100);
+      bool give_up = SDL_GetTicksNS() - steam_wait_start > 60000000000ull;
+      SDL_Event e;
+      while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_EVENT_GAMEPAD_ADDED) SDL_OpenGamepad(e.gdevice.which);
+        if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) give_up = true;
+      }
+      if (HANDLE h = FindProcess(steam_wait)) {
+        child = h;
+        child_started = SDL_GetTicksNS();
+        child_pushed = 0;
+        steam_wait = nullptr;
+        if (autostart >= 0) std::fprintf(stderr, "launcher: Steam game's program found\n");
+      } else if (give_up) {
+        steam_wait = nullptr;
+        starting.clear();
+        message = "the game did not start (Steam)";
+      } else {
+        draw_starting();
+      }
+      continue;
+    }
     if (child) {   // a game is running on top: give it the front, wait for it, then come back
       if (WaitForSingleObject(child, 50) == WAIT_OBJECT_0) {
         CloseHandle(child);
@@ -212,6 +375,19 @@ int main(int argc, char** argv) {
             if (child_pushed++ == 0) child_first_push = t;
           }
         }
+        // While we (the screen underneath) still have the front in its first 30 s, the game's window gets it - for
+        // games whose window comes late or is replaced (Steam games: dialogs first, then the game's own window).
+        // Never taken from another program the player switched to.
+        const uint64_t now = SDL_GetTicksNS();
+        if (t < 30000000000ull && now - last_push > 500000000ull && GetForegroundWindow() == me) {
+          if (HWND h = FindProcessWindow(GetProcessId(child))) {
+            last_push = now;
+            const BOOL ok = SetForegroundWindow(h);
+            if (autostart >= 0)
+              std::fprintf(stderr, "launcher: launcher in front at %.2f s, game window pushed: %s\n", t / 1e9,
+                           ok ? "ok" : "refused");
+          }
+        }
       }
       SDL_Event e;
       while (SDL_PollEvent(&e)) {
@@ -228,6 +404,8 @@ int main(int argc, char** argv) {
         switch (e.key.scancode) {
           case SDL_SCANCODE_UP: move(-1); break;
           case SDL_SCANCODE_DOWN: move(1); break;
+          case SDL_SCANCODE_LEFT: variant(-1); break;
+          case SDL_SCANCODE_RIGHT: variant(1); break;
           case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: case SDL_SCANCODE_SPACE: start(sel); break;
           case SDL_SCANCODE_ESCAPE: running = false; break;
           case SDL_SCANCODE_F11: {
@@ -242,6 +420,8 @@ int main(int argc, char** argv) {
         switch (e.gbutton.button) {
           case SDL_GAMEPAD_BUTTON_DPAD_UP: move(-1); break;
           case SDL_GAMEPAD_BUTTON_DPAD_DOWN: move(1); break;
+          case SDL_GAMEPAD_BUTTON_DPAD_LEFT: variant(-1); break;
+          case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: variant(1); break;
           case SDL_GAMEPAD_BUTTON_SOUTH: case SDL_GAMEPAD_BUTTON_START: start(sel); break;
           case SDL_GAMEPAD_BUTTON_EAST: running = false; break;
           default: break;
@@ -251,6 +431,10 @@ int main(int argc, char** argv) {
         if (v > 0.5f && stick_y <= 0.5f) move(1);
         if (v < -0.5f && stick_y >= -0.5f) move(-1);
         stick_y = v;
+      } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX && live) {
+        const float v = e.gaxis.value / 32767.f;
+        if ((v > 0.5f && stick_x <= 0.5f) || (v < -0.5f && stick_x >= -0.5f)) variant(v > 0 ? 1 : -1);
+        stick_x = v;
       }
     }
 
@@ -270,12 +454,17 @@ int main(int argc, char** argv) {
       else SDL_SetRenderDrawColor(ren, 110, 110, 110, 255);
       Text(ren, 24 * s / 2, y, s, (std::string(i == sel ? "> " : "  ") + g.title).c_str());
       SDL_SetRenderDrawColor(ren, ready ? 120 : 80, ready ? 160 : 80, ready ? 255 : 80, 255);
-      Text(ren, 24 * s / 2 + 18 * 8 * s, y, s * 0.6f, (std::string(g.detail) + (ready ? "" : "  - " + g.status)).c_str());
+      std::string detail = std::string(g.detail) + (ready ? "" : "  - " + g.status);
+      if (std::strcmp(g.target, kSteamAppSG) == 0 && ready)   // the flavour it starts in; LEFT / RIGHT change it
+        detail += settings::Str("sg_flavour", "acid") == "acid" ? "   < ACID >" : "   < NUXX >";
+      Text(ren, 24 * s / 2 + 18 * 8 * s, y, s * 0.6f, detail.c_str());
     }
     SDL_SetRenderDrawColor(ren, 255, 255, 0, 255);
-    if (!message.empty()) Text(ren, 24 * s / 2, (56 + 5 * 28 + 8) * s / 2, s * 0.6f, message.c_str());
+    if (!message.empty())
+      Text(ren, 24 * s / 2, (56 + int(games.size()) * 28 + 8) * s / 2, s * 0.6f, message.c_str());
     SDL_SetRenderDrawColor(ren, 140, 140, 140, 255);
-    Text(ren, 24 * s / 2, wh - 16 * s / 2, s * 0.5f, "UP/DOWN choose   ENTER/A start   F11 fullscreen   ESC/B quit");
+    Text(ren, 24 * s / 2, wh - 16 * s / 2, s * 0.5f,
+         "UP/DOWN choose   LEFT/RIGHT flavour   ENTER/A start   F11 fullscreen   ESC/B quit");
     if (!shot.empty()) {
       if (SDL_Surface* img = SDL_RenderReadPixels(ren, nullptr)) {
         SDL_SaveBMP(img, shot.c_str());

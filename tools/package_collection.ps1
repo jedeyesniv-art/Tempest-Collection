@@ -28,6 +28,8 @@ if (-not $SkipBuild) {
     }
     cmd /c "`"$repo\tools\build_t4k_helper.bat`" > `"$build\t4k_helper_build.log`" 2>&1"
     if ($LASTEXITCODE -ne 0) { Write-Error "Tempest 4000 helper build failed: see $build\t4k_helper_build.log" }
+    cmd /c "`"$repo\tools\build_sg_helper.bat`" > `"$build\sg_helper_build.log`" 2>&1"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Space Giraffe helper build failed: see $build\sg_helper_build.log" }
 }
 
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
@@ -100,6 +102,33 @@ INSTALL: copy xinput1_4.dll and xinput1_3.dll into BOTH of the game's folders:
 UNINSTALL: delete the two files (and the launch option). A Steam "verify files" leaves them alone (they are not
 the game's files); a game update does too.
 "@ | Set-Content -Encoding ascii (Join-Path $t4k "README.txt")
+
+# The Space Giraffe helper: the launcher copies it next to the Steam game and writes the flavour before starting it.
+$sg = Join-Path $dist "Space Giraffe helper"
+New-Item -ItemType Directory -Force $sg | Out-Null
+Copy-Item (Join-Path $build "sg\d3d9.dll") $sg
+@"
+SPACE GIRAFFE HELPER - straight into the game, borderless full screen at the desktop's resolution and refresh rate
+================================================================================================================
+
+The Tempest Collection launcher starts Space Giraffe (Steam) in the flavour shown on its entry (LEFT / RIGHT: Acid or
+Nuxx). Before Steam starts the game it copies d3d9.dll from this folder next to SpaceGiraffePC.exe and writes the
+flavour into sg_helper.txt there. The helper then:
+  - answers the language (English) and flavour windows,
+  - shows the game as a borderless window covering the screen, at the desktop's resolution, one frame per refresh,
+  - gives the pad a 20% stick deadzone (the game sets none, so its menus jump at the slightest touch).
+Other settings in sg_helper.txt (key = value): borderless, vsync, max_fps (e.g. 60), stick_deadzone (percent),
+dpi_aware, input_log. Hold Shift while the game starts to get its own windows. Log: sg_helper.log next to the game.
+
+STEAM DECK: Proton must load the helper instead of its own d3d9: in Steam, Space Giraffe > Properties > General >
+Launch options:
+    WINEDLLOVERRIDES="d3d9=n,b" %command%
+(The launcher can't find Steam's game folder from inside Proton yet - same as Tempest 4000. Until then, copy
+d3d9.dll by hand into ~/.local/share/Steam/steamapps/common/Space Giraffe/ and put "flavour = acid" in
+sg_helper.txt there.)
+
+UNINSTALL: delete d3d9.dll and sg_helper.txt from the game's folder (and the launch option).
+"@ | Set-Content -Encoding ascii (Join-Path $sg "README.txt")
 
 # The owner's userdata (settings, T2K EEPROM, save states, TxK saves), every program set to start fullscreen.
 # Not emulated\ (T3K's log of pictures the native renderer couldn't draw: debug states + shots, ~180 MB).

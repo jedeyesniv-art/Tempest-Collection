@@ -134,7 +134,7 @@ Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collect
   more levels / an open web in the window if the owner reports anything.
 - T3K options / music / fx levels not saved (flash); interpolation for everything + run-ahead; orange patches on the
   brightest warp / bonus screens; sharpen the glowing text (0010000D) if wanted.
-- T2K performance plan for the end (PLAN.md "T2K performance plan"); T4K on the Deck, Space Giraffe entry, t81 CRT,
+- T2K performance plan for the end (PLAN.md "T2K performance plan"); T4K + Space Giraffe on the Deck (Steam lookup under Proton), t81 CRT,
   TxK save states (none in Vita3K; only an in-session "pause instead of quit" is realistic).
 - DONE 2026-11-17: TxK's own saves work - the host maps the game's user data to userdata\vita3k\ (savedata\PCSB00494\
   gilesdata.bin + SlotParam_0.bin, trophies), written since 2026-11-14 and copied into the play folder. Load-back on
@@ -189,6 +189,36 @@ Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collect
   view uniform) carry on past the edges, and the game already places particles, dots, streaks there. HUD stays in its
   4:3 spots. 4:3 unchanged (nativecheck play 2.39, boot 1.09). Tests: --nativeaspect=W:H with --nativeshot,
   --winsize=WxH (window, not fullscreen). Shots: logs/t3k/wide/.
+
+## Space Giraffe (Steam 27800) in the launcher (2026-11-17)
+- Launcher entry SPACE GIRAFFE, LEFT / RIGHT = flavour (launcher setting sg_flavour, acid default). Start: finds the
+  game folder (HKCU Steam SteamPath + libraryfolders.vdf + appmanifest_27800.acf), copies the helper d3d9.dll (from
+  <launcher>\Space Giraffe helper\ or build\sg\) next to SpaceGiraffePC.exe when different, rewrites the flavour line
+  of sg_helper.txt there, then steam://rungameid/27800. Owner checked: speed normal at 120 fps, picture fills, menus ok.
+- Helper src/sg/d3d9_proxy.cpp (tools/build_sg_helper.bat -> build\sg\d3d9.dll, 32-bit). The exe is SteamStub-wrapped
+  (.bind): runtime hooks only. Dialogs via DialogBoxParamA IAT: 131 language -> English (1008), 135 flavour -> the
+  button whose text has "acid" (1014 "Acid-Mix") or not (1013 "Space Giraffe NUXX"), by a POSTED BM_CLICK (calling the
+  game's dialog proc directly in WM_INITDIALOG broke its start-up). D3D9: CreateDevice / Reset (vtable 16 / 16) ->
+  windowed, backbuffer = monitor, WS_POPUP over the monitor, interval ONE; Present (17) counted (log every 5 s) + an
+  optional max_fps cap (windowed D3D9 refuses INTERVAL_TWO). DirectInput8: the game polls GetDeviceState, range
+  -1000..1000, sets NO deadzone -> menus jumped; helper sets DIPROP_DEADZONE 20% after SetDataFormat.
+- MUST forward every named d3d9 export (jump stubs): D3DX looks up Direct3DShaderValidatorCreate9 at run time; without
+  it: "Impossible to initialise the Neon engine" (message box hidden behind the game window).
+- Game data: settings / progress in %APPDATA%\SpaceGiraffe\userprofile*.dat (binary; config.txt never written);
+  SGPCLogFile.txt next to the exe. The owner's in-game resolution is 4096x2160 fullscreen (made borderless 3840).
+- Tests: tools/sg_test.ps1 -Name x -Settings "k = v; k = v" [-Keep] (installs, starts via Steam, DPI-aware screenshot,
+  logs); tools/pe_dialogs.py (dialog resources); tools/dinput_probe.cpp (DirectInput pads + axes). An early erratic
+  stick episode was not reproduced (not the helper: it happened without it too; pad reads clean).
+- Deck: launch option WINEDLLOVERRIDES="d3d9=n,b" %command%; the launcher's Steam lookup fails under Proton (as for T4K)
+  so the helper must be copied by hand there for now (README in the play folder).
+- Front: the launcher calls AllowSetForegroundWindow(ASFW_ANY) before steam://, waits for the program (SteamExe:
+  SpaceGiraffePC.exe / Tempest4000.exe) as its `child`, and pushes the game's window while the launcher itself is
+  still in front (first 30 s). Measured: the helper's own SetForegroundWindow is refused; the launcher's push works.
+- PARKED (owner, 2026-11-17): "hi-res objects" is never saved - a game bug (also on the Deck). The profile is a memory
+  copy of $005091DC..$0050A0D8 and is byte-identical after toggling it. tools/sg_memwatch.py (snapshots of .data
+  while the owner toggled) found three menu entries $004D9B3C / $004D9C64 / $004D9CF8 (value 1 off / 2 on, then 2, 1),
+  but setting them to 2 at start (they stayed 2) still showed and played OFF: the real switch is elsewhere, probably
+  heap -> next step would be a heap scan + a pointer from .data, or hooking the code that reads it.
 
 ## T3K options (2026-11-17, found, NOT kept - owner: not needed for now)
 - Options word $801133A8: bit $10 = backgrounds on (no visible change in play even via the game's own menu), bit $02 =
