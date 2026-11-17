@@ -2169,6 +2169,38 @@ int main(int argc, char** argv) {
       }
       running = false;
     }
+    // T3K_UNIQUE_LOG=1 (tests, use a small --winsize): hash the drawn picture every present; every 5 s print presents
+    // a second, pictures that differ from the one before, and the game's own new pictures.
+    static const bool unique_log = std::getenv("T3K_UNIQUE_LOG") != nullptr;
+    if (unique_log) {
+      static uint64_t last_hash = 0, t0 = 0;
+      static uint32_t last_flip = 0;
+      static int n = 0, changed = 0, game_pics = 0;
+      if (SDL_Surface* sf = SDL_RenderReadPixels(ren, nullptr)) {
+        uint64_t h = 1469598103934665603ull;
+        for (int y = 0; y < sf->h; ++y) {
+          const uint32_t* row = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(sf->pixels) + y * sf->pitch);
+          for (int x = 0; x < sf->w; ++x) h = (h ^ row[x]) * 1099511628211ull;
+        }
+        SDL_DestroySurface(sf);
+        ++n;
+        if (h != last_hash) ++changed;
+        last_hash = h;
+      }
+      if (shown_vec && shown_vec->flip != last_flip) {
+        ++game_pics;
+        last_flip = shown_vec->flip;
+      }
+      const uint64_t now = SDL_GetTicksNS();
+      if (!t0) t0 = now;
+      if (now - t0 >= 5000000000ull) {
+        const double s = double(now - t0) / 1e9;
+        std::fprintf(stderr, "unique: %.1f presents/s, %.1f changed pictures/s, %.1f game pictures/s (smooth motion %s)\n",
+                     n / s, changed / s, game_pics / s, native_interp ? "on" : "off");
+        n = changed = game_pics = 0;
+        t0 = now;
+      }
+    }
     ++presents;
     SDL_RenderPresent(ren);
     ++presents_of_shown;
