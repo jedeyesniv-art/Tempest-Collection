@@ -65,6 +65,7 @@
 #include "nuon_host.h"
 #include "settings.h"
 #include "t3k_menu.h"
+#include "crt.h"
 #include "t3k_native.h"
 #include "t3k_scores.h"
 
@@ -159,6 +160,9 @@ sharp_max_size = 100
 widescreen = 1
 # 1 = the frame-rate counter (F4): the game's pictures a second, emulated fields a second.
 show_rates = 0
+# CRT look (T2K's CRT+ shader: scanlines along the game's 240 lines, phosphor mask, glow, a slight curve): 0 off, 1 on.
+# Tuning: crt_scanlines, crt_mask, crt_curvature, crt_blur ... (as in T2K's settings).
+crt = 0
 # Save state slot (1-5) for the menu's Save state / Load state: userdata\states\t3k_slot<n>.state.
 state_slot = 1
 
@@ -1597,6 +1601,9 @@ int main(int argc, char** argv) {
   SDL_Renderer* ren = win ? t3knative::CreateRenderer(win) : nullptr;
   if (ren) t3knative::InitPipeline(ren);   // before the emulation thread builds any native picture
   if (!ren) { std::fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
+  crt::SetModeDefault(0, 1);   // T3K: CRT+ only, off unless chosen
+  if (!crt::Init(ren)) std::fprintf(stderr, "crt: unavailable on renderer %s\n", SDL_GetRendererName(ren));
+  SDL_Texture* crt_scene = nullptr;   // the picture before the CRT shader (window-sized)
   if (settings::Num("fullscreen", 1) != 0 && winsize_w <= 0) SDL_SetWindowFullscreen(win, true);
   const bool vsync_on = !novsync && settings::Num("vsync", 1) != 0;
   SDL_SetRenderVSync(ren, vsync_on ? 1 : 0);
@@ -1961,12 +1968,28 @@ int main(int argc, char** argv) {
     }
     int ww = 0, wh = 0;
     SDL_GetRenderOutputSize(ren, &ww, &wh);
+    // CRT (setting crt): the picture is drawn into a window-sized texture, then through the CRT+ shader
+    crt::LoadSettings();
+    const bool use_crt = crt::Mode() > 0 && ww > 0 && wh > 0;
+    float crt_src_w = 0, crt_src_h = 0;   // the window in game pixels (the scanlines follow the game's 240 lines)
+    if (use_crt) {
+      float sw = 0, sh = 0;
+      if (crt_scene) SDL_GetTextureSize(crt_scene, &sw, &sh);
+      if (!crt_scene || int(sw) != ww || int(sh) != wh) {
+        if (crt_scene) SDL_DestroyTexture(crt_scene);
+        crt_scene = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ww, wh);
+        if (crt_scene) SDL_SetTextureScaleMode(crt_scene, SDL_SCALEMODE_LINEAR);
+      }
+      if (crt_scene) SDL_SetRenderTarget(ren, crt_scene);
+    }
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
     if (tex) {   // 4:3, as big as fits
       float h = float(wh), w = h * 4.f / 3.f;
       if (w > ww) { w = float(ww); h = w * 3.f / 4.f; }
       SDL_FRect dst{(ww - w) / 2, (wh - h) / 2, w, h};
+      crt_src_w = ww * 360.f / dst.w;
+      crt_src_h = wh * 240.f / dst.h;
       // picture_blend (F3): cross-fade from the previous picture to this one over its time slot - smooth-looking
       // motion between the game's steps, at the price of about one picture more lag.
       // Native renderer (F7): 1 = whole native pictures where every entry type is done (else the emulated picture),
@@ -2032,6 +2055,12 @@ int main(int argc, char** argv) {
       }
       if ((native_view == 2 || native_view == 3) && shown_vec) t3knative::DrawVectors(ren, native_segments(), dst);
       if (!native_whole) native_last_ns = 0;   // (the feedback restarts from our last native picture)
+    }
+    if (use_crt && crt_scene) {
+      SDL_SetRenderTarget(ren, nullptr);
+      SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+      SDL_RenderClear(ren);
+      crt::DrawPicture(ren, crt_scene, SDL_FRect{0, 0, float(ww), float(wh)}, crt_src_w, crt_src_h);
     }
     if (show_rates) {
       const uint64_t now = SDL_GetTicksNS();
@@ -2166,6 +2195,8 @@ int main(int argc, char** argv) {
   if (audio) SDL_DestroyAudioStream(audio);
   if (tex) SDL_DestroyTexture(tex);
   if (tex_prev) SDL_DestroyTexture(tex_prev);
+  if (crt_scene) SDL_DestroyTexture(crt_scene);
+  crt::Shutdown();
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
   nuon::Unload();

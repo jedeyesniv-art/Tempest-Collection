@@ -89,6 +89,13 @@ void Install(bool from_launcher) {
   p.Number("    Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;
   p.Number("    Glow", "sharp_glow", 0, 1, 0.05, "%.2f", 0.4)->when = sharp;
   p.Choice("  Picture blend (F3)", "picture_blend", {"1", "0"}, {"On", "Off"})->when = emu;
+  // CRT: T2K's CRT+ shader (crt.cpp); its defaults are T2K's (the owner's tuning on the ST)
+  auto crt_on = [] { return settings::Num("crt", 0) != 0; };
+  p.Choice("CRT look", "crt", {"0", "1"}, {"Off", "On (CRT+)"});
+  p.Number("  Scanlines", "crt_scanlines", 0, 1, 0.05, "%.2f", 0.45)->when = crt_on;
+  p.Number("  Phosphor mask", "crt_mask", 0, 1, 0.05, "%.2f", 0.35)->when = crt_on;
+  p.Number("  Softness", "crt_blur", 0, 1, 0.05, "%.2f", 0.4)->when = crt_on;
+  p.Number("  Screen curve", "crt_curvature", 0, 0.1, 0.01, "%.2f", 0.02)->when = crt_on;
   p.Choice("Frame-rate counter (F4)", "show_rates", {"0", "1"}, {"Off", "On"});
   p.Header("");
   p.Button(from_launcher ? "Return to launcher" : "Quit", menu::kQuit, true);

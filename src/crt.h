@@ -15,6 +15,9 @@ SDL_Renderer* CreateRenderer(SDL_Window* window);
 bool Init(SDL_Renderer* renderer);
 void Shutdown();
 
+// The program's default mode when the settings have no "crt" line, and the highest it offers (T3K: 0 and 1, CRT+
+// only; T2K: 2 and 2). Call before LoadSettings.
+void SetModeDefault(int def, int max_mode);
 bool Available();
 int Mode();          // 0 off (or unavailable), 1 CRT+, 2 CRT++ (trails, colour bleed, more glow)
 void LoadSettings(); // rereads the settings (cheap: call once a frame)
