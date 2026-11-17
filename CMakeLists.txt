@@ -34,7 +34,7 @@ if(WIN32)
 endif()
 
 # Tempest Collection launcher (tempest.exe): picks a game and starts its program (t2k.exe, t3k.exe) or Steam.
-add_executable(tempest WIN32 src/launcher.cpp src/launcher_view.cpp src/steam_shortcut.cpp src/settings.cpp res/t2k.rc)
+add_executable(tempest WIN32 src/launcher.cpp src/launcher_view.cpp src/launcher_sound.cpp src/steam_shortcut.cpp src/settings.cpp res/t2k.rc)
 target_link_libraries(tempest PRIVATE SDL3::SDL3-static)
 target_compile_definitions(tempest PRIVATE _CRT_SECURE_NO_WARNINGS)
 if(WIN32)

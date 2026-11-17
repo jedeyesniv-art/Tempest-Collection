@@ -41,6 +41,12 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   (art\ -> art\panels\<id>.png + <id>_logo.png; art\ is in .gitignore, never in git); the play folder gets art\
   (package_collection.ps1). T81 cover = the colourful poster (owner). --shot saves the 90th frame;
   LAUNCHER_FB_DEBUG=1 shows the raw feedback buffer.
+- Launcher stings (src/launcher_sound.cpp, tools/launcher_sounds.py -> art\sounds\, play folder sounds\): each game's
+  lane sound on selecting it, its death on starting it. T81 / T3K recorded headless (T3K music level poked to 0 at
+  boot), T2K from the raw samples ('tink' = a flipper landing on a lane - its claw moves silently; 'screeeam' = gotu;
+  signed 8-bit, ~16 kHz by cross-correlation with a recording, tools/t2k_samplerate.py), TxK / T4K asset WAVs, SG from
+  GRsounds.xwb (73 unnamed sounds, MS ADPCM decoded by the tool; SG_MOVE 21 / SG_LAUNCH 34 provisional - owner to pick
+  from art\sounds\sg_bank\). tools/wav_events.py finds onsets in recordings.
 - Launcher Y = Steam (src/steam_shortcut.cpp): adds TempestCollection.exe to the most recent account's shortcuts.vdf
   (binary VDF, current Steam's spelling: appname / exe lower case, StartDir with a trailing \, sortas; Steam closed
   with steam.exe -shutdown and restarted; .bak kept) + grid art (<appid>p.png / .png / _hero / _logo from steam_art\ =

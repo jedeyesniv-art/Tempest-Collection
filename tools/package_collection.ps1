@@ -49,6 +49,15 @@ if (Test-Path $panels) {
 } else {
     Write-Warning "no art\panels (run tools\launcher_art.py): the launcher will show placeholders"
 }
+# The launcher's sound stings (tools/launcher_sounds.py -> art\sounds\: each game's lane click and death).
+$sounds = Join-Path $repo "art\sounds"
+if (Test-Path $sounds) {
+    New-Item -ItemType Directory -Force (Join-Path $dist "sounds") | Out-Null
+    Get-ChildItem $sounds -Filter "*.wav" | Where-Object { $_.Name -match "_(move|launch)\.wav$" } |
+        ForEach-Object { Copy-Item $_.FullName (Join-Path $dist "sounds") }
+} else {
+    Write-Warning "no art\sounds (run tools\launcher_sounds.py): the launcher will be silent"
+}
 # Steam library art for the shortcut (tools/steam_art.py -> art\steam\; README step 5).
 $steamart = Join-Path $repo "art\steam"
 if (Test-Path $steamart) {

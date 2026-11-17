@@ -34,6 +34,7 @@
 #include <string>
 #include <vector>
 
+#include "launcher_sound.h"
 #include "launcher_view.h"
 #include "steam_shortcut.h"
 #include "settings.h"
@@ -447,6 +448,14 @@ int main(int argc, char** argv) {
   lview::Init(ren, art);
   std::vector<Game> games = MakeGames(base);
   lview::SetEntries(ViewEntries(games));
+  // the stings: each game's lane click on selecting it, its death on starting it (sounds\ or the repo's art\sounds)
+  {
+    const fs::path snd = fs::exists(base / "sounds") ? base / "sounds" : base / ".." / "art" / "sounds";
+    std::vector<std::string> ids;
+    for (const Game& g : games) ids.push_back(g.id);
+    const int n = lsound::Init(snd, ids);
+    if (!shot.empty()) std::fprintf(stderr, "launcher: %d sound stings from %s\n", n, snd.string().c_str());
+  }
   int sel = 1;   // Tempest 2000: the first one that runs
   if (select_arg >= 0 && select_arg < int(games.size())) sel = select_arg;
   std::string message;
@@ -606,7 +615,9 @@ int main(int argc, char** argv) {
   int pending = -1;   // a game to start once the start warp has played
   auto move = [&](int d) {
     if (pending >= 0) return;
+    const int was = sel;
     sel = std::clamp(sel + d, 0, int(games.size()) - 1);
+    if (sel != was) lsound::Move(games[sel].id);
     message.clear();
   };
   // A / Enter: the warp, then the start - straight away when it can't start (its message instead) or opens the store.
@@ -619,6 +630,7 @@ int main(int argc, char** argv) {
     }
     pending = i;
     lview::StartWarp(i);
+    lsound::Launch(g.id);
   };
   // UP / DOWN: the selected game's variant (Space Giraffe's flavour).
   auto variant = [&](int) {
@@ -796,6 +808,7 @@ int main(int argc, char** argv) {
     SDL_RenderPresent(ren);
   }
   lview::Shutdown();
+  lsound::Shutdown();
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
   SDL_Quit();
