@@ -1211,6 +1211,12 @@ To do, at the end:
    untested. See CLAUDE.md "T3K menu cleanup, save states".
 7. NEON MODE (big maybe, much later): plan below ("Neon Mode plan").
 
+### Watch list
+- TxK, once on Windows (owner 2026-11-17): no music in a level, then a hang after the bonus round between levels
+  (had to quit). Not seen again; usually fine on both devices. No log then; since fd6dc62 every game started by the
+  launcher logs to userdata\logs\<game>.log (TxK: a heartbeat every 600 frames with sound samples / peak). If it
+  comes back: read txk.log (or txk.old.log if TxK was started again since).
+
 ### Decided against / parked (owner 2026-11-17)
 - Launcher: high scores on the panels (too cluttered), remembering the last game, a controls card - no.
 - Space Giraffe "hi-res objects" not saved, TxK save states: annoying but likely hard - parked.
