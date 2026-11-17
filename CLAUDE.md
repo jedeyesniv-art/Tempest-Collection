@@ -251,7 +251,7 @@ The owner played the play folder on the Steam Deck: all good. Open items, in ord
 open items" (first: Tempest 4000 not offered on the Deck - the launcher's install check reads Windows Steam's
 registry, absent under Proton).
 
-## Where we are (end of 2026-11-09 morning; start here next time)
+## Where we were (end of 2026-11-09 morning; history)
 - Done: stage 1 host, stick controls (owner's lr tuning 0.41, aim as alternate), owner's button layout + remapping,
   Back menu (settings, save states, return to title), quit to title on the pause screen in the game font, EEPROM
   saves, cursor hidden. Remaster (F8, default on), every primitive verified against the GPU in one run
