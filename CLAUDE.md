@@ -161,7 +161,10 @@ classifier (downloaded code) - ask the owner before trying again.
 
 ## Where we are (end of 2026-11-17, evening; start here next time)
 All committed; play folder current (dist\TempestCollection, ~0.67 GB; the owner plays it from Steam on Windows and on
-the Steam Deck). THE TO-DO LIST: PLAN.md "Collection status and open items". Done 2026-11-17 from it: the menus
+the Steam Deck). THE TO-DO LIST: PLAN.md "Collection status and open items". NEXT (2026-11-18): item 5, the launcher settings menu
+(Back menu; frame-rate cap, render scale, T3K compression again, master volume with normalised loudness, plus
+candidates e-l for the owner to choose; suggested order there). Also done late 2026-11-17: the launcher's T3K disc
+compression (item 4). Done 2026-11-17 from it: the menus
 (restyle + one layout), T3K disc compression, T81 versions, T3K infinite lives. Left: the PUBLISH version (only when
 the owner decides; its prep notes are under item 4: no AOT, the launcher's T3K compression, no owner saves), maybe a
 launcher settings screen, maybe more T3K cheats (god mode, max level), Neon Mode much later. PLAN.md "Watch list": a

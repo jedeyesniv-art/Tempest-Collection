@@ -1209,13 +1209,43 @@ To do, at the end:
    AOT off costs ~15% (play 1.26 -> 1.47 ms a field mean, p99 3.6 -> 4.3; title 1.46 -> 1.67, p99 3.5 -> 4.1; budget
    16.7), pictures byte-identical; the JIT (built on the player's machine) runs the rest. No-AOT core: CMake without
    NUANCE_AOT_DIR -> build_nuance_noaot\nuance_libretro.dll (1.6 MB vs 34.6 MB). Owner tested it on the Deck 2026-11-17: works fine -> toolsbuild_nuance.bat builds without AOT by default now ("build_nuance.bat aot" -> build_nuance_aot for experiments).
-   BEFORE RELEASE (owner 2026-11-17, on hold until then): T3K compression from the launcher - t3k_compress.py ported
-   to C++ (a t3k_compress.exe loading libsndfile_x64.dll, LGPL, for the Vorbis encoder; works under Proton), offered
-   on the T3K panel when there is an .iso and no .nuz, with a progress bar, then a Yes / No (default No) to delete the
-   .iso.
-5. LAUNCHER SETTINGS SCREEN (maybe - owner unsure what belongs there): the one idea so far is an overall resolution
-   option - render below native resolution, applied to every game the launcher starts (each game's own render scale /
-   window size from one launcher setting). Revisit when there are more candidates.
+   T3K compression from the launcher: DONE 2026-11-17 (1717501, 92ab594) - src/t3k_compress.cpp inside the launcher
+   (libsndfile_x64.dll, LGPL, loaded at run time; shipped with its licence by package_collection.ps1), asked on
+   starting T3K with an .iso and no .nuz, progress + cancel, then asks to delete the .iso; "no" = never asked again.
+   One encoder thread. All answer paths tested in the window (CLAUDE.md, T3K disc). Not tried under Proton yet.
+5. LAUNCHER SETTINGS MENU (YES - owner 2026-11-17, plan for 2026-11-18). Opened with Back like every game's menu:
+   the launcher registers its own page in the shared src/menu.cpp (menu::SetPage / SetAccent, pixfont look). Its
+   settings live in userdata\launcher_settings.txt; the shared ones are read by each program at start-up (a game's own
+   menu may still override where that makes sense). Found 2026-11-17: no program has a volume setting yet; frame
+   control is only `vsync` (t3k / t81 / txk); SG's helper already has max_fps (sg_helper.txt).
+   Owner's items:
+   a. FRAME-RATE CAP (Off / 30 / 40 / 60 / 90 / 120) for t2k / t3k / t81 / txk: the present loop waits between
+      presents; interpolation keeps motion smooth at any cap. 40 = the Deck battery trick (40 Hz screen). SG: pass it to
+      the helper's max_fps. T4K: out of reach.
+   b. RENDER SCALE (Native / 75% / 50%): render below native and scale up - T2K / T3K remaster, T81 vectors; TxK maps
+      to its internal-resolution option (already 1x on the Deck).
+   c. T3K DISC COMPRESSION AGAIN: an item that starts the compression (the same prompt + progress) - shown when there
+      is an .iso and no .nuz, or "Delete the original .iso" when both are there; also resets t3k_offer_compress /
+      t3k_offer_delete.
+   d. MASTER VOLUME + NORMALISED LOUDNESS: measure each game's loudness from headless --wav recordings (play + title;
+      a LUFS-style measure in a tool), store a fixed gain per game so all play at the same level; each of our four
+      programs multiplies its output by master x game gain (+ an optional per-game trim in the menu). SG / T4K: the
+      Windows per-app mixer (ISimpleAudioVolume on the game's audio session) - Windows only; under Proton they run in
+      another prefix, so probably not on the Deck (mark them "Windows only").
+   Further candidates (owner to choose):
+   e. Display for all games: fullscreen / windowed, which monitor, vsync.
+   f. CRT look default for all games (each game's menu still overrides).
+   g. Controls: stick deadzone + rumble on/off for the collection; "Show controls" = each game's pad layout picture.
+   h. Deck / battery preset: one switch = 40 fps cap, lower render scale, TxK 1x, reduced launcher motion (the play
+      folder is shared between the PC and the Deck).
+   i. Launcher's own: sting volume, motion level (full / reduced / still), hide games that are not installed.
+   j. Setup check: every Steam game's status in one list (installed, helper present, launch option set).
+   k. Saves: high scores of every game in one place (T2K EEPROM, t3k_highscores.txt, T81 nvram), play time / last
+      played, "Back up saves" (zip userdata\ - also guards against package_collection.ps1 replacing the play folder's
+      userdata with build\userdata).
+   l. About / licences: credits + GPL / LGPL notices (cores, libsndfile) - needed for the publish version anyway.
+   Suggested order: (1) menu shell + c + i; (2) d (loudness pass + a gain setting in each program); (3) a + b + h
+   (each program's present loop; needs the owner's Deck check); (4) j, k, l.
 6. T3K CHEATS (maybe): infinite lives DONE 2026-11-17 (menu CHEATS, setting cheat_inf_lives; $800BAC7C 1 / 2 -> 3, only
    while the web is on screen; idle-claw test: game over by field 5400 without, still playing at 11700 with); god mode not found yet; max level candidates
    untested. See CLAUDE.md "T3K menu cleanup, save states".
