@@ -36,10 +36,10 @@ void Install(bool from_launcher) {
   p.Choice("Vectors", "vector_renderer", {"1", "0"}, {"Beams (ours)", "MAME's picture"});
   auto ours = [] { return settings::Num("vector_renderer", 1) != 0; };
   auto mame = [] { return settings::Num("vector_renderer", 1) == 0; };
-  p.Choice("Framing", "framing", {"wide", "fill", "arcade"},
-           {"Wide (big web)", "Fill", "Whole monitor"})
+  p.Choice("Framing", "framing", {"fill", "wide", "arcade"},
+           {"Fill", "Wide (big web)", "Whole monitor"})
       ->when = ours;
-  p.Choice("Shape", "aspect", {"arcade", "round"}, {"Arcade 3:4 tube", "Round (square units)"})->when = ours;
+  p.Choice("Shape", "aspect", {"round", "arcade"}, {"Round (square units)", "Arcade 3:4 tube"})->when = ours;
   p.Number("Line width", "line_width", 1.0, 8.0, 0.25, "%.2f", 2.5)->when = ours;
   p.Number("Width by brightness", "width_by_intensity", 0.0, 2.0, 0.25, "%.2f", 1.0)->when = ours;
   p.Number("Glow", "glow", 0.0, 2.0, 0.1, "%.1f", 1.0)->when = ours;

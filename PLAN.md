@@ -999,7 +999,7 @@ Owner: on the Deck the picture is small in the centre; wants zoom, wide screens,
   core pass MAXIMUM (no hot spots where lines meet); white-hot core; width follows intensity. Settings vector_renderer
   framing aspect line_width glow glow_size brightness width_by_intensity hot_core (menu DISPLAY). MAME rasterises
   640x480 while ours is on (fallback only; 0.79 vs 1.14 ms a frame).
-- Framing: arcade (whole monitor), fill (x 0.08..0.885, y 0.13..0.95: all the game uses), wide (default): in play
+- Framing: arcade (whole monitor), fill (default, owner 2026-11-17, with aspect round; x 0.08..0.885, y 0.13..0.95: all the game uses), wide: in play
   the web fills the window and the HUD (leading lines in boxes x<0.37 / 0.37..0.66, y 0.12..0.2225) slides to the top
   corners. Play = left HUD drawn and < 25 short strokes below y 0.9 (attract credits), hysteresis 10 / 30 frames.
   Web box = bbox of world lines unchanged 10 frames (>= 30 lines, >= 0.3 x 0.3) + 0.06 margin, held while nothing

@@ -172,10 +172,10 @@ void Draw(SDL_Renderer* ren, int ww, int wh, float dt_s) {
   if (ww <= 0 || wh <= 0) return;
   EnsureTextures(ren);
   if (!g_core_tex || !g_glow_tex) return;
-  const std::string framing = settings::Str("framing", "wide");
+  const std::string framing = settings::Str("framing", "fill");
   // Physical width / height of one monitor unit: the cabinet's 3:4 tube, or the game's own square units (round webs;
   // Tempest's visible area is 580 x 570).
-  const float aspect = settings::Str("aspect", "arcade") == "round" ? 580.f / 570.f : 0.75f;
+  const float aspect = settings::Str("aspect", "round") == "round" ? 580.f / 570.f : 0.75f;
   const bool wide = framing == "wide" && g_play;
 
   // Wide: the web fills the window when there is room beside it for the HUD (at 60% of the web's size or more);

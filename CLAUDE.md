@@ -133,7 +133,7 @@ Done this session (details in the dated sections below):
 Waiting on the owner's Deck test: TxK buttons / prompts / tap; launcher focus after a Steam game.
 - 2026-11-17 later: t81 draws the vectors itself (beams + glow, width by intensity, white-hot core) with framing
   wide (default: in play the web fills the screen, HUD in the top corners) / fill / whole monitor, shape arcade 3:4
-  or round. PLAN.md "t81 vectors drawn by us". Waiting on the owner's look on the Deck.
+  or round (default, owner). PLAN.md "t81 vectors drawn by us". Waiting on the owner's look on the Deck.
 Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
 - T3K cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found
   yet: next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested).

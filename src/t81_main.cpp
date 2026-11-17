@@ -66,9 +66,9 @@ picture_filter = smooth
 vector_renderer = 1
 # arcade = the whole 3:4 monitor; fill = the part the game uses; wide = fill, and in play the web fills the
 # height with the score / lives and the high score in the top corners.
-framing = wide
+framing = fill
 # arcade = the cabinet's 3:4 tube (webs a little tall); round = the game's own square units (round webs).
-aspect = arcade
+aspect = round
 # Beam: width in pixels at 1080 lines, glow strength (0 = none) and size (x the width), brightness, and how much the
 # width follows the beam's intensity (0 = all the same).
 line_width = 2.5
