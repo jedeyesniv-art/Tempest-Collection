@@ -493,7 +493,9 @@ float Logo(size_t i, float x, float y, float bw, float bh, float t, float alpha)
     Text(e.title, x, y + bh * 0.25f, bh / 12, st.accent, alpha, 0, 1.5f);
     return bh * 0.85f;
   }
-  const float k = std::min(bw / art.logo_w, bh / art.logo_h);
+  // (Tempest 1981's slanted logo fills less of its box: a little larger)
+  const float boost = e.id == "t81" ? 1.35f : 1.f;
+  const float k = std::min(bw / art.logo_w, bh * boost / art.logo_h);
   const float w = art.logo_w * k, h = art.logo_h * k;
   const float beat = t * 126.f / 60.f, pulse = std::pow(1 - (beat - std::floor(beat)), 3.f);
   float rot = 0, sc = 1, a = 1, glow = 0, dy = 0;

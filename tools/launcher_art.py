@@ -32,8 +32,7 @@ COVERS = {
     't4k': [('Tempest 4k_Cover.webp', 0.5, 0.5)],
 }
 LOGOS = {
-    't81': 't81 logo new.png',   # the arcade's own lettering (owner), 429 px: upscaled (UPSCALE)
-    't2k': 't2l logo.png', 't3k': 't3k logo.png',
+    't81': 't81 logo.png', 't2k': 't2l logo.png', 't3k': 't3k logo.png',
     'sg': 'sg logo.png', 'txk': 'txk logo.png', 't4k': 't4k logo.png',
 }
 
@@ -51,17 +50,8 @@ def panel(src, cx, cy):
     return im.crop((x0, y0, x0 + cw, y0 + ch)).resize((PANEL_W, PANEL_H), Image.LANCZOS), (w, h), (x0, y0, cw, ch)
 
 
-UPSCALE = {'t81'}   # small flat line art: 4x, edges re-sharpened so it stays crisp at 4K (not soft glows like TxK's)
-
-
-def logo(src, upscale=False):
+def logo(src):
     im = Image.open(src).convert('RGBA')
-    if upscale:
-        k = 4
-        rgb = im.convert('RGB').resize((im.width * k, im.height * k), Image.LANCZOS)
-        a = im.getchannel('A').resize(rgb.size, Image.BICUBIC).point(lambda v: max(0, min(255, int((v - 128) * 2.2 + 128))))
-        im = rgb.convert('RGBA')
-        im.putalpha(a)
     # trim nearly transparent borders (soft glows fade out to a few alpha levels)
     box = im.getchannel('A').point(lambda a: 255 if a > 6 else 0).getbbox()
     return im.crop(box) if box else im
@@ -87,7 +77,7 @@ def main():
         if not os.path.exists(src):
             print('%-4s logo missing: %s' % (gid, name))
             continue
-        im = logo(src, gid in UPSCALE)
+        im = logo(src)
         im.save(os.path.join(OUT, gid + '_logo.png'), optimize=True)
         logos.append(im)
         print('%-10s %s -> %dx%d' % (gid + '_logo.png', name, im.size[0], im.size[1]))
