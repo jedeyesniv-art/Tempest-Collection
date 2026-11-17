@@ -1177,6 +1177,10 @@ To do, at the end:
    (KEEP the art: owner - it is all from public sites). The launcher then has to say what is missing and where each
    file goes (per game: file name, expected checksum or size, folder), and start the games once they are there.
    Never publish without the owner's go.
+   BEFORE RELEASE (owner 2026-11-17, on hold until then): T3K compression from the launcher - t3k_compress.py ported
+   to C++ (a t3k_compress.exe loading libsndfile_x64.dll, LGPL, for the Vorbis encoder; works under Proton), offered
+   on the T3K panel when there is an .iso and no .nuz, with a progress bar, then a Yes / No (default No) to delete the
+   .iso.
 5. LAUNCHER SETTINGS SCREEN (maybe - owner unsure what belongs there): the one idea so far is an overall resolution
    option - render below native resolution, applied to every game the launcher starts (each game's own render scale /
    window size from one launcher setting). Revisit when there are more candidates.
