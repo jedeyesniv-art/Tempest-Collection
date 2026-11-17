@@ -138,6 +138,8 @@ Get-ChildItem (Join-Path $build "userdata") | Where-Object { $_.Name -notlike "*
 Get-ChildItem (Join-Path $dist "userdata") -Filter "*settings.txt" | ForEach-Object {
     $t = Get-Content $_.FullName
     $t = $t -replace '^fullscreen\s*=.*$', 'fullscreen = 1'
+    # TxK at the Vita's own 960x544 for the Deck (the owner's PC copy may be 4x).
+    $t = $t -replace '^vita3k_resolution_multiplier\s*=.*$', 'vita3k_resolution_multiplier = 1'
     Set-Content -Encoding ascii $_.FullName $t
 }
 
