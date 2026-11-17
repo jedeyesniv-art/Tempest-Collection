@@ -7,7 +7,7 @@
 #   msvcp140*.dll vcruntime140*.dll    the C++ runtime the Vita3K core needs (app-local; the rest are static)
 #   system\nuance\                 Nuon BIOS stubs + nuance.cfg (from the Nuance source)
 #   system\vita3k\                 the PS Vita firmware, already installed (vs0 / sa0 / os0 ...; no .pup files)
-#   game\                          the games: Tempest 2000 .jag, Tempest 3000 .iso, TxK folder, tempest.zip (MAME)
+#   game\                          the games: Tempest 2000 .jag, Tempest 3000 .nuz (or .iso), TxK folder, tempest.zip (MAME)
 #   userdata\                      the owner's settings, saves and save states (fullscreen on for every program)
 #   README.txt                     Steam Deck steps and controls
 #
@@ -95,7 +95,10 @@ function Link-Game($src, $name) {
 }
 $jag = Get-ChildItem $repo -Filter "Tempest 2000*.jag" | Select-Object -First 1
 if ($jag) { Link-Game $jag.FullName $jag.Name } else { Write-Warning "no Tempest 2000 .jag in the repo folder" }
-Link-Game (Join-Path $repo "Nuance_067\Tempest 3000.iso") "Tempest 3000.iso"
+# Tempest 3000: the compressed image (tools\t3k_compress.py, ~196 MB) when there is one, else the .iso (743 MB)
+$t3kNuz = Join-Path $repo "Nuance_067\Tempest 3000.nuz"
+if (Test-Path $t3kNuz) { Link-Game $t3kNuz "Tempest 3000.nuz"; $t3kDisc = "Tempest 3000.nuz" }
+else { Link-Game (Join-Path $repo "Nuance_067\Tempest 3000.iso") "Tempest 3000.iso"; $t3kDisc = "Tempest 3000.iso" }
 Link-Game (Join-Path $repo "tempest.zip") "tempest.zip"
 $txk = Join-Path $repo "PCSB00494"
 Get-ChildItem $txk -Recurse -File | ForEach-Object {
@@ -185,7 +188,7 @@ when you quit (Back / View on the pad opens a game's settings menu, which has "R
 
   TEMPEST (1981 arcade)       MAME core           game\tempest.zip
   TEMPEST 2000 (Jaguar)       Virtual Jaguar      game\Tempest 2000 (1994).jag
-  TEMPEST 3000 (Nuon)         Nuance              game\Tempest 3000.iso
+  TEMPEST 3000 (Nuon)         Nuance              game\$t3kDisc
   SPACE GIRAFFE               opens Steam (if it is installed there); "Space Giraffe helper\" sets it up
   TxK (PS Vita)               Vita3K              game\PCSB00494\  (firmware already installed in system\vita3k)
   TEMPEST 4000                opens Steam (if it is installed there); "Tempest 4000 helper\" skips its

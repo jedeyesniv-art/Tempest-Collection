@@ -26,6 +26,8 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   built with only src/mame/atari/tempest.cpp by tools/build_mame.sh (Git Bash + the MinGW gcc 13.2 / GNU make in
   third_party/strawberry; SDL3 headers via -DSDLMAME_SDL3 for the libretro OSD's key table) ->
   tempest_libretro.dll (43 MB, only Windows DLLs). Romset: tempest.zip (MAME's current split set) - not in git.
+- T3K disc: Nuance_067\Tempest 3000.nuz (2026-11-17, tools/t3k_compress.py from the .iso: the music in nuon.dat as
+  Ogg Vorbis, the rest raw; core src/disc_image.cpp). t3k.exe / the play folder prefer it over the .iso. PLAN.md item 2.
 - src/lr_host.cpp: the shared libretro host for DLL cores (txk.exe: Vita3K, OpenGL on demand; t81.exe: MAME,
   software frames, mouse deltas for the spinner, save states). GET_VARIABLE answers the defaults the core declared
   (MAME takes a missing answer as an empty value). LR_LOG_DEBUG=1 shows the cores' debug log.

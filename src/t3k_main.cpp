@@ -878,14 +878,19 @@ std::string FindDisc(const std::string& given) {
   fs::path base(SDL_GetBasePath());
   std::vector<fs::path> dirs = {base, base / "game", fs::current_path(), fs::current_path() / "Nuance_067",
                                 base.parent_path().parent_path() / "Nuance_067"};
+  // the compressed image (tools/t3k_compress.py) wins over an .iso / .chd in the same folder
   for (auto& d : dirs) {
     std::error_code ec;
+    std::string found;
     for (auto& e : fs::directory_iterator(d, ec)) {
       auto name = e.path().filename().string();
       auto ext = e.path().extension().string();
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-      if ((ext == ".iso" || ext == ".chd") && name.find("Tempest") != std::string::npos) return e.path().string();
+      if (name.find("Tempest") == std::string::npos) continue;
+      if (ext == ".nuz") return e.path().string();
+      if ((ext == ".iso" || ext == ".chd") && found.empty()) found = e.path().string();
     }
+    if (!found.empty()) return found;
   }
   return {};
 }

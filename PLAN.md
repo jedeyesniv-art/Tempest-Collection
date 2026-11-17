@@ -1154,6 +1154,22 @@ To do, at the end:
    (NUANCE_MEDIALOG=<file> logs every disc read), then compressed audio (FLAC lossless ~ -230 MB; lossy more) served
    back as the same bytes / or decoded where the game reads them. Verify: game plays identically (states / pictures)
    from both forms.
+   MAPPED 2026-11-17 (tools/iso_list.py, tools/t3k_datmap.py, NUANCE_MEDIALOG with an ABSOLUTE path - t3k.exe changes
+   directory): the ISO = /NUON/nuon.dat 736.6 MB + nuon.n16 0.2 MB + nuon.run 5.3 MB (program + all game data).
+   nuon.dat is 100% music: 19 tracks, a (start, end) block table at nuon.run +0x104340 (19 pairs, contiguous, exactly
+   0..359686 = the whole file), a 16-entry level play order just before it (+0x104300). The game streams a track with
+   MediaRead into $40400000 / $40600000 (2 MB halves: 2048 blocks first, then 1024 at a time). 32 kHz (measured:
+   tools/t3k_musicrate.py, correlation 0.996 against a --wav recording; 1.2-7.9 min songs, 96 min in all).
+   DONE 2026-11-17 (owner: Vorbis, ~256 kbps): tools/t3k_compress.py -> "Tempest 3000.nuz" 195.5 MB (26%; level 0.2 =
+   ~260 kbps average, VBR 231-335 per track), then asks before deleting the .iso (type "yes"; warns about hard links).
+   Core: src/disc_image.{h,cpp} (NUZ = raw sector segments + one Ogg Vorbis stream per track, stb_vorbis from the
+   Vita3K tree) under ISO9660Reader and MediaRead (one image kept open). A worker prefetches the chunk after each read:
+   refills 0.1 ms on the emulation thread (decoding 15-18 ms on the worker); a track's first read (32 s of music) still
+   decodes on the caller, 28-43 ms here, at the title / a level start (watch for a hitch on the Deck; fix would be a
+   decoded head per track). NUANCE_NUZLOG=1 prints decode times. t3k FindDisc and package_collection.ps1 prefer the
+   .nuz. Verified: same disc reads, pictures byte-identical to the .iso at fields 3000 / 5990 and from a state; audio
+   aligned (lag 0, tools/wav_compare.py). Play folder 704 MB. The .iso is still there (owner decides).
+   For the publish version the tool needs Python + soundfile (libsndfile's Vorbis encoder).
 3. T81 ALTERNATE VERSIONS (could be neat): pick the other sets in tempest.zip (rev 1, rev 2, Tempest Tubes ...) from
    t81's menu, with our vector renderer / framing on all of them (check their monitor geometry and HUD positions -
    the wide framing's HUD boxes were measured on the parent set).
