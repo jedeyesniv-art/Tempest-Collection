@@ -16,10 +16,12 @@ const int kBit[kFnCount] = {-1, lr::B, lr::A, lr::Y, lr::X, lr::L, lr::R, lr::ST
 }  // namespace
 
 void Install(bool from_launcher) {
-  // Xbox layout by position: A = Cross, B = Circle, X = Square, Y = Triangle, LB / RB = L / R, Start = Start. Back
-  // opens this menu, so Select (TxK: options on the title, mode change on level select) moves to LT.
-  //                                             a       b        x        y          lb  rb  lt       rt     start   ls     rs
-  const int defaults[controls::kButtonCount] = {kCross, kCircle, kSquare, kTriangle, kL, kR, kSelect, kNone, kStart, kNone, kNone};
+  // Xbox layout by position: A = Cross, B = Circle, X = Square, Y = Triangle, Start = Start. Back opens this menu, so
+  // Select (TxK: options on the title, mode change on level select, quit from pause) moves to LB, as Tempest 4000 has
+  // its quit there - and the game's prompts are rewritten to say LB (txk_main.cpp PatchPrompts). L (hold the claw and
+  // wiggle it) and R (jump) go to the triggers: LT / RT.
+  //                                             a       b        x        y          lb       rb     lt  rt  start   ls     rs
+  const int defaults[controls::kButtonCount] = {kCross, kCircle, kSquare, kTriangle, kSelect, kNone, kL, kR, kStart, kNone, kNone};
   controls::Setup({{"cross", "Cross"}, {"circle", "Circle"}, {"square", "Square"}, {"triangle", "Triangle"},
                    {"l", "L"}, {"r", "R"}, {"start", "Start"}, {"select", "Select"}},
                   defaults);

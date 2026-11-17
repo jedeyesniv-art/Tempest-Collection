@@ -5,6 +5,8 @@
 #include <SDL3/SDL_opengl.h>
 #include <windows.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstdio>
@@ -52,6 +54,7 @@ bool g_options_changed = false;
 uint16_t g_buttons = 0;
 int g_sticks[4] = {};
 int g_mouse[2] = {};   // relative mouse movement for the coming frame
+struct { bool down; int16_t x, y; } g_touch = {};   // a touch on the picture (RETRO_DEVICE_POINTER, -0x7FFF..0x7FFF)
 Frame g_frame;
 std::vector<int16_t> g_audio;
 std::string g_message;
@@ -334,6 +337,13 @@ int16_t InputStateCb(unsigned port, unsigned device, unsigned index, unsigned id
     if (id == RETRO_DEVICE_ID_MOUSE_Y) return int16_t(g_mouse[1]);
     return 0;
   }
+  if (device == RETRO_DEVICE_POINTER) {   // one touch (index 0): the Vita's front touchscreen in the Vita3K core
+    if (index != 0 || !g_touch.down) return 0;
+    if (id == RETRO_DEVICE_ID_POINTER_PRESSED || id == RETRO_DEVICE_ID_POINTER_COUNT) return 1;
+    if (id == RETRO_DEVICE_ID_POINTER_X) return g_touch.x;
+    if (id == RETRO_DEVICE_ID_POINTER_Y) return g_touch.y;
+    return 0;
+  }
   if (device == RETRO_DEVICE_ANALOG && index <= RETRO_DEVICE_INDEX_ANALOG_RIGHT && id <= RETRO_DEVICE_ID_ANALOG_Y)
     return int16_t(g_sticks[index * 2 + id]);
   return 0;
@@ -414,6 +424,11 @@ void Unload() {
 }
 
 void SetButtons(uint16_t buttons) { g_buttons = buttons; }
+void SetTouch(bool down, float x, float y) {
+  auto to = [](float v) { return int16_t(std::lround((std::clamp(v, 0.f, 1.f) * 2.f - 1.f) * 0x7FFF)); };
+  g_touch = {down, to(x), to(y)};
+}
+
 void SetMouse(int dx, int dy) {
   g_mouse[0] = dx;
   g_mouse[1] = dy;

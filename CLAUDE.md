@@ -190,6 +190,22 @@ Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collect
   4:3 spots. 4:3 unchanged (nativecheck play 2.39, boot 1.09). Tests: --nativeaspect=W:H with --nativeshot,
   --winsize=WxH (window, not fullscreen). Shots: logs/t3k/wide/.
 
+## TxK buttons and prompts (2026-11-17)
+- Owner's layout (T4K-like): A Cross, B Circle, X Square, Y Triangle, LB = Select (title options, level-select mode,
+  pause quit), LT = L (hold + wiggle the claw), RT = R (jump), RB free, Back = our menu. txk_menu.cpp defaults (no
+  bind_ lines in the owner's settings, so the defaults apply).
+- The game's prompts are plain strings in eboot.bin's data (loaded as is around 0x81075000..0x810BB000); txk_main.cpp
+  PatchPrompts rewrites them in guest memory through the core's new llama_vita_write (third_party/vita3k-libretro,
+  branch llamasoft-vita): SELECT -> LB (3 exact strings), level select's '&' (title font's Cross) -> A, and in every
+  text containing "button" the menu-font symbols 0x84 Cross A, 0x85 Circle B, 0x82 Triangle Y, 0x83 Square X,
+  0x88 / 0x89 L / R -> LT / RT (a ~9xxx colour code dropped where the text would grow); d-pad arrows 0x80 0x81 0x86
+  0x87 stay. Every 120 frames until done, again after a restart. Verified headless: title, options, level select.
+  Mind: compare guest bytes as uint8_t (signed char missed every symbol string at first).
+- Touchscreen (Supertapper = tap; the Vita3K core already reads RETRO_DEVICE_POINTER as the front touchscreen): host
+  lr::SetTouch answers one pointer; txk.exe sends the left mouse button mapped onto the drawn picture (touches arrive
+  as mouse: SDL's touch-to-mouse, and Proton on the Deck), not while our menu is open. Headless --touch=F:x,y[:len]
+  (0..1 on the picture). Verified: a tap on HIGH SCORES in TxK Options opens it. Deck touch untested.
+
 ## Space Giraffe (Steam 27800) in the launcher (2026-11-17)
 - Launcher entry SPACE GIRAFFE, LEFT / RIGHT = flavour (launcher setting sg_flavour, acid default). Start: finds the
   game folder (HKCU Steam SteamPath + libraryfolders.vdf + appmanifest_27800.acf), copies the helper d3d9.dll (from

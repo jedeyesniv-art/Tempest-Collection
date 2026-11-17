@@ -6,6 +6,7 @@
 //   --shot=F:<file.bmp>                   save the picture after frame F (repeatable)
 //   --press=F:<btn>[:len]                 hold a RetroPad button from frame F (default 6 frames)
 //   --stick=F:x,y[:len]                   hold the left stick at x,y (-1..1) from frame F (headless)
+//   --touch=F:x,y[:len]                   touch the screen at x,y (0..1 on the picture) from frame F (headless)
 //   --opt=key=value                       a core option (vita3k_...) for this run
 //   --wav=<file.wav>                      dump the audio
 //   --userdata=<dir>                      save folder (default userdata next to the program)
@@ -24,8 +25,9 @@
 // Settings (userdata\txk_settings.txt): fullscreen, vsync, and any vita3k_* key is handed to the core as an option.
 // Firmware: vita_firmware\PSVUPDAT.PUP (system) and PSP2UPDAT.PUP (fonts) are linked into system\vita3k\ as
 // firmware.pup / font.pup, the names the core tells the parts apart by.
-// Pad (Xbox, remappable in the menu): A = Cross, B = Circle, X = Square, Y = Triangle, LB / RB = L / R, LT = Select,
-// Start = Start; fixed: d-pad, sticks, Back = settings menu (the game pauses while it is open).
+// Pad (Xbox, remappable in the menu): A = Cross, B = Circle, X = Square, Y = Triangle, LB = Select, LT / RT = L / R
+// (hold the claw / jump), Start = Start; fixed: d-pad, sticks, Back = settings menu (the game pauses while it is open).
+// The game's prompts are rewritten to match (PatchPrompts): SELECT -> LB, its button symbols -> A / B / X / Y / LT / RT.
 // Keys: arrows, Z = Cross, X = Circle, A = Square, S = Triangle, Q / W = L / R, Enter = Start, Tab = Select,
 // F11 fullscreen, Esc = settings menu.
 #include <SDL3/SDL.h>
@@ -84,7 +86,117 @@ struct PeekAddr { uint32_t addr; uint32_t off; bool ptr; };
 struct PeekLog { int f0, f1; std::string path; std::vector<PeekAddr> addrs; FILE* out = nullptr; };
 
 using ReadFn = size_t (*)(uint32_t, void*, size_t);
+using WriteFn = size_t (*)(uint32_t, const void*, size_t);
 using RangeFn = uint32_t (*)(uint32_t, uint32_t*);
+
+// The game's button prompts, rewritten for our pad layout (txk_menu.cpp). The texts sit in the game's data (eboot.bin,
+// loaded as is) and are overwritten in guest memory, each with a replacement no longer than it, zero-padded:
+// - SELECT -> LB in the three prompts that name it (title options, level select mode, pause quit), and level select's
+//   "& BUTTON STARTS" ('&' is the Cross symbol of the title font) -> A: exact strings, found by their bytes and
+//   terminators.
+// - The Vita button symbols of its menu font, in every text that says "button": 0x84 Cross -> A, 0x85 Circle -> B,
+//   0x82 Triangle -> Y, 0x83 Square -> X, 0x88 / 0x89 L / R -> LT / RT (the d-pad arrows 0x80 0x81 0x86 0x87 stay).
+//   Where "LT" / "RT" make a text longer, a colour code (~9xxx) is dropped from it to make room.
+// Tried every 120 frames until done (at most 30 tries); again after a restart of the game (g_restarts).
+int g_restarts = 0;
+
+// A text with the button symbols named for the Xbox pad, fitted into `room` bytes; empty if it can't be.
+std::string XboxGlyphs(const std::string& s, size_t room) {
+  std::string out;
+  for (char ch : s) {
+    switch (static_cast<uint8_t>(ch)) {
+      case 0x82: out += 'Y'; break;
+      case 0x83: out += 'X'; break;
+      case 0x84: out += 'A'; break;
+      case 0x85: out += 'B'; break;
+      case 0x88: out += "LT"; break;
+      case 0x89: out += "RT"; break;
+      default: out += ch;
+    }
+  }
+  while (out.size() > room) {   // drop the last colour code
+    size_t at = std::string::npos;
+    for (size_t i = out.size(); i-- > 0;)
+      if (out[i] == '~' && i + 5 <= out.size() && out[i + 1] == '9') { at = i; break; }
+    if (at == std::string::npos) return "";
+    out.erase(at, 5);
+  }
+  return out;
+}
+
+void PatchPrompts(int frame) {
+  struct Patch { std::string from, to; bool done = false; };
+  static std::vector<Patch> patches = {
+      {"_?PRESS ~7779SELECT_? FOR OPTIONS", "_?PRESS ~7779LB_? FOR OPTIONS"},
+      {"~9999PRESS SELECT TO CHANGE MODE", "~9999PRESS LB TO CHANGE MODE"},
+      {"~9909PRESS _1START ~9909TO RESUME OR _3SELECT ~9909TO QUIT", "~9909PRESS _1START ~9909TO RESUME OR _3LB ~9909TO QUIT"},
+      // Level select, in the title font: '&' is its Cross symbol (elsewhere '&' is an ampersand, so only here).
+      {"_1DIRECTIONAL BUTTONS SELECT LEVEL   ~7779&  _1BUTTON STARTS", "_1DIRECTIONAL BUTTONS SELECT LEVEL   ~7779A  _1BUTTON STARTS"},
+  };
+  static bool glyphs_done = false;
+  static int tries = 0, epoch = 0;
+  if (epoch != g_restarts) {
+    epoch = g_restarts;
+    tries = 0;
+    glyphs_done = false;
+    for (auto& p : patches) p.done = false;
+  }
+  if (tries >= 30 || frame % 120 != 119) return;
+  bool all = glyphs_done;
+  for (auto& p : patches) all &= p.done;
+  if (all) return;
+  ++tries;
+  auto rd = reinterpret_cast<ReadFn>(lr::CoreProc("llama_vita_read"));
+  auto wr = reinterpret_cast<WriteFn>(lr::CoreProc("llama_vita_write"));
+  auto next = reinterpret_cast<RangeFn>(lr::CoreProc("llama_vita_next_range"));
+  if (!rd || !wr || !next) { tries = 30; std::fprintf(stderr, "prompts: the core can't write guest memory\n"); return; }
+  auto eq = [](uint8_t a, char b) { return a == static_cast<uint8_t>(b); };   // bytes (the symbols are >= 0x80)
+  // The game's own image is loaded at 0x81000000 and up; its data is a few MB at most.
+  std::vector<uint8_t> buf;
+  uint32_t len = 0;
+  int glyph_texts = 0;
+  for (uint32_t at = next(0x81000000u, &len); at && at < 0x84000000u; at = next(at + len, &len)) {
+    if (len > (64u << 20)) continue;
+    buf.resize(len);
+    rd(at, buf.data(), len);
+    bool found_here = false;
+    for (auto& p : patches) {
+      if (p.done) continue;
+      const std::string want = std::string(1, '\0') + p.from + '\0';   // whole string: terminator before and after
+      auto it = std::search(buf.begin(), buf.end(), want.begin(), want.end(), eq);
+      if (it == buf.end()) continue;
+      const uint32_t addr = at + uint32_t(it - buf.begin()) + 1;
+      std::string out = p.to;
+      out.resize(p.from.size(), '\0');
+      p.done = wr(addr, out.data(), out.size()) == out.size();
+      found_here = true;
+      std::fprintf(stderr, "prompts: %s at %08X: %.40s\n", p.done ? "rewritten" : "write failed", addr, p.to.c_str());
+    }
+    // The symbols: in the range that holds the game's texts (where the SELECT prompts are), once.
+    if (glyphs_done || !found_here) continue;
+    glyphs_done = true;
+    for (size_t i = 0; i < buf.size(); ++i) {
+      const uint8_t c = buf[i];
+      if (!(c == 0x82 || c == 0x83 || c == 0x84 || c == 0x85 || c == 0x88 || c == 0x89)) continue;
+      size_t s = i, e = i;
+      while (s > 0 && buf[s - 1]) --s;
+      while (e < buf.size() && buf[e]) ++e;
+      const std::string text(reinterpret_cast<const char*>(buf.data() + s), e - s);
+      i = e;   // next text
+      bool is_text = text.find("utton") != std::string::npos;   // "button" / "Button": a prompt, not other data
+      for (char ch : text) {
+        const uint8_t u = static_cast<uint8_t>(ch);
+        if (!(u == '\n' || (u >= 0x20 && u < 0x7F) || (u >= 0x80 && u <= 0x89))) is_text = false;
+      }
+      if (!is_text) continue;
+      std::string out = XboxGlyphs(text, text.size());
+      if (out.empty()) { std::fprintf(stderr, "prompts: no room in a text at %08zX\n", at + s); continue; }
+      out.resize(text.size(), '\0');
+      if (wr(at + uint32_t(s), out.data(), out.size()) == out.size()) ++glyph_texts;
+    }
+    std::fprintf(stderr, "prompts: button symbols named in %d texts\n", glyph_texts);
+  }
+}
 
 bool DumpGuest(const std::string& path) {
   auto rd = reinterpret_cast<ReadFn>(lr::CoreProc("llama_vita_read"));
@@ -223,7 +335,7 @@ int main(int argc, char** argv) {
   std::vector<int> resets;
   std::vector<Shot> shots;
   std::vector<Press> presses;
-  std::vector<StickHold> sticks;
+  std::vector<StickHold> sticks, touches;   // touches: x, y from 0 to 1 on the picture
   std::vector<MemDump> memdumps;
   std::vector<MemSeq> memseqs;
   std::vector<PeekLog> peeks;
@@ -294,6 +406,10 @@ int main(int argc, char** argv) {
       StickHold h{0, 0.f, 0.f, 6};
       std::sscanf(val("--stick=").c_str(), "%d:%f,%f:%d", &h.frame, &h.x, &h.y, &h.len);
       sticks.push_back(h);
+    } else if (a.rfind("--touch=", 0) == 0) {
+      StickHold h{0, 0.5f, 0.5f, 6};
+      std::sscanf(val("--touch=").c_str(), "%d:%f,%f:%d", &h.frame, &h.x, &h.y, &h.len);
+      touches.push_back(h);
     } else if (a.rfind("--press=", 0) == 0) {
       auto v = val("--press=");
       auto c1 = v.find(':'), c2 = v.find(':', c1 + 1);
@@ -375,11 +491,19 @@ int main(int argc, char** argv) {
       for (auto& h : sticks)
         if (f >= h.frame && f < h.frame + h.len) { sx = h.x; sy = h.y; }
       lr::SetSticks(int(sx * 32767), int(sy * 32767), 0, 0);
+      {
+        bool down = false;
+        float tx = 0, ty = 0;
+        for (auto& h : touches)
+          if (f >= h.frame && f < h.frame + h.len) { down = true; tx = h.x; ty = h.y; }
+        lr::SetTouch(down, tx, ty);
+      }
       for (auto& o : setopts)
         if (o.frame == f) lr::SetOption(o.key, o.value);
       for (int r : resets)
-        if (r == f) lr::Reset();
+        if (r == f) { lr::Reset(); ++g_restarts; }
       lr::RunFrame();
+      PatchPrompts(f);
       auto& au = lr::Audio();
       if (!wav.empty()) wav_samples.insert(wav_samples.end(), au.begin(), au.end());
       au.clear();
@@ -446,6 +570,7 @@ int main(int argc, char** argv) {
   SDL_SetRenderVSync(ren, settings::Num("vsync", 1) != 0 ? 1 : 0);
   SDL_HideCursor();
   SDL_Texture* tex = nullptr;
+  SDL_FRect pic{};   // where the picture was last drawn (render output pixels): touches map onto it
   unsigned tw = 0, th = 0;
   SDL_AudioSpec spec{SDL_AUDIO_S16, 2, int(lr::SampleRate())};
   SDL_AudioStream* audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
@@ -501,6 +626,7 @@ int main(int argc, char** argv) {
           case menu::kToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
           case txk_menu::kRestart:
             lr::Reset();
+            ++g_restarts;   // (the prompts are rewritten again)
             menu::Toast("Restarting the game", now);
             break;
           default: break;
@@ -516,6 +642,14 @@ int main(int argc, char** argv) {
       while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
       if (now > next + uint64_t(frame_ns * 8)) next = now;
     }
+    {   // The Vita's touchscreen: the left mouse button on the picture - and a touch, which SDL (and on the Deck,
+        // Proton) turns into it. TxK: a tap launches the Supertapper (its smart bomb). Not while our menu is open.
+      float mx = 0, my = 0, rx = 0, ry = 0;
+      const SDL_MouseButtonFlags mb = SDL_GetMouseState(&mx, &my);
+      SDL_RenderCoordinatesFromWindow(ren, mx, my, &rx, &ry);
+      const bool down = (mb & SDL_BUTTON_LMASK) && !menu::IsOpen() && pic.w > 0 && pic.h > 0;
+      lr::SetTouch(down, down ? (rx - pic.x) / pic.w : 0.f, down ? (ry - pic.y) / pic.h : 0.f);
+    }
     for (int k = 0; k < todo; ++k) {
       lr::SetButtons(ReadPad(pad, SDL_GetKeyboardState(nullptr)) | scripted(frame));
       if (pad)
@@ -523,6 +657,7 @@ int main(int argc, char** argv) {
                         SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTX), SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTY));
       lr::RunFrame();
       ++frame;
+      PatchPrompts(frame);
       auto& au = lr::Audio();
       if (audio && !au.empty()) {
         if (SDL_GetAudioStreamQueued(audio) > int(lr::SampleRate()) * 4 / 10) SDL_ClearAudioStream(audio);
@@ -554,6 +689,7 @@ int main(int argc, char** argv) {
       if (w > ww) { w = float(ww); h = w * 544.f / 960.f; }
       SDL_FRect dst{(ww - w) / 2, (wh - h) / 2, w, h};
       SDL_RenderTexture(ren, tex, nullptr, &dst);
+      pic = dst;
     }
     if (menu::Shown()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, SDL_GetTicksNS());

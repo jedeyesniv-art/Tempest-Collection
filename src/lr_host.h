@@ -41,6 +41,9 @@ void SetButtons(uint16_t buttons);
 void SetSticks(int lx, int ly, int rx, int ry);
 // Relative mouse movement for the coming frame (RETRO_DEVICE_MOUSE; MAME's dial / spinner with mame_mouse_enable).
 void SetMouse(int dx, int dy);
+// A touch on the game's picture for the coming frames (RETRO_DEVICE_POINTER, one point; the Vita3K core's front
+// touchscreen): x, y from 0 (left / top) to 1 (right / bottom); down = false lifts it.
+void SetTouch(bool down, float x, float y);
 void RunFrame();                // one retro_run
 const Frame& LastFrame();
 uint64_t NewFrames();           // pictures the core has handed over so far (repeats of the last one not counted)
