@@ -6,8 +6,9 @@ graphics, an unlocked (interpolated) frame rate, Xbox-pad stick controls, QoL. A
 (the owner plays Tempest 2000 mode). Defender 2000 later ("kind of terrible": look for real improvements).
 **Entirely offline**: local git only, no remote, no push, no publishing until the owner decides.
 
-Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): T2K (done), T3K (Nuon,
-next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PLAN.md "Tempest Collection".
+Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): arcade Tempest (1981, MAME),
+T2K (Jaguar), T3K (Nuon), Space Giraffe (Steam), TxK (Vita), Tempest 4000 (Steam) - all six run from the launcher;
+PLAN.md "Tempest Collection" and "Collection status and open items".
 
 ## Layout
 - `Tempest 2000 (1994).jag` (MD5 602bc995..., == mwenge/tempest2k `make cartridge`), `Defender 2000 (1996).jag`
@@ -25,7 +26,8 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   the vector line export llama_mame_lines for t81's own beams, PLAN.md "t81 vectors drawn by us") for arcade Tempest (1981),
   built with only src/mame/atari/tempest.cpp by tools/build_mame.sh (Git Bash + the MinGW gcc 13.2 / GNU make in
   third_party/strawberry; SDL3 headers via -DSDLMAME_SDL3 for the libretro OSD's key table) ->
-  tempest_libretro.dll (43 MB, only Windows DLLs). Romset: tempest.zip (MAME's current split set) - not in git.
+  tempest_libretro.dll (43 MB, only Windows DLLs). Romset: tempest.zip, a MERGED set (the clones in sub-folders);
+  t81 offers rev 3 and Tempest Tubes (menu Version; PLAN.md item 3) - not in git.
 - T3K disc: Nuance_067\Tempest 3000.nuz (2026-11-17, tools/t3k_compress.py from the .iso: the music in nuon.dat as
   Ogg Vorbis, the rest raw; core src/disc_image.cpp). t3k.exe / the play folder prefer it over the .iso. PLAN.md item 2.
 - src/lr_host.cpp: the shared libretro host for DLL cores (txk.exe: Vita3K, OpenGL on demand; t81.exe: MAME,
@@ -33,6 +35,10 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   (MAME takes a missing answer as an empty value). LR_LOG_DEBUG=1 shows the cores' debug log.
 - src/host.cpp: libretro host (env callbacks, options, video XRGB8888, audio, input, save states).
 - src/main.cpp: SDL3 window + headless test mode.
+- Shared by the programs: src/menu.cpp (the settings menu, below), src/pixfont.cpp (the launcher's glowing 5x7 font and
+  glow lines - the launcher and the menus), src/crt.cpp + src/crt_menu.cpp (CRT looks and their menu section),
+  src/controls.cpp (remapping), src/settings.cpp, src/runlog.cpp (started with --from-launcher: stderr and the core's
+  messages -> userdata\logs\<game>.log, the previous run kept as <game>.old.log).
 - src/launcher.cpp: build\tempest.exe, the Tempest Collection launcher (starts t2k.exe / t3k.exe as processes,
   Steam link for T4K). PLAN.md "Tempest Collection".
 - Launcher look (2026-11-17, owner: "beautiful"): src/launcher_view.cpp, ported from the local design mockup
@@ -59,7 +65,9 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
 ## Build / test
 Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
 -> dist\TempestCollection\ (TempestCollection.exe launcher, t2k / t3k / txk / t81 + cores + C++ runtime, system\ with the
-installed Vita firmware, game\ = the four games hard-linked, userdata\ = the owner's, all fullscreen, TxK at 1x resolution for the Deck; ~1.21 GB, never publish).
+installed Vita firmware, game\ = the four games hard-linked (T3K as the .nuz), userdata\ = the owner's, all fullscreen, TxK
+at 1x resolution for the Deck; ~0.67 GB, never publish). The Nuance core is built WITHOUT AOT (tools\build_nuance.bat;
+"aot" argument -> build_nuance_aot\ for experiments): the AOT modules are translations of the game's code.
 Test build: powershell -ExecutionPolicy Bypass -File tools\package.ps1 -> dist\Tempest2000\ (Tempest2000.exe, the
 owner's .jag, userdata\settings.txt fullscreen = 1, README with Steam Deck steps) + dist\Tempest2000-test.zip. dist\ is not in git (the ROM is in it: never publish). Icon: tools/make_icon.py (an original claw ship) -> res/t2k.ico
 (exe, res/t2k.rc) + res/icon_rgba.h (window). userdata defaults to the exe's folder.
@@ -106,12 +114,16 @@ Runs ~4-5x real time headless. Core says 60.054 fps, 48044 Hz; picture 326x240.
   settings menu (pauses emulation), LB = camera view cycle, LT free.
 - Camera: `view` $E350 (0 standard follow, 1 whole web fixed, 2 close-up); the game resets it to 0 on game
   select. Setting camera_view is written every in-play frame, so the choice persists.
-- Menu: src/menu.cpp, SHARED by every game program since 2026-11-14 (SDL debug font, placeholder look): a game
-  registers its page with menu::SetPage (src/t2k_menu.cpp, src/t3k_menu.cpp; items show via `when` lambdas, game
-  actions numbered from menu::kGameAction) and its controls functions with controls::Setup. The launcher passes
-  --from-launcher (last item "Return to launcher"). t3k.exe: Back / Esc opens it, the emulation thread parks
-  (emu_pause / emu_parked) before the menu may change settings. Changes save at once via settings::Save (keeps the
-  file's comments). Esc opens it on the keyboard. Owner's top speed choice: lr_max_speed 0.41.
+- Menu: src/menu.cpp, SHARED by every game program: a game registers its page with menu::SetPage
+  (src/<game>_menu.cpp; items show via `when` lambdas, game actions numbered from menu::kGameAction; menu::SetAccent =
+  its launcher colour) and its controls functions with controls::Setup. Look (2026-11-17): the launcher's (pixfont).
+  One layout in every game: Resume / GAME / CONTROLS / PICTURE / CRT / CHEATS / Return to launcher; folds inside a
+  section = Page::Sub ("Fine-tune stick", "Fine-tune look", "Fine-tune CRT", "Buttons" = Page::Binds); a label's
+  leading spaces indent it under the item above; Fullscreen shows On / Off. The launcher passes --from-launcher (last
+  item "Return to launcher"). t3k.exe: the emulation thread parks (emu_pause / emu_parked) before the menu may change
+  settings. Changes save at once via settings::Save (keeps the file's comments). Esc opens it on the keyboard.
+  Tests: --menu / --menu=all (sections open), MENU_ALL_SUBS=1 (folds too), MENU_SELECT=N (selection N rows down).
+  Owner's T2K top speed choice: lr_max_speed 0.41.
 
 ## Pause line, quit to title, remapping, save states, EEPROM (2026-11-08)
 - Pause screen hook: paustuff's npspri $80DE3C "tst vadj" ($E9F8) -> jsr $DFFD80: if port $DFFE20 != 0 it prints
@@ -137,18 +149,23 @@ Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
 
-## Where we are (end of 2026-11-17; start here next time)
-All committed; play folder current (dist\TempestCollection, ~1.23 GB). The owner tested everything on the Steam Deck:
-all six games run from the launcher, T3K holds 90 at 30-40% CPU / GPU, T2K's 60 lock is good, TxK buttons / prompts
-are right, the launcher takes the front back after every game, Steam art works there, T4K has its music.
-THE TO-DO LIST (owner's decisions, ordered): PLAN.md "Collection status and open items" - first the in-game menu
-restyle + consistent menus across the games, then the T3K disc compression tool (asks before deleting the .iso), t81
-alternate versions, the publish version (no ROMs / BIOS, art kept), maybe a launcher settings screen (resolution for
-all games), maybe T3K cheats, Neon Mode much later. Decided against: high scores / last game / controls card in the
-launcher. Parked: SG hi-res objects, TxK save states, Defender 2000.
-This session's work (details in the dated sections below and in the Layout notes): launcher look + stings + Steam
-button + jokes, Steam art (tools/steam_art.py), T3K step stick mode + game-over input fix + CRT+ option + spin fixes,
-T2K frame_cap, T4K music on the Deck.
+## Where we are (end of 2026-11-17, evening; start here next time)
+All committed; play folder current (dist\TempestCollection, ~0.67 GB; the owner plays it from Steam on Windows and on
+the Steam Deck). THE TO-DO LIST: PLAN.md "Collection status and open items". Done 2026-11-17 from it: the menus
+(restyle + one layout), T3K disc compression, T81 versions, T3K infinite lives. Left: the PUBLISH version (only when
+the owner decides; its prep notes are under item 4: no AOT, the launcher's T3K compression, no owner saves), maybe a
+launcher settings screen, maybe more T3K cheats (god mode, max level), Neon Mode much later. PLAN.md "Watch list": a
+one-off TxK no-music + hang (logs exist now). Decided against / parked: PLAN.md.
+Waiting on the owner's Deck checks: the new menus with the pad (Fullscreen Left / Right, the folds); a possible T3K
+hitch at a level start (a track's first 32 s of music decodes on the emulation thread, 28-43 ms here); T81's wide
+framing in play on Tempest Tubes.
+2026-11-17 evening's work (details in PLAN.md items 1-6 and the sections here):
+- T3K: the disc as .nuz (tools/t3k_compress.py, core src/disc_image.cpp; nuon.dat = 19 music tracks, 32 kHz); the core
+  without AOT; stick modes Step / Stiff / Left-right (Momentum and Off removed); "Restart the game" (power-on snapshot
+  in memory, t3kscores::Restart); infinite lives (cheat_inf_lives).
+- T2K: Renderer Remaster / Emulation (setting native), melt sliders gone. T81: Version (rev 3 / Tempest Tubes, reloaded
+  in place, ROMs checked by CRC first), CRT+ / CRT++ (GPU renderer). All: the menus, the run logs.
+- Tools from the session: tools/iso_list.py, t3k_datmap.py, t3k_musicrate.py, wav_compare.py.
 
 ## T3K stick: step mode, owner's tuning, game-over input (2026-11-17)
 - stick_mode step (default; menu STICK): a push past sp_deadzone (0.20, 30% hysteresis) = exactly one lane (rapid
@@ -158,26 +175,15 @@ T2K frame_cap, T4K music on the Deck.
   = release + a nudge. No lead past a nudge's end (it overshot). Headless (logs/t3k/step, from play_f2700): nudge
   7 -> 8, three -> 10, wiggle RLRRL 8 7 8 9 8; first move 4 fields after the push (the game's late read).
 - Owner's tune = the defaults ("as good as we can get it for now"): sp_release off, sp_repeat_delay 0.10,
-  sp_ramp_time 0.30, sp_ramp_start 0.30, sp_step_time 0.09; stiff and momentum keep the owner's earlier tunes.
+  sp_ramp_time 0.30, sp_ramp_start 0.30, sp_step_time 0.09; stiff keeps the owner's earlier tune. (Momentum and Off
+  were removed 2026-11-17.)
 - No input on the title after a game over (every stick mode): the claw object stays in the pool from the first level
   select on, so ClawControl took every later menu for play. Now "in play" = the newest picture draws the web surface
   (SpeedControl::web, both renderers); else the stick is the d-pad. Rejected markers: pool handler $800B3090 (drops
   mid-play), a $800DC100 rewrite probe (not rewritten each picture). A save state from play_f2700 goes black after its
   game over even with the stick off (state artifact; from boot it's fine).
-- Still open there: T3K cheats (infinite lives $800BAC7C verified; god mode not found; max level candidates
-  untested - "T3K menu cleanup, save states"); interpolation for everything + run-ahead (not needed for speed now).
-
-## Where we were (end of the 2026-11-16 evening session; history)
-T3K, all committed; play folder repackaged 2026-11-17 with all of it. Owner: "playing and feeling very well".
-- Session's work (details in the dated T3K sections below): wide screens (any aspect wider than 4:3), game_speed
-  15-60 (owner plays 26) + the warp at 60 with a ramp, menu cleanup (Renderer Remaster / Emulation, per-renderer
-  options, save states slots 1-5, high_res removed, orange note only for emulated pictures), core fix for pad input
-  after a state load, the claw found on every level (it was d-pad-only on most levels before).
-- Earlier the same day: every picture native from power-on, YCrCb pipeline (src/shaders/ycc_*.hlsl;
-  tools/build_shaders.py, then `git checkout` the other regenerated *.dxil.h), sharp vectors, stiff stick mode
-  (owner's tuning; momentum kept as an option), no boot controller nag, point-ring sign fix. Lesson: whole-picture
-  mean error hides sparse errors - use sweeps / per-type / chain checks.
-- Was "known and accepted" (deaths kaleidoscopic on spinning levels) - it was our bug, fixed 2026-11-17 (signed zoom angle).
+- Still open there: T3K cheats (infinite lives in the menu since 2026-11-17; god mode not found; max level
+  candidates untested - "T3K menu cleanup, save states"); interpolation for everything + run-ahead (not needed now).
 
 ## T3K background spin / death "kaleidoscope" (2026-11-16, owner's state logs/t3k/rot/owner_rot.state)
 - CORRECTED 2026-11-17: the kaleidoscope in the WINDOW was ours: the zoom angle was read unsigned ($FF70 = 359.21
@@ -365,49 +371,12 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
 - Pixel loads in the MPE modules: Y byte << 22, Cr / Cb signed (byte - 128) << 22, Z byte << 24. PCLOG inside a module:
   NUANCE_NOJIT=1 NUANCE_AOT_SKIP=<lib prefix covering every chunk-start module> (timeline slips: same-run data only).
 
-## Collection state (2026-11-15)
-All five entries run from the launcher (tempest.exe; TempestCollection.exe in the play folder): Tempest (1981, t81 /
-MAME), Tempest 2000 (t2k), Tempest 3000 (t3k / Nuance), TxK (txk / Vita3K), Tempest 4000 (Steam, + helper DLL).
-The owner played the play folder on the Steam Deck: all good. Open items, in order: PLAN.md "Collection status and
-open items" (first: Tempest 4000 not offered on the Deck - the launcher's install check reads Windows Steam's
-registry, absent under Proton).
-
-## Where we were (end of 2026-11-09 morning; history)
-- Done: stage 1 host, stick controls (owner's lr tuning 0.41, aim as alternate), owner's button layout + remapping,
-  Back menu (settings, save states, return to title), quit to title on the pause screen in the game font, EEPROM
-  saves, cursor hidden. Remaster (F8, default on), every primitive verified against the GPU in one run
-  (RM_NOSKIP=1 RM_OURS=1 --rmshot): vect3d lines, solid web, starfield, solid claw / enemies, pixels / rings,
-  camel rex sprites (shots, pixel explosions). Smooth motion (interpolation, menu toggle) + run-ahead 2, any
-  aspect ratio (Hor+ / Vert+, HUD to the window corners). Details: REMASTER.md steps 2-6.
-- Owner 2026-11-09: smooth motion + run-ahead "look and feel incredible"; asked for any aspect ratio (done).
-
-## To do (refreshed 2026-11-09 evening; done items are in REMASTER.md steps 7-14)
-1. DONE: text over our own backgrounds (REMASTER.md step 15).
-2. DONE: pause / game options / high-score entry (step 15).
-3. DONE: feedback steps crossfade. Left (low value): slowdown repeats, multi-call objects by occurrence.
+## T2K leftovers (from the 2026-11-09 list; the rest is done - REMASTER.md steps 7-15)
 4. Unseen in tests: "Excellent" / one-up graphics, the AI droid's zap, Beastly mode (cheat_beastly unlocks it now).
 5. QoL: remember the window size / position; menu items for run_ahead (0-4) and hud_corners.
 6. Performance: 4K with CRT++; a low-end GPU (Steam Deck class) if that's a target.
 7. Open questions: the psycho bonus sphere invisible on the original (left to the GPU); the owner's "offset ghost
    image of the UI" (not reproduced; ceiling bonus mfudj merge 8 lines low is a candidate).
-7b. Tempest 3000 (Nuon) via the Nuance libretro core (third_party\NuanceResurrection, branch llamasoft-nuon, not in
-   the outer git; tools\build_nuance.bat then build.bat). State 2026-11-14 (details: PLAN.md "Tempest 3000 plan" and
-   "High resolution"): plays at full speed (emulated time, AOT, parallel renderers), flip_cap 3 (owner's choice,
-   20 pictures/s), picture_blend (F3), lr stick controls, F4 on-screen counter (pictures/s, fields/s).
-   HIGH RES 720x480 works (owner: "stunning"): setting high_res = 1 / --hires; core src/hires.cpp + hires_table.inc
-   (tools/t3k_hires_table.py: 87 code patches checked against original words), display list entry transforms by type,
-   buffers remapped above 8 MB. Original mode stays pixel-identical. Investigation tools: NUANCE_PIXLOG, _RECTLOG,
-   _BASELOG, _DMALOG, _HIRES_TRACE, _HIRES_SKIP (PLAN.md lists them). Open: big vector objects (size >= 256, the
-   spinning TEMPEST logo) stay old size; menu dot sizes; a high-res AOT catalogue exists (aot_catalog_hires ->
-   build_aot\aoth_*; small gain).
-   Launcher: build\tempest.exe (src/launcher.cpp), barebones; games run as separate processes. NEXT (owner agreed
-   direction): a shared in-game settings overlay (T2K's Back menu as a module; T3K: high_res, blend, flip_cap, stick,
-   controls, return to launcher), then the launcher's look and packaging all games together (local only).
-   Also open for T3K: high scores / options not saved (flash EEPROM not persisted), aim stick mode, open webs.
-8. TxK (PS Vita) via the Vita3K libretro core, after Tempest 3000: PLAN.md "TxK plan".
-8b. Neon Mode (Neon light synth as the in-play background), after TxK works in the combined build: PLAN.md
-   "Neon Mode plan".
-9. Then Defender 2000, starting with the automation trial (AUTOMATION.md, owner's plan 2026-11-09).
 - Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
   logs/demo6400.state (attract demo, pixel explosion at +104..+170).
 
