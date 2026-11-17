@@ -174,7 +174,7 @@ T3K, all committed; play folder repackaged 2026-11-17 with all of it. Owner: "pl
   tools/build_shaders.py, then `git checkout` the other regenerated *.dxil.h), sharp vectors, stiff stick mode
   (owner's tuning; momentum kept as an option), no boot controller nag, point-ring sign fix. Lesson: whole-picture
   mean error hides sparse errors - use sweeps / per-type / chain checks.
-- Known and accepted: per-level background spin (disc data) makes deaths kaleidoscopic on some levels - owner: fine.
+- Was "known and accepted" (deaths kaleidoscopic on spinning levels) - it was our bug, fixed 2026-11-17 (signed zoom angle).
 
 ## T3K background spin / death "kaleidoscope" (2026-11-16, owner's state logs/t3k/rot/owner_rot.state)
 - CORRECTED 2026-11-17: the kaleidoscope in the WINDOW was ours: the zoom angle was read unsigned ($FF70 = 359.21
