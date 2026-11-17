@@ -187,6 +187,17 @@ Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collect
   4:3 spots. 4:3 unchanged (nativecheck play 2.39, boot 1.09). Tests: --nativeaspect=W:H with --nativeshot,
   --winsize=WxH (window, not fullscreen). Shots: logs/t3k/wide/.
 
+## T3K options (2026-11-17, found, NOT kept - owner: not needed for now)
+- Options word $801133A8: bit $10 = backgrounds on (no visible change in play even via the game's own menu), bit $02 =
+  "nomen-clo-matic" level names; other bits are game state (in play it reads $14). FX level $8011344C (default 9),
+  music level $80113450 (default 14), u32. Menu code: MPE3 $80020CB8.. (eor $10 / eor 2, then rewrites the menu text).
+- Volumes reach the sound engine only by a call: start-up code $800206E6 calls $80022184(music << 25, fx << 25) once
+  (between boot fields 10 and 34; the pause sliders call it too). Defaults are in memory from field 2, so a keeper
+  would write the saved values at field 2 (untested). MediaOpen(2, "NUON.DAT") at boot is the disc's data file
+  (device 2 = DVD), not a save. Tools: --memdump also writes _mpe1 / _mpe2; tools/t3k_optsearch.py (label search
+  over dumps), tools/t3k_state3.py (A/B/A state compare); NUANCE_WATCH=<addr> + NUANCE_NOJIT=1 NUANCE_NOAOT=1 found
+  the menu code.
+
 ## T3K high scores (2026-11-16)
 - The game saves nothing (BIOS log: no flash / MemDev calls; it has level passwords). Table: 8 x u32 scores at
   $80113420 (defaults 10000 9123 8456 7789 6123 5456 4789 3123); names only in the high-score screen text at $8010C3A0

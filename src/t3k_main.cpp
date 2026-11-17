@@ -1442,10 +1442,10 @@ int main(int argc, char** argv) {
       }
       for (auto& d : memdumps)
         if (d.frame == f) {   // <prefix>_sys.bin ($80000000), _main.bin ($40000000), _mpe3.bin ($20000000)
-          const char* names[] = {"_sys.bin", "_main.bin", "_mpe0.bin", nullptr, nullptr, "_mpe3.bin"};
-          // T3K_MEMDUMP_REGIONS=sys,main,mpe0,mpe3 (default all four)
+          const char* names[] = {"_sys.bin", "_main.bin", "_mpe0.bin", "_mpe1.bin", "_mpe2.bin", "_mpe3.bin"};
+          // T3K_MEMDUMP_REGIONS=sys,main,mpe0,mpe1,mpe2,mpe3 (default all)
           const char* rg = std::getenv("T3K_MEMDUMP_REGIONS");
-          for (int w : {0, 1, 2, 5}) {
+          for (int w : {0, 1, 2, 3, 4, 5}) {
             if (rg) {   // "_sys.bin" -> "sys"
               std::string nm = names[w] + 1;
               nm = nm.substr(0, nm.find('.'));
