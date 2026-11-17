@@ -25,9 +25,10 @@ void Install(bool from_launcher) {
                    {"c_right", "C-right"}, {"l", "L"}, {"r", "R"}, {"start", "Start"}, {"nuon", "Nuon button"}},
                   defaults);
 
-  auto lr = [] { return settings::Str("stick_mode", "stiff") == "lr"; };
-  auto mo = [] { return settings::Str("stick_mode", "stiff") == "momentum"; };
-  auto st = [] { return settings::Str("stick_mode", "stiff") == "stiff"; };
+  auto lr = [] { return settings::Str("stick_mode", "step") == "lr"; };
+  auto mo = [] { return settings::Str("stick_mode", "step") == "momentum"; };
+  auto st = [] { return settings::Str("stick_mode", "step") == "stiff"; };
+  auto sp = [] { return settings::Str("stick_mode", "step") == "step"; };
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");
@@ -39,9 +40,18 @@ void Install(bool from_launcher) {
   p.Button("  Save state", menu::kSaveState)->slot_info = true;
   p.Button("  Load state", menu::kLoadState, true)->slot_info = true;
   p.Header("STICK");
-  p.Choice("Stick mode", "stick_mode", {"stiff", "lr", "momentum", "off"},
-           {"Stiff (T2K feel)", "Left / right", "Momentum (TxK feel)", "Off (stick = d-pad)"});
+  p.Choice("Stick mode", "stick_mode", {"step", "stiff", "lr", "momentum", "off"},
+           {"Step (nudge = a lane)", "Stiff (T2K feel)", "Left / right", "Momentum (TxK feel)", "Off (stick = d-pad)"});
   // the owner's tuning (2026-11-17) is each slider's default and its middle
+  p.Choice("  On release after a sweep", "sp_release", {"back", "nearest", "ahead", "off"},
+           {"Step back a lane (stop short)", "Nearest lane", "On to the next lane", "Off (stop where it is)"})->when = sp;
+  p.Number("  Top speed (lanes a second)", "sp_top_speed", 16, 34, 0.5, "%.1f", 25.0)->when = sp;
+  p.Number("  Hold before sweeping (s)", "sp_repeat_delay", 0.05, 0.35, 0.01, "%.2f", 0.15)->when = sp;
+  p.Number("  Ramp to top speed (s)", "sp_ramp_time", 0.02, 0.78, 0.02, "%.2f", 0.40)->when = sp;
+  p.Number("  Sweep start (of top)", "sp_ramp_start", 0.05, 0.45, 0.01, "%.2f", 0.25)->when = sp;
+  p.Number("  Step time (s a lane)", "sp_step_time", 0.01, 0.09, 0.01, "%.2f", 0.05)->when = sp;
+  p.Number("  Stick depth curve", "sp_curve", 0.5, 2.5, 0.1, "%.1f", 1.5)->when = sp;
+  p.Number("  Deadzone", "sp_deadzone", 0.10, 0.30, 0.01, "%.2f", 0.20)->when = sp;
   p.Number("  Fine zone (stick push)", "st_fine_threshold", 0.55, 0.95, 0.05, "%.2f", 0.75)->when = st;
   p.Number("  Fine speed (lanes a second)", "st_fine_speed", 0.5, 2.5, 0.25, "%.2f", 1.5)->when = st;
   p.Choice("  Fine moves", "st_fine_click", {"1", "0"}, {"Click lane to lane", "Glide"})->when = st;

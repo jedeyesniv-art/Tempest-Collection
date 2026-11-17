@@ -174,10 +174,10 @@ skip_controller_screen = 1
 keep_high_scores = 1
 
 # --- Stick controls for the claw (left stick; the d-pad keeps the original controls) ---
-# stiff = Tempest 2000's lr handling (speed follows the stick, slow start then quick, stops on a lane);
+# step = a push is one lane at once, held it sweeps, released it settles (sp_release); stiff = Tempest 2000's lr handling (speed follows the stick, slow start then quick, stops on a lane);
 # lr = push left / right: speed follows how far the stick is pushed, per picture; momentum = TxK's feel (below);
 # off = stick acts as the d-pad.
-stick_mode = stiff
+stick_mode = step
 lr_deadzone = 0.20
 # Top speed at full deflection, in lanes per picture (the game's own d-pad top speed is 0.94).
 lr_max_speed = 0.94
@@ -221,6 +221,17 @@ st_fine_click = 1
 st_snap_rate = 20
 # Past the last lane centre by this much (lanes) on release, the claw goes on to the next one (a tap = one lane).
 st_snap_ahead = 0.2
+# step: a push past sp_deadzone = one lane in sp_step_time s; held sp_repeat_delay s it sweeps from sp_ramp_start of
+# sp_top_speed (lanes a second) to top over sp_ramp_time s (stick depth caps the speed along sp_curve). On release
+# after a sweep: sp_release back (the last lane passed: stop short) / nearest / ahead (the next lane) / off.
+sp_deadzone = 0.20
+sp_step_time = 0.05
+sp_repeat_delay = 0.15
+sp_top_speed = 25.0
+sp_ramp_time = 0.40
+sp_ramp_start = 0.25
+sp_curve = 1.5
+sp_release = back
 )";
 
 struct Shot { int frame; std::string path; };
@@ -559,7 +570,85 @@ struct ClawControl {
     mo_v = std::clamp(v, -cap, cap);
   }
 
-  uint16_t Momentum(uint8_t* m, float stick_x, bool new_picture, bool stiff) {
+
+  // stick_mode step: time, not stick depth, is the control. A push past the deadzone = exactly one lane, at once
+  // (rapid pushes add up: three nudges = three lanes); held past sp_repeat_delay the claw sweeps, ramping to top speed
+  // (stick depth sets the top speed along sp_curve); on release after a sweep it settles by sp_release: back = the
+  // last lane centre it passed (stop short), nearest, ahead = the next one, off = stop where it is. Pushing the other
+  // way = a release, then a nudge from there. All distances relative to the model, so a closed web's wrap is harmless.
+  int sp_dir = 0;               // -1 / +1 while pushed (with hysteresis)
+  double sp_held = 0;           // seconds of the current push
+  double sp_rem = 0;            // lanes still to step (nudges / settling)
+  bool sp_sweeping = false;     // this push has become a sweep
+
+  void SpRelease(double pos, double p) {
+    // pos = the game's claw (what is seen), p = the model
+    const std::string how = settings::Str("sp_release", "back");
+    const double d = sp_dir;
+    double target;
+    if (how == "off") {   // where it is seen (the model may be behind the game's late move): hold the claw there
+      sp_rem = 0;
+      mo_err = 0;
+      return;
+    }
+    if (how == "nearest") target = std::round(pos);
+    else if (how == "ahead") target = d > 0 ? std::ceil(pos - 0.02) : std::floor(pos + 0.02);
+    else target = d > 0 ? std::floor(pos + 0.02) : std::ceil(pos - 0.02);   // back
+    sp_rem = target - p;
+  }
+
+  void StepModel(float stick_x, double pos, double dt) {
+    const double dz = std::clamp(settings::Num("sp_deadzone", 0.20), 0.02, 0.9);
+    const double ax = std::fabs(stick_x);
+    const int want = ax > dz ? (stick_x > 0 ? 1 : -1) : (ax > dz * 0.7 ? sp_dir : 0);   // 30% hysteresis
+    const double p = pos + mo_err;
+    if (want != sp_dir) {
+      if (sp_dir != 0 && sp_sweeping) SpRelease(pos, p);
+      if (want != 0) {   // a nudge: one lane on from the lane the claw is at (or is already stepping to)
+        const double base = std::fabs(sp_rem) > 1e-6 ? p + sp_rem : std::round(p);
+        // reversing a step in flight: from the lane it has reached
+        const double from = sp_rem * want < 0 ? std::round(p) : base;
+        sp_rem = from + want - p;
+      }
+      sp_dir = want;
+      sp_held = 0;
+      sp_sweeping = false;
+    }
+    const double step_v = 1.0 / std::max(0.01, settings::Num("sp_step_time", 0.05));   // lanes a second
+    if (sp_dir != 0) {
+      sp_held += dt;
+      if (!sp_sweeping && sp_held >= settings::Num("sp_repeat_delay", 0.15)) {
+        sp_sweeping = true;
+        sp_held = 0;
+      }
+      if (sp_sweeping) {
+        const double top = std::max(1.0, settings::Num("sp_top_speed", 25.0));
+        const double r0 = std::clamp(settings::Num("sp_ramp_start", 0.25), 0.0, 1.0);
+        const double u = std::min(1.0, (ax - dz) / std::max(0.01, 1.0 - dz));
+        const double cap = top * (r0 + (1 - r0) * std::pow(std::max(0.0, u), settings::Num("sp_curve", 1.5)));
+        const double t = std::clamp(sp_held / std::max(0.01, settings::Num("sp_ramp_time", 0.40)), 0.0, 1.0);
+        const double speed = std::min(cap, top * (r0 + (1 - r0) * t * t * (3 - 2 * t)));
+        // finish the nudge's step first (never slower than the sweep)
+        if (sp_rem * sp_dir > 1e-6) {
+          const double mv = std::min(std::fabs(sp_rem), std::max(step_v, speed) * dt) * sp_dir;
+          sp_rem -= mv;
+          mo_v = mv / dt;
+        } else {
+          sp_rem = 0;
+          mo_v = sp_dir * speed;
+        }
+        return;
+      }
+    }
+    const double mv = std::clamp(sp_rem, -step_v * dt, step_v * dt);
+    sp_rem -= mv;
+    if (std::fabs(sp_rem) < 1e-6) sp_rem = 0;
+    mo_v = mv / dt;
+  }
+
+  // kind: 0 momentum, 1 stiff, 2 step
+  uint16_t Momentum(uint8_t* m, float stick_x, bool new_picture, int kind) {
+    const bool stiff = kind == 1;
     const double dt = 1.0 / 60.0;   // one field
     const double pos = int32_t(Get(m, claw_at)) / 65536.0;
     if (!mo_live) {
@@ -572,6 +661,10 @@ struct ClawControl {
       st_release = 1e9;
       st_v0 = 0;
       st_fine = false;
+      sp_dir = 0;
+      sp_held = 0;
+      sp_rem = 0;
+      sp_sweeping = false;
     }
     double moved = pos - mo_prev;
     mo_prev = pos;
@@ -583,7 +676,7 @@ struct ClawControl {
       mo_err -= moved;
       // Asked to move but didn't: the end of an open web (the game clamps). Stop there.
       if (std::fabs(mo_req) > 0.05 && moved == 0) {
-        if (++mo_stuck >= 2) { mo_v = 0; mo_err = 0; }
+        if (++mo_stuck >= 2) { mo_v = 0; mo_err = 0; sp_rem = 0; }
       } else {
         mo_stuck = 0;
       }
@@ -593,7 +686,9 @@ struct ClawControl {
     ++mo_since;
 
     // The model, one field.
-    if (stiff) {
+    if (kind == 2) {
+      StepModel(stick_x, pos, dt);
+    } else if (stiff) {
       StiffModel(stick_x, pos, dt);
     } else {
     const double dz = settings::Num("mo_deadzone", 0.08);
@@ -649,8 +744,8 @@ struct ClawControl {
     size_t n = 0;
     uint8_t* const m = nuon::Memory(0, &n);
     const bool claw = m && n >= 0x800000 && FindClaw(m);
-    const std::string mode = settings::Str("stick_mode", "stiff");
-    const bool ours = mode == "lr" || mode == "momentum" || mode == "stiff";
+    const std::string mode = settings::Str("stick_mode", "step");
+    const bool ours = mode == "lr" || mode == "momentum" || mode == "stiff" || mode == "step";
     if (!claw || !ours || dpad_lr) {
       if (claw && Get(m, claw_at + 8) != 0x10000) Put(m, claw_at + 8, 0x10000);
       last_dir = 0;
@@ -666,7 +761,8 @@ struct ClawControl {
     const bool new_picture = picture != last_picture;
     last_picture = picture;
     mo_absent = 0;
-    if (mode == "momentum" || mode == "stiff") return Momentum(m, stick_x, new_picture, mode == "stiff");
+    if (mode == "momentum" || mode == "stiff" || mode == "step")
+      return Momentum(m, stick_x, new_picture, mode == "step" ? 2 : mode == "stiff" ? 1 : 0);
 
     const double dz = settings::Num("lr_deadzone", 0.2);
     const double ax = std::fabs(stick_x);
@@ -783,8 +879,8 @@ uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
     const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
     set(nuon::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -16000);
     set(nuon::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 16000);
-    const std::string sm = settings::Str("stick_mode", "stiff");
-    const bool stick_lr = sm == "lr" || sm == "momentum" || sm == "stiff";   // then the claw controller handles x
+    const std::string sm = settings::Str("stick_mode", "step");
+    const bool stick_lr = sm == "lr" || sm == "momentum" || sm == "stiff" || sm == "step";   // then the claw controller handles x
     set(nuon::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || (!stick_lr && lx < -16000));
     set(nuon::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || (!stick_lr && lx > 16000));
   }

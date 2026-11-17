@@ -136,6 +136,13 @@ Waiting on the owner's Deck test: TxK buttons / prompts / tap; launcher focus af
   round (default, owner) or arcade 3:4.
 - 2026-11-17 later: T3K orange patches fixed (warp / bonus): float feedback textures + the zoom fade rounded once per
   picture, toward neutral when brightening. PLAN.md "Orange patches". Owner to look in the window / on the Deck. PLAN.md "t81 vectors drawn by us". Waiting on the owner's look on the Deck.
+- 2026-11-17 later: T3K stick_mode step (new default; menu STICK): a push past sp_deadzone (0.20, 30% hysteresis) =
+  exactly one lane (rapid nudges add up), held sp_repeat_delay 0.15 s it sweeps (sp_ramp_start 0.25 of sp_top_speed 25
+  over sp_ramp_time 0.40 s), released after a sweep: sp_release back (owner: "stop short of danger"; last lane passed,
+  by the SEEN claw) / nearest / ahead / off (stops where seen: mo_err = 0, as the model trails the game). Reverse =
+  release + a nudge. Headless (logs/t3k/step, from play_f2700): nudge 7 -> 8, three -> 10, wiggle RLRRL 8 7 8 9 8,
+  first move 4 fields after the push (the game's late read). Owner's stiff tuning (Transfers file) = stiff defaults.
+  Waiting on the owner's feel test (play folder rebuilt 15:08, userdata stick_mode = step).
 Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
 - T3K cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found
   yet: next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested).
