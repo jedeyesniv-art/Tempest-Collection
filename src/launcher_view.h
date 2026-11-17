@@ -35,6 +35,9 @@ void Draw(SDL_Renderer* ren, int sel, double dt, const std::string& message);
 void StartWarp(int i);
 bool Warping();
 
+// An extra button in the hint row (e.g. "Y  ADD TO STEAM"); empty = none.
+void SetExtraHint(const std::string& hint);
+
 // The screen under a starting game: its logo and "STARTING ..." on black.
 void DrawStarting(SDL_Renderer* ren, int i, const std::string& text);
 

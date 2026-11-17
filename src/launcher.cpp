@@ -14,10 +14,12 @@
 // hand-over on stderr (tests); --select=N starts with entry N selected. Test environment: LAUNCHER_FAKE_WINE=1 (act as
 // under Proton), LAUNCHER_PROC_DIR (instead of Z:\proc), LAUNCHER_DRY_URL=1 (don't open steam:// links),
 // LAUNCHER_NO_REGISTRY=1 + STEAM_COMPAT_CLIENT_INSTALL_PATH + LAUNCHER_LINUX_DRIVE (the Deck's Steam lookup).
+// --steam-button presses Y at start (logs the result); LAUNCHER_STEAM_NOT_RUNNING=1 never closes the real Steam (tests).
 // Steam entries say what to do when not set up: buy / install (A opens the store page), a missing helper, or on the
 // Deck the launch option to add (read from Steam's localconfig.vdf; Steam rewrites it, so we can't set it).
 // Keys: Left / Right (d-pad, left stick) choose, Up / Down the variant (Space Giraffe: Acid / Nuxx), Enter / A start,
-// F11 fullscreen, Esc / B quit. Steam games: Tempest 4000; Space Giraffe (the helper d3d9.dll is copied next to the game
+// Y (keyboard S) adds the collection to Steam with its library art (Steam is closed for it and started again), or
+// when it is in Steam already (always on the Deck) writes the art (steam_shortcut.cpp). F11 fullscreen, Esc / B quit. Steam games: Tempest 4000; Space Giraffe (the helper d3d9.dll is copied next to the game
 // and its flavour written to sg_helper.txt there before Steam starts it).
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -33,6 +35,7 @@
 #include <vector>
 
 #include "launcher_view.h"
+#include "steam_shortcut.h"
 #include "settings.h"
 
 namespace fs = std::filesystem;
@@ -189,6 +192,30 @@ fs::path SteamGameDir(const char* app) {
     if (!dir.empty() && fs::exists(lib / "steamapps" / "common" / dir, ec)) return lib / "steamapps" / "common" / dir;
   }
   return {};
+}
+
+// Windows Steam's program (registry SteamPath), or empty.
+fs::path SteamExePath() {
+  char steam[MAX_PATH] = {};
+  DWORD size = sizeof(steam);
+  if (RegGetValueA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath", RRF_RT_REG_SZ, nullptr, steam, &size) !=
+      ERROR_SUCCESS)
+    return {};
+  const fs::path exe = fs::path(steam) / "steam.exe";
+  return fs::exists(exe) ? exe : fs::path{};
+}
+
+// Runs a program with arguments and does not wait; false on failure.
+bool RunDetached(const fs::path& exe, const std::wstring& args) {
+  STARTUPINFOW si{};
+  si.cb = sizeof(si);
+  PROCESS_INFORMATION pi{};
+  std::wstring cmd = L"\"" + exe.wstring() + L"\" " + args;
+  if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, exe.parent_path().c_str(), &si, &pi))
+    return false;
+  CloseHandle(pi.hThread);
+  CloseHandle(pi.hProcess);
+  return true;
 }
 
 // Copies `src` to `dst` when missing or different; false on failure.
@@ -385,11 +412,13 @@ std::vector<lview::Entry> ViewEntries(const std::vector<Game>& games) {
 int main(int argc, char** argv) {
   std::string shot;   // --shot=<file.bmp>: draw one frame, save it, exit (tests)
   int select_arg = -1;   // --select=N: start with entry N selected (tests: its instructions in --shot)
+  bool steam_button_arg = false;   // --steam-button: press Y (add to Steam / its art) at start (tests)
   int autostart = -1;   // --autostart=N: start game N (list order) at once (tests; logs the focus hand-over)
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]).rfind("--shot=", 0) == 0) shot = argv[i] + 7;
     if (std::string(argv[i]).rfind("--autostart=", 0) == 0) autostart = std::atoi(argv[i] + 12);
     if (std::string(argv[i]).rfind("--select=", 0) == 0) select_arg = std::atoi(argv[i] + 9);
+    if (std::string(argv[i]) == "--steam-button") steam_button_arg = true;
   }
   SetProcessDPIAware();
   // The Deck: the pad must reach the launcher after a Steam game even before it has input focus (see bg_ok).
@@ -508,6 +537,72 @@ int main(int argc, char** argv) {
     child_started = SDL_GetTicksNS();
     child_pushed = 0;
   };
+  // ---- Steam: add the collection (Y) / its library art ----
+  wchar_t self_buf[MAX_PATH] = {};
+  GetModuleFileNameW(nullptr, self_buf, MAX_PATH);
+  const fs::path self_exe(self_buf);
+  const fs::path steam_art = fs::exists(base / "steam_art") ? base / "steam_art" : base / ".." / "art" / "steam";
+  steamsc::Shortcut shortcut;
+  uint64_t steam_confirm_until = 0;   // "press Y again" (Steam is running and has to close)
+  auto refresh_steam = [&] {
+    shortcut = steamsc::Find(SteamRoots(), self_exe.filename().wstring());
+    std::string hint;
+    if (!shortcut.config.empty() && fs::exists(steam_art)) {
+      if (shortcut.found) hint = "Y  STEAM ART";
+      else if (!UnderWine()) hint = "Y  ADD TO STEAM";
+    }
+    lview::SetExtraHint(hint);
+  };
+  refresh_steam();
+  auto steam_button = [&] {
+    message.clear();
+    if (shortcut.config.empty()) { message = "Steam not found"; return; }
+    if (!fs::exists(steam_art)) { message = "no steam_art folder next to the launcher"; return; }
+    if (shortcut.found) {   // in Steam already: the art only (Steam may run)
+      const std::string err = steamsc::WriteArt(shortcut, steam_art);
+      message = err.empty() ? "Steam art set - Steam shows it after a restart" : err;
+      return;
+    }
+    if (UnderWine()) {   // the Deck: it runs from Steam, so it is in there under another name or account
+      message = "add TempestCollection.exe to Steam in desktop mode";
+      return;
+    }
+    const fs::path steam_exe = SteamExePath();
+    bool reopen = false;
+    HANDLE running_steam = std::getenv("LAUNCHER_STEAM_NOT_RUNNING") ? nullptr : FindProcess(L"steam.exe");   // (tests)
+    if (HANDLE h = running_steam) {   // Steam keeps the list in memory: it has to close first
+      CloseHandle(h);
+      const uint64_t now = SDL_GetTicksNS();
+      if (now > steam_confirm_until) {
+        steam_confirm_until = now + 6000000000ull;
+        message = "Steam closes for a moment to add it - press Y again";
+        return;
+      }
+      steam_confirm_until = 0;
+      if (steam_exe.empty() || !RunDetached(steam_exe, L"-shutdown")) { message = "could not close Steam"; return; }
+      const uint64_t t0 = SDL_GetTicksNS();
+      bool closed = false;
+      while (SDL_GetTicksNS() - t0 < 40000000000ull) {   // up to 40 s
+        lview::DrawStarting(ren, -1, "CLOSING STEAM...");
+        SDL_RenderPresent(ren);
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {}
+        SDL_Delay(250);
+        HANDLE s = FindProcess(L"steam.exe");
+        if (!s) { closed = true; break; }
+        CloseHandle(s);
+      }
+      if (!closed) { message = "Steam did not close - try again with Steam closed"; return; }
+      SDL_Delay(1000);   // (its last writes)
+      reopen = true;
+    }
+    std::string err = steamsc::Add(shortcut, "Tempest Collection", self_exe, self_exe);
+    if (err.empty()) err = steamsc::WriteArt(shortcut, steam_art);
+    if (reopen && !steam_exe.empty()) RunDetached(steam_exe, L"");
+    message = err.empty() ? "added to Steam as Tempest Collection" : err;
+    refresh_steam();
+  };
+
   int pending = -1;   // a game to start once the start warp has played
   auto move = [&](int d) {
     if (pending >= 0) return;
@@ -536,6 +631,10 @@ int main(int argc, char** argv) {
   float stick_x = 0.f;
 
   if (autostart >= 0 && autostart < int(games.size())) start(autostart);
+  if (steam_button_arg) {
+    steam_button();
+    std::fprintf(stderr, "launcher: steam button: %s\n", message.c_str());
+  }
   HWND me = static_cast<HWND>(
       SDL_GetPointerProperty(SDL_GetWindowProperties(win), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
   while (running) {
@@ -642,6 +741,7 @@ int main(int argc, char** argv) {
           case SDL_SCANCODE_UP: variant(-1); break;
           case SDL_SCANCODE_DOWN: variant(1); break;
           case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: case SDL_SCANCODE_SPACE: request_start(sel); break;
+          case SDL_SCANCODE_S: steam_button(); break;
           case SDL_SCANCODE_ESCAPE: running = false; break;
           case SDL_SCANCODE_F11: {
             const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
@@ -658,6 +758,7 @@ int main(int argc, char** argv) {
           case SDL_GAMEPAD_BUTTON_DPAD_UP: variant(-1); break;
           case SDL_GAMEPAD_BUTTON_DPAD_DOWN: variant(1); break;
           case SDL_GAMEPAD_BUTTON_SOUTH: case SDL_GAMEPAD_BUTTON_START: request_start(sel); break;
+          case SDL_GAMEPAD_BUTTON_NORTH: steam_button(); break;
           case SDL_GAMEPAD_BUTTON_EAST: running = false; break;
           default: break;
         }

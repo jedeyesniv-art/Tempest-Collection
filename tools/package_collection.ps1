@@ -186,7 +186,9 @@ STEAM DECK (desktop mode, then play in game mode):
  3. In the new entry: Properties > Compatibility > Force the use of a specific Steam Play compatibility tool
     > Proton Experimental (or the newest Proton).
  4. Back in game mode, launch it from your library.
- 5. Library art (steam_art\, desktop mode, on the game's entry in the Steam library):
+ 5. Library art: in the launcher press Y (STEAM ART), then restart Steam (or the Deck) to see it.
+    (On Windows, Y on a collection that is not in Steam yet adds it - "ADD TO STEAM": Steam closes for a moment
+    and starts again.) By hand instead (steam_art\, desktop mode, on the game's entry in the Steam library):
       grid picture   right-click the game > Manage > Set custom artwork > capsule_600x900.png
       wide picture   in the library's grid, switch the shelf to landscape (or "Recent Games"), right-click >
                      Manage > Set custom artwork > wide_capsule_920x430.png
@@ -195,7 +197,7 @@ STEAM DECK (desktop mode, then play in game mode):
       icon           Properties > the square icon next to the name > icon_256.png
 
 PAD (each game's menu can remap its buttons)
- Launcher: left / right choose, up / down Space Giraffe's flavour (Acid / Nuxx), A start, B quit.
+ Launcher: left / right choose, up / down Space Giraffe's flavour (Acid / Nuxx), A start, Y Steam, B quit.
  Tempest (1981): left stick / d-pad spin, A / RT fire, B / RB / X Superzapper, Y coin, Start start.
  Tempest 2000: A fire, X / RT jump, B / RB Superzapper, Y Option, Start pause, LB camera view.
  Tempest 3000: left stick claw, A / B / X / Y as the Nuon A / B / C-left / C-up, LB / RB L / R, LT / RT C-down /

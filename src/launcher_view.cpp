@@ -116,6 +116,7 @@ std::vector<float> g_fades;   // background crossfade per entry
 float g_pos = 0.f;            // eased scroll position
 double g_time = 0.0;
 int g_warp = -1;
+std::string g_extra_hint;
 double g_warp_t = 0.0;
 int g_w = 0, g_h = 0;
 
@@ -564,6 +565,8 @@ void SetEntries(const std::vector<Entry>& entries) {
   g_fades.assign(entries.size(), 0.f);
 }
 
+void SetExtraHint(const std::string& hint) { g_extra_hint = hint; }
+
 void StartWarp(int i) {
   g_warp = i;
   g_warp_t = 0.0;
@@ -681,7 +684,10 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
     Fill(w / 2 + (i - (n - 1) / 2.f) * u * 7 - s / 2, h * 0.085f - s / 2, s, s,
          i == sel ? StyleOf(g_entries[i].id).accent : Col{1, 1, 1}, i == sel ? 1.f : 0.25f);
   }
-  Text(e.variant.empty() ? "< >  CHOOSE     A  START     B  QUIT" : "< >  CHOOSE     ^ v  FLAVOUR     A  START     B  QUIT",
+  std::string hints = e.variant.empty() ? "< >  CHOOSE     A  START" : "< >  CHOOSE     ^ v  FLAVOUR     A  START";
+  if (!g_extra_hint.empty()) hints += "     " + g_extra_hint;
+  hints += "     B  QUIT";
+  Text(hints,
        w / 2, h - h * 0.04f, u * 0.8f, {120 / 255.f, 200 / 255.f, 1}, 0.8f);
 
   // the start warp: beams rushing out of the panel, then white
