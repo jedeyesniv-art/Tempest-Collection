@@ -1168,7 +1168,7 @@ To do, at the end:
    decodes on the caller, 28-43 ms here, at the title / a level start (watch for a hitch on the Deck; fix would be a
    decoded head per track). NUANCE_NUZLOG=1 prints decode times. t3k FindDisc and package_collection.ps1 prefer the
    .nuz. Verified: same disc reads, pictures byte-identical to the .iso at fields 3000 / 5990 and from a state; audio
-   aligned (lag 0, tools/wav_compare.py). Play folder 704 MB. The .iso is still there (owner decides).
+   aligned (lag 0, tools/wav_compare.py). Play folder 704 MB; owner tested it from Steam on Windows: works well. The .iso is still there (owner decides).
    For the publish version the tool needs Python + soundfile (libsndfile's Vorbis encoder).
 3. T81 ALTERNATE VERSIONS (could be neat): pick the other sets in tempest.zip (rev 1, rev 2, Tempest Tubes ...) from
    t81's menu, with our vector renderer / framing on all of them (check their monitor geometry and HUD positions -
