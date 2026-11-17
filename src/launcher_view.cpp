@@ -678,7 +678,15 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
   if (!message.empty()) Text(message, w / 2, ty + u * 2, u * 0.8f, {1, 1, 0.3f}, 1);
 
   // header, position dots, hints
-  Text("TEMPEST COLLECTION", w / 2, h * 0.035f, u * 1.2f, {1, 80 / 255.f, 1}, 1);
+  // the header, with the owner's jokes over the two games that aren't called Tempest (crossfading as the scroll
+  // settles on them)
+  const char* header = e.id == "sg" ? "IT'S NOT TEMPEST!!" : e.id == "txk" ? "IT'S LEGALLY NOT TEMPEST!" : nullptr;
+  if (header) {
+    Text("TEMPEST COLLECTION", w / 2, h * 0.035f, u * 1.2f, {1, 80 / 255.f, 1}, 1 - show);
+    Text(header, w / 2, h * 0.035f, u * 1.2f, {1, 80 / 255.f, 1}, show);
+  } else {
+    Text("TEMPEST COLLECTION", w / 2, h * 0.035f, u * 1.2f, {1, 80 / 255.f, 1}, 1);
+  }
   for (int i = 0; i < n; ++i) {
     const float s = i == sel ? u * 2.4f : u * 1.4f;
     Fill(w / 2 + (i - (n - 1) / 2.f) * u * 7 - s / 2, h * 0.085f - s / 2, s, s,

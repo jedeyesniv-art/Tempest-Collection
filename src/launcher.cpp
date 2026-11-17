@@ -441,6 +441,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   SDL_SetRenderVSync(ren, 1);
+  SDL_HideCursor();   // pad / keyboard only
   if (settings::Num("fullscreen", 1) != 0) SDL_SetWindowFullscreen(win, true);
 
   // the art: art\ next to the program (the play folder), else the repo's art\panels (build\tempest.exe)
