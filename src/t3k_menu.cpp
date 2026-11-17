@@ -40,38 +40,39 @@ void Install(bool from_launcher) {
   p.Choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
   p.Button("  Save state", menu::kSaveState)->slot_info = true;
   p.Button("  Load state", menu::kLoadState, true)->slot_info = true;
-  p.Header("STICK");
+  p.Header("CONTROLS");
   p.Choice("Stick mode", "stick_mode", {"step", "stiff", "lr"},
            {"Step (nudge = a lane)", "Stiff (T2K feel)", "Left / right"});
+  p.Sub("Fine-tune stick");
   // the owner's tuning (2026-11-17) is each slider's default and its middle
-  p.Choice("  On release after a sweep", "sp_release", {"off", "back", "nearest", "ahead"},
+  p.Choice("On release after a sweep", "sp_release", {"off", "back", "nearest", "ahead"},
            {"Off (stop where it is)", "Step back a lane (stop short)", "Nearest lane", "On to the next lane"})->when = sp;
-  p.Number("  Top speed (lanes a second)", "sp_top_speed", 16, 34, 0.5, "%.1f", 25.0)->when = sp;
-  p.Number("  Hold before sweeping (s)", "sp_repeat_delay", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = sp;
-  p.Number("  Ramp to top speed (s)", "sp_ramp_time", 0.02, 0.58, 0.02, "%.2f", 0.30)->when = sp;
-  p.Number("  Sweep start (of top)", "sp_ramp_start", 0.05, 0.55, 0.01, "%.2f", 0.30)->when = sp;
-  p.Number("  Step time (s a lane)", "sp_step_time", 0.01, 0.17, 0.01, "%.2f", 0.09)->when = sp;
-  p.Number("  Stick depth curve", "sp_curve", 0.5, 2.5, 0.1, "%.1f", 1.5)->when = sp;
-  p.Number("  Deadzone", "sp_deadzone", 0.10, 0.30, 0.01, "%.2f", 0.20)->when = sp;
-  p.Number("  Fine zone (stick push)", "st_fine_threshold", 0.55, 0.95, 0.05, "%.2f", 0.75)->when = st;
-  p.Number("  Fine speed (lanes a second)", "st_fine_speed", 0.5, 2.5, 0.25, "%.2f", 1.5)->when = st;
-  p.Choice("  Fine moves", "st_fine_click", {"1", "0"}, {"Click lane to lane", "Glide"})->when = st;
-  p.Number("  Top speed (lanes a second)", "st_top_speed", 16, 34, 0.5, "%.1f", 25.0)->when = st;
-  p.Number("  Ramp to top speed (s)", "st_ramp_time", 0.02, 0.78, 0.02, "%.2f", 0.40)->when = st;
-  p.Number("  First speed (of top)", "st_ramp_start", 0, 0.16, 0.01, "%.2f", 0.08)->when = st;
-  p.Number("  Sweep curve", "st_curve", 1.0, 3.0, 0.1, "%.1f", 2.0)->when = st;
-  p.Number("  Deadzone", "st_deadzone", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = st;
-  p.Number("  Ease-off (s)", "st_ease_time", 0, 0.2, 0.01, "%.2f", 0)->when = st;
-  p.Choice("  Stop on a lane (after a sweep)", "st_snap", {"0", "1"}, {"Off", "On"})->when = st;
-  p.Number("  Top speed (lanes a picture)", "lr_max_speed", 0.30, 1.50, 0.01, "%.2f", 0.94)->when = lr;
-  p.Number("  Ramp to top speed (pictures)", "lr_ramp_pictures", 1, 12, 1, "%.0f", 4)->when = lr;
-  p.Number("  First-picture speed", "lr_ramp_start", 0, 1, 0.05, "%.2f", 0.30)->when = lr;
-  p.Number("  Deflection curve", "lr_curve", 1, 3, 0.1, "%.1f", 1.5)->when = lr;
-  p.Number("  Deadzone", "lr_deadzone", 0.05, 0.5, 0.01, "%.2f", 0.20)->when = lr;
-  p.Number("  Ease-off (pictures)", "lr_release_pictures", 0, 4, 1, "%.0f", 1)->when = lr;
+  p.Number("Top speed (lanes a second)", "sp_top_speed", 16, 34, 0.5, "%.1f", 25.0)->when = sp;
+  p.Number("Hold before sweeping (s)", "sp_repeat_delay", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = sp;
+  p.Number("Ramp to top speed (s)", "sp_ramp_time", 0.02, 0.58, 0.02, "%.2f", 0.30)->when = sp;
+  p.Number("Sweep start (of top)", "sp_ramp_start", 0.05, 0.55, 0.01, "%.2f", 0.30)->when = sp;
+  p.Number("Step time (s a lane)", "sp_step_time", 0.01, 0.17, 0.01, "%.2f", 0.09)->when = sp;
+  p.Number("Stick depth curve", "sp_curve", 0.5, 2.5, 0.1, "%.1f", 1.5)->when = sp;
+  p.Number("Deadzone", "sp_deadzone", 0.10, 0.30, 0.01, "%.2f", 0.20)->when = sp;
+  p.Number("Fine zone (stick push)", "st_fine_threshold", 0.55, 0.95, 0.05, "%.2f", 0.75)->when = st;
+  p.Number("Fine speed (lanes a second)", "st_fine_speed", 0.5, 2.5, 0.25, "%.2f", 1.5)->when = st;
+  p.Choice("Fine moves", "st_fine_click", {"1", "0"}, {"Click lane to lane", "Glide"})->when = st;
+  p.Number("Top speed (lanes a second)", "st_top_speed", 16, 34, 0.5, "%.1f", 25.0)->when = st;
+  p.Number("Ramp to top speed (s)", "st_ramp_time", 0.02, 0.78, 0.02, "%.2f", 0.40)->when = st;
+  p.Number("First speed (of top)", "st_ramp_start", 0, 0.16, 0.01, "%.2f", 0.08)->when = st;
+  p.Number("Sweep curve", "st_curve", 1.0, 3.0, 0.1, "%.1f", 2.0)->when = st;
+  p.Number("Deadzone", "st_deadzone", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = st;
+  p.Number("Ease-off (s)", "st_ease_time", 0, 0.2, 0.01, "%.2f", 0)->when = st;
+  p.Choice("Stop on a lane (after a sweep)", "st_snap", {"0", "1"}, {"Off", "On"})->when = st;
+  p.Number("Top speed (lanes a picture)", "lr_max_speed", 0.30, 1.50, 0.01, "%.2f", 0.94)->when = lr;
+  p.Number("Ramp to top speed (pictures)", "lr_ramp_pictures", 1, 12, 1, "%.0f", 4)->when = lr;
+  p.Number("First-picture speed", "lr_ramp_start", 0, 1, 0.05, "%.2f", 0.30)->when = lr;
+  p.Number("Deflection curve", "lr_curve", 1, 3, 0.1, "%.1f", 1.5)->when = lr;
+  p.Number("Deadzone", "lr_deadzone", 0.05, 0.5, 0.01, "%.2f", 0.20)->when = lr;
+  p.Number("Ease-off (pictures)", "lr_release_pictures", 0, 4, 1, "%.0f", 1)->when = lr;
   p.Binds();
-  p.Header("DISPLAY");
-  p.Button("Fullscreen on / off", menu::kToggleFullscreen);
+  p.Header("PICTURE");
+  p.Button("Fullscreen", menu::kToggleFullscreen);
   // Remaster (the native renderer) or Emulation (the original pictures); each one's options only show with it
   auto rem = [] { return settings::Num("native_view", 1) == 1; };
   auto emu = [] { return settings::Num("native_view", 1) != 1; };
@@ -79,7 +80,7 @@ void Install(bool from_launcher) {
   p.Choice("Renderer", "native_view", {"1", "0"}, {"Remaster", "Emulation (original)"});
   p.Choice("  Wide screens", "widescreen", {"1", "0"}, {"Fill the width", "4:3 with bars"})->when = rem;
   p.Choice("  Smooth motion", "native_interpolate", {"1", "0"}, {"On", "Off"})->when = rem;
-  p.Choice("  Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp (text, claw, enemies)", "Original"})->when = rem;
+  p.Choice("  Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp", "Original"})->when = rem;
   p.Number("    Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;
   p.Number("    Glow", "sharp_glow", 0, 1, 0.05, "%.2f", 0.4)->when = sharp;
   p.Choice("  Picture blend (F3)", "picture_blend", {"1", "0"}, {"On", "Off"})->when = emu;

@@ -39,8 +39,19 @@ bool Visible(const Item& i) { return !i.when || i.when(); }
 bool Open(int section) { return section < 0 || (section < int(g_open_sections.size()) && g_open_sections[section]); }
 bool Shown(const Item& i) {
   if (i.kind == Kind::Header) return !i.label.empty();
-  return Visible(i) && Open(i.section);
+  if (!Visible(i) || !Open(i.section)) return false;
+  if (i.kind == Kind::Sub) {   // only while something in it can show
+    if (i.label.empty()) return false;
+    const int k = int(&i - g_items.data());
+    for (size_t j = size_t(k) + 1; j < g_items.size() && g_items[j].sub == k; ++j)
+      if (Visible(g_items[j])) return true;
+    return false;
+  }
+  return i.sub < 0 || Open(i.sub);
 }
+bool Folds(const Item& i) { return i.kind == Kind::Header || i.kind == Kind::Sub; }
+SDL_Window* g_window = nullptr;   // the window drawn into last (Fullscreen's On / Off)
+bool IsFullscreenItem(const Item& i) { return i.kind == Kind::Button && i.action == kToggleFullscreen; }
 bool Selectable(const Item& i) { return Shown(i); }
 
 const std::string& DefaultValue(const Item& i) { return i.def_value.empty() ? i.values[0] : i.def_value; }
@@ -58,6 +69,7 @@ std::string ValueText(const Item& i) {
     return buf;
   }
   if (i.kind == Kind::Bind) return g_capture == i.fn ? "press a button..." : controls::ButtonsFor(i.fn);
+  if (IsFullscreenItem(i) && g_window) return (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) ? "On" : "Off";
   if (i.slot_info && g_slot_info) return g_slot_info();
   return "";
 }
@@ -129,8 +141,15 @@ Item* Page::Button(const std::string& label, int action, bool closes) {
   return &items.back();
 }
 
-void Page::Binds(const std::string& header) {
-  Header(header);
+void Page::Sub(const std::string& label) {
+  Item i;
+  i.kind = Kind::Sub;
+  i.label = label;
+  items.push_back(std::move(i));
+}
+
+void Page::Binds(const std::string& label) {
+  Sub(label);
   for (int f = 1; f < controls::FnCount(); ++f) {
     Item i;
     i.kind = Kind::Bind;
@@ -147,10 +166,19 @@ void Page::Binds(const std::string& header) {
 void SetPage(const std::string& title, Page page) {
   g_title = title;
   g_items = std::move(page.items);
-  int sec = -1;
+  int sec = -1, sub = -1;
   for (size_t k = 0; k < g_items.size(); ++k) {
-    if (g_items[k].kind == Kind::Header) sec = g_items[k].label.empty() ? -1 : int(k);
-    else g_items[k].section = sec;
+    Item& it = g_items[k];
+    if (it.kind == Kind::Header) {
+      sec = it.label.empty() ? -1 : int(k);
+      sub = -1;
+    } else if (it.kind == Kind::Sub) {
+      it.section = sec;
+      sub = it.label.empty() ? -1 : int(k);
+    } else {
+      it.section = sec;
+      it.sub = sub;
+    }
   }
   g_open_sections.assign(g_items.size(), false);
   g_sel = 0;
@@ -187,8 +215,10 @@ bool Shown() {
   return SDL_GetTicksNS() < g_changed_at + kSlideNs;   // sliding out
 }
 void Open(bool expand_all) {
-  if (expand_all) {
-    std::fill(g_open_sections.begin(), g_open_sections.end(), true);
+  if (expand_all) {   // (tests) every section open; the folds inside too with MENU_ALL_SUBS=1
+    const bool subs = std::getenv("MENU_ALL_SUBS") != nullptr;
+    for (size_t k = 0; k < g_items.size(); ++k)
+      if (g_items[k].kind == Kind::Header || (subs && g_items[k].kind == Kind::Sub)) g_open_sections[k] = true;
   }
   if (!g_open) g_changed_at = SDL_GetTicksNS();
   g_open = true;
@@ -225,7 +255,7 @@ int Update(const Nav& nav, uint64_t now) {
   if (nav.back && !p.back) { Close(); return kClose; }
   if (nav.ok && !p.ok) {
     const Item& it = items[g_sel];
-    if (it.kind == Kind::Header) { g_open_sections[g_sel] = !g_open_sections[g_sel]; return kNone; }
+    if (Folds(it)) { g_open_sections[g_sel] = !g_open_sections[g_sel]; return kNone; }
     if (it.kind == Kind::Bind) { g_capture = it.fn; return kNone; }
     if (it.kind == Kind::ResetBinds) { controls::ResetDefaults(); return kNone; }
     if (it.kind == Kind::Button) {
@@ -247,8 +277,10 @@ int Update(const Nav& nav, uint64_t now) {
     g_repeat_at = now + 70000000ull;
   }
   if (fire) {
+    const bool fresh = g_repeat_at == now + 350000000ull;   // (not a held repeat)
     if (dir == -2 || dir == 2) Move(items, dir / 2);
-    else if (items[g_sel].kind == Kind::Header) g_open_sections[g_sel] = dir > 0;   // right opens, left folds
+    else if (Folds(items[g_sel])) g_open_sections[g_sel] = dir > 0;   // right opens, left folds
+    else if (IsFullscreenItem(items[g_sel])) { if (fresh) return kToggleFullscreen; }
     else Change(items[g_sel], dir);
   }
   return kNone;
@@ -295,6 +327,8 @@ void FillRect(SDL_Renderer* ren, float x, float y, float w, float h, pixfont::Co
   SDL_RenderFillRect(ren, &r);
 }
 float Unit(int h) { return std::max(2.f, h / 300.f); }
+// Characters in from the left: sections' items 2, a fold's items 4.
+int Indent(const Item& i) { return i.kind == Kind::Header || i.section < 0 ? 0 : i.sub >= 0 ? 4 : 2; }
 }  // namespace
 
 void SetAccent(float r, float g, float b) { g_accent = {r, g, b}; }
@@ -302,6 +336,7 @@ void SetAccent(float r, float g, float b) { g_accent = {r, g, b}; }
 void Draw(SDL_Renderer* ren, int w, int h) {
   const auto& items = Items();
   if (items.empty()) return;
+  g_window = SDL_GetRenderWindow(ren);
   // Slide: eased in over kSlideNs when opening, out when closing.
   uint64_t now = SDL_GetTicksNS();
   float t = std::clamp(float(double(now - g_changed_at) / double(kSlideNs)), 0.f, 1.f);
@@ -354,23 +389,30 @@ void Draw(SDL_Renderer* ren, int w, int h) {
   const float list_top = rule_y + lh * 0.9f, list_bottom = help_rule - lh * 0.5f;
 
   // Lay out the shown items: label wrapped beside a right-aligned value; a long value gets its own line.
-  struct Row { int item; std::vector<std::string> label; std::string value; bool value_below; };
+  struct Row { int item; std::vector<std::string> label; std::string value; bool value_below; int indent; };
   std::vector<Row> rows;
   int sel_line0 = 0, sel_lines = 1, total = 0;
   for (size_t k = 0; k < items.size(); ++k) {
     const Item& it = items[k];
     if (!Shown(it)) continue;
-    Row r{int(k), {}, "", false};
+    Row r{int(k), {}, "", false, 0};
     bool sel = int(k) == g_sel;
-    if (it.kind == Kind::Header) {
-      r.label = Wrap(std::string(1, g_open_sections[k] ? pixfont::kOpen : pixfont::kFolded) + " " + it.label, cols);
+    // a label's own leading spaces indent it further (an option that belongs to the one above it)
+    const size_t lead = std::min(it.label.find_first_not_of(' '), it.label.size());
+    const std::string text = it.label.substr(lead);
+    const int indent = Indent(it) + int(lead);
+    r.indent = indent;
+    if (Folds(it)) {
+      r.label = Wrap(std::string(1, g_open_sections[k] ? pixfont::kOpen : pixfont::kFolded) + " " + text,
+                     cols - indent);
     } else {
       r.value = ValueText(it);
-      if (sel && !r.value.empty() && (it.kind == Kind::Choice || it.kind == Kind::Number)) r.value = "< " + r.value + " >";
+      if (sel && !r.value.empty() && (it.kind == Kind::Choice || it.kind == Kind::Number || IsFullscreenItem(it)))
+        r.value = "< " + r.value + " >";
       int vcols = int(r.value.size());
-      int lcols = cols - 2 - (vcols ? vcols + 2 : 0);   // (2: the indent)
-      if (vcols && int(it.label.size()) > lcols && lcols < cols / 2) { r.value_below = true; lcols = cols - 2; }
-      r.label = Wrap(it.label, lcols);
+      int lcols = cols - indent - (vcols ? vcols + 2 : 0);
+      if (vcols && int(text.size()) > lcols && lcols < cols / 2) { r.value_below = true; lcols = cols - indent; }
+      r.label = Wrap(text, lcols);
     }
     int n = int(r.label.size()) + (r.value_below ? 1 : 0);
     if (sel) sel_line0 = total, sel_lines = n;
@@ -398,10 +440,10 @@ void Draw(SDL_Renderer* ren, int w, int h) {
         pixfont::Glow(ren, ox + u * 2.5f, y0 + u, ox + u * 2.5f, y1 - u, u * 0.45f, g_accent, pulse, 5.f);
       }
     }
-    const bool header = it.kind == Kind::Header;
-    float lx = x0 + (header || it.section < 0 ? 0 : 2 * cw);
-    pixfont::Col lc = header ? g_accent : sel ? white : label_col;
-    float la = header ? 1.f : sel ? 1.f : 0.85f, lg = header ? 0.9f : sel ? 0.5f : 0.f;
+    const bool header = it.kind == Kind::Header, sub = it.kind == Kind::Sub;
+    float lx = x0 + r.indent * cw;
+    pixfont::Col lc = header ? g_accent : sel ? white : sub ? Mix(g_accent, label_col, 0.45f) : label_col;
+    float la = header || sel ? 1.f : 0.85f, lg = header ? 0.9f : sub ? 0.4f : sel ? 0.5f : 0.f;
     for (size_t k = 0; k < r.label.size(); ++k)
       if (in_view(y + k * lh)) pixfont::Text(ren, r.label[k], lx, y + k * lh + text_dy, u, lc, la, -1, lg);
     if (!r.value.empty()) {

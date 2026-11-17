@@ -426,7 +426,7 @@ int main(int argc, char** argv) {
           case menu::kToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
           case t81_menu::kReset:
             lr::Reset();
-            menu::Toast("Machine reset", now);
+            menu::Toast("Restarting the game", now);
             break;
           case menu::kSaveState:
             menu::Toast(SaveStateFile(StatePath(udir)) ? "State saved (" + SlotInfo(udir) + ")" : "Save failed", now);

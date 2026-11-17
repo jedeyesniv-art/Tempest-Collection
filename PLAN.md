@@ -1150,7 +1150,12 @@ To do, at the end:
    renderer, scanlines on 480 lines), T3K CRT+ (default off); TxK none. RESTYLE first pass 2026-11-17: src/pixfont.cpp (the
    launcher's glowing 5x7 font + glow lines, shared; launcher shots byte-identical after the move; added ; [ ] | * #,
    chevrons, descenders for g p q y) and menu.cpp drawn with it in each game's launcher colour (menu::SetAccent); BUTTONS
-   header short, its help shows on a button row. Test hook MENU_SELECT=N. Waiting for the owner's look.
+   header short, its help shows on a button row. Test hook MENU_SELECT=N.
+   COMMON LAYOUT 2026-11-17: every game RESUME / GAME / CONTROLS (stick or spinner, "Fine-tune stick" and "Buttons"
+   folds) / PICTURE (Fullscreen with its On / Off first, Renderer Remaster / Emulation in T2K, T3K and T81, "Fine-tune
+   look" fold) / CRT ("Fine-tune CRT" fold) / CHEATS (T2K) / Return to launcher. Folds inside sections = menu Kind::Sub
+   (Page::Sub). T81 / TxK "Restart the game". A label's leading spaces indent it again (lost to the word wrap before).
+   Tests: --menu=all opens the sections, MENU_ALL_SUBS=1 the folds too.
    Original note: restyle the shared in-game settings menu (src/menu.cpp, still the SDL debug font) in
    the launcher's look (glowing pixel font, colours, panels), AND make the ordering and options consistent and useful
    across the games (t2k_menu / t3k_menu / t81_menu / txk_menu): same sections in the same order, same names for the

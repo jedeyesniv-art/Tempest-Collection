@@ -25,7 +25,7 @@ enum Action : int {
   kGameAction = 100
 };
 
-enum class Kind { Header, Choice, Number, Button, Bind, ResetBinds };
+enum class Kind { Header, Sub, Choice, Number, Button, Bind, ResetBinds };
 
 struct Item {
   Kind kind = Kind::Header;
@@ -43,19 +43,24 @@ struct Item {
   int fn = 0;                           // Bind: controls:: function
   std::function<bool()> when;           // shown only while this is true (unset: always)
   int section = -1;                     // (set by SetPage) the header it belongs to; -1 = none
+  int sub = -1;                         // (set by SetPage) the fold inside the section it belongs to; -1 = none
 };
 
 // Builds a page. The returned pointers are valid until the next call (set `when` etc. right away).
 struct Page {
   std::vector<Item> items;
   void Header(const std::string& label);      // "" ends the sections (later items are always shown)
+  // A fold inside a section ("Fine-tune stick"): the items after it, up to the next Sub / Header, show only while it
+  // is open; it shows only while one of them is visible. Sub("") ends it within the section.
+  void Sub(const std::string& label);
   Item* Choice(const std::string& label, const std::string& key, std::vector<std::string> values,
                std::vector<std::string> names);
   Item* Number(const std::string& label, const std::string& key, double lo, double hi, double step, const char* fmt,
                double def);
   Item* Button(const std::string& label, int action, bool closes = false);
-  // A BUTTONS section: one row per controls:: function (A on it, then a button) and "Reset buttons to defaults".
-  void Binds(const std::string& header = "BUTTONS");
+  // A "Buttons" fold in the current section: one row per controls:: function (A on it, then a button) and "Reset
+  // buttons to defaults".
+  void Binds(const std::string& label = "Buttons");
 };
 
 // title: shown at the top of the panel ("TEMPEST 2000 - SETTINGS": the game big, the rest under it).

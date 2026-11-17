@@ -30,10 +30,11 @@ void Install(bool from_launcher) {
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");
-  p.Button("Restart the game (applies the resolution)", kRestart, true);
+  p.Button("Restart the game", kRestart, true);
+  p.Header("CONTROLS");
   p.Binds();
-  p.Header("DISPLAY");
-  p.Button("Fullscreen on / off", menu::kToggleFullscreen);
+  p.Header("PICTURE");
+  p.Button("Fullscreen", menu::kToggleFullscreen);
   p.Choice("Internal resolution (restart the game to apply)", "vita3k_resolution_multiplier", {"1", "2", "3", "4"},
            {"1x 960x544", "2x 1920x1088", "3x 2880x1632", "4x 3840x2176"});
   p.Choice("Texture filtering (anisotropic)", "vita3k_anisotropic_filtering", {"1", "2", "4", "8", "16"},
