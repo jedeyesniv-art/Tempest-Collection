@@ -12,7 +12,7 @@ Sources (found 2026-11-17):
        no sound), 'screeeam' (gotu: a flipper catching the claw)
   t3k  recorded from t3k.exe with the music level poked to 0 at boot: the claw's lane click (repeats per lane while
        held; frame 3310), the death (2.3 s from frame 3510, then the warp back in)
-  sg   GRsounds.xwb (no names in the bank): SG_MOVE / SG_LAUNCH below - provisional, owner to pick from sg_bank\\
+  sg   GRsounds.xwb (no names in the bank): SG_MOVE / SG_LAUNCH below (the beep, the phone - owner's choice)
   txk  the game's assets: tink.wav (the same sample T4K has), shipexplosion.wav (TxK's own)
   t4k  the Steam install's assets: clawmove.wav, shipexplosion.wav
 """
@@ -28,7 +28,7 @@ OUT = os.path.join(ROOT, 'art', 'sounds')
 REC = os.path.join(ROOT, 'logs', 'sounds')
 STEAM = r'C:\Program Files (x86)\Steam\steamapps\common'
 TXK = None   # found in main(): the play folder's or build's game\PCSB00494\assets
-SG_MOVE, SG_LAUNCH = 21, 34   # provisional (GRsounds.xwb entries)
+SG_MOVE, SG_LAUNCH = 21, 34   # GRsounds.xwb entries: the beep and the phone (owner: perfect, 2026-11-17)
 RATE = 48000
 
 
