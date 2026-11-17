@@ -135,7 +135,9 @@ Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collect
 - T3K options / music / fx levels not saved (flash); interpolation for everything + run-ahead; orange patches on the
   brightest warp / bonus screens; sharpen the glowing text (0010000D) if wanted.
 - T2K performance plan for the end (PLAN.md "T2K performance plan"); T4K on the Deck, Space Giraffe entry, t81 CRT,
-  TxK saves.
+  TxK save states (none in Vita3K; only an in-session "pause instead of quit" is realistic).
+- DONE 2026-11-17: TxK's own saves work - the host maps the game's user data to userdataita3k\ (savedata\PCSB00494  gilesdata.bin + SlotParam_0.bin, trophies), written since 2026-11-14 and copied into the play folder. Load-back on start
+  not confirmed yet (owner to check scores / unlocks).
 
 ## T3K background spin / death "kaleidoscope" (2026-11-16, owner's state logs/t3k/rot/owner_rot.state)
 - Not a bug of ours: the Emulation picture does the same. The zoom feedback's angle (entry 00300004 w6, copied each
