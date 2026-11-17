@@ -114,9 +114,34 @@ Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
 
-## Where we are (end of the 2026-11-16 evening session, ran past midnight; start here next time)
-T3K, all committed; play folder repackaged 2026-11-17 with all of it (dist\TempestCollection, 1.21 GB, no
-userdata\emulated any more). Owner: "playing and feeling very well".
+## Where we are (end of the 2026-11-17 session; start here next time)
+All committed; play folder rebuilt 2026-11-17 12:27 (dist\TempestCollection, 1.21 GB). Owner is testing it on the Deck.
+Done this session (details in the dated sections below):
+- Space Giraffe (Steam 27800) in the launcher with our d3d9 helper: Acid / Nuxx choice (Acid default), dialogs
+  answered, borderless full screen at desktop res + refresh (120 fps; speed normal, owner checked), 20% stick
+  deadzone. Owner on the Deck: works. PARKED: "hi-res objects" is never saved (a game bug, also on the Deck).
+- Launcher: list in date order (SG between T3K and TxK); Steam games found on the Deck (STEAM_COMPAT_CLIENT_INSTALL_PATH
+  -> Z:\, manifests), both helpers copied on every start (T4K's xinput DLLs too), steam:// works from Proton (owner),
+  setup instructions when not installed / launch option missing (Steam's localconfig.vdf, read only), Steam games
+  brought to the front on Windows and waited for; on the Deck the launcher watches Z:\proc and takes focus + pad back
+  when the game ends (UNTESTED on the Deck: whether Z:\proc shows other Proton containers).
+- TxK: T4K-style buttons (LB = Select, LT / RT = hold / jump, RB free, Back = our menu), its prompts rewritten for
+  the Xbox pad in guest memory (core llama_vita_write), touchscreen = left mouse / touch on the picture (Supertapper
+  tap). TxK's own saves work (userdata\vita3k). Owner to test on the Deck: buttons, prompts, tap.
+- T3K options found but not kept (owner: not needed): notes in "T3K options".
+Waiting on the owner's Deck test: TxK buttons / prompts / tap; launcher focus after a Steam game.
+Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
+- T3K cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found
+  yet: next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested).
+  See "T3K menu cleanup, save states".
+- T3K: orange patches on the brightest warp / bonus screens; interpolation for everything + run-ahead; sharpen the
+  glowing text (0010000D) if wanted; the claw fix was measured on levels 1 / 7 / 15 only.
+- SG hi-res objects (parked; heap scan + pointer, or hook the code that reads it).
+- T2K performance plan for the end (PLAN.md "T2K performance plan"); t81 CRT; TxK save states (none in Vita3K; only
+  an in-session "pause instead of quit" is realistic). Defender 2000 later.
+
+## Where we were (end of the 2026-11-16 evening session; history)
+T3K, all committed; play folder repackaged 2026-11-17 with all of it. Owner: "playing and feeling very well".
 - Session's work (details in the dated T3K sections below): wide screens (any aspect wider than 4:3), game_speed
   15-60 (owner plays 26) + the warp at 60 with a ramp, menu cleanup (Renderer Remaster / Emulation, per-renderer
   options, save states slots 1-5, high_res removed, orange note only for emulated pictures), core fix for pad input
@@ -126,19 +151,6 @@ userdata\emulated any more). Owner: "playing and feeling very well".
   (owner's tuning; momentum kept as an option), no boot controller nag, point-ring sign fix. Lesson: whole-picture
   mean error hides sparse errors - use sweeps / per-type / chain checks.
 - Known and accepted: per-level background spin (disc data) makes deaths kaleidoscopic on some levels - owner: fine.
-Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
-- Cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found yet:
-  next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested). See
-  "T3K menu cleanup, save states".
-- The claw fix was measured on levels 1 / 7 / 15 only (level select reached nothing else with fast presses): check
-  more levels / an open web in the window if the owner reports anything.
-- T3K options / music / fx levels not saved (flash); interpolation for everything + run-ahead; orange patches on the
-  brightest warp / bonus screens; sharpen the glowing text (0010000D) if wanted.
-- T2K performance plan for the end (PLAN.md "T2K performance plan"); T4K + Space Giraffe on the Deck (Steam lookup under Proton), t81 CRT,
-  TxK save states (none in Vita3K; only an in-session "pause instead of quit" is realistic).
-- DONE 2026-11-17: TxK's own saves work - the host maps the game's user data to userdata\vita3k\ (savedata\PCSB00494\
-  gilesdata.bin + SlotParam_0.bin, trophies), written since 2026-11-14 and copied into the play folder. Load-back on
-  start not confirmed yet (owner to check scores / unlocks).
 
 ## T3K background spin / death "kaleidoscope" (2026-11-16, owner's state logs/t3k/rot/owner_rot.state)
 - Not a bug of ours: the Emulation picture does the same. The zoom feedback's angle (entry 00300004 w6, copied each
