@@ -90,7 +90,10 @@ that window and starts at the desktop's current resolution and refresh rate (als
 game leaves off its list, e.g. 4K at 120 Hz). Hold Shift while it starts to get the window back (e.g. for
 Configure Keyboard). It writes a small log, t4k_autostart.log, next to the game's program.
 
-INSTALL: copy xinput1_4.dll and xinput1_3.dll into BOTH of the game's folders:
+The Tempest Collection launcher copies them into place itself each time it starts Tempest 4000 (Windows and the Steam
+Deck). On the Deck Proton still needs the launch option below, set once in Steam.
+
+BY HAND (without the launcher): copy xinput1_4.dll and xinput1_3.dll into BOTH of the game's folders:
   <Steam library>\steamapps\common\Tempest 4000\Win10\
   <Steam library>\steamapps\common\Tempest 4000\Win7-8\
   (Steam: right-click Tempest 4000 > Manage > Browse local files.)
@@ -120,12 +123,10 @@ flavour into sg_helper.txt there. The helper then:
 Other settings in sg_helper.txt (key = value): borderless, vsync, max_fps (e.g. 60), stick_deadzone (percent),
 dpi_aware, input_log. Hold Shift while the game starts to get its own windows. Log: sg_helper.log next to the game.
 
-STEAM DECK: Proton must load the helper instead of its own d3d9: in Steam, Space Giraffe > Properties > General >
-Launch options:
+STEAM DECK: the launcher finds the game there too (through the Steam folder Steam gives Proton games) and copies the
+helper the same way. Proton must load the helper instead of its own d3d9: set once in Steam, Space Giraffe >
+Properties > General > Launch options:
     WINEDLLOVERRIDES="d3d9=n,b" %command%
-(The launcher can't find Steam's game folder from inside Proton yet - same as Tempest 4000. Until then, copy
-d3d9.dll by hand into ~/.local/share/Steam/steamapps/common/Space Giraffe/ and put "flavour = acid" in
-sg_helper.txt there.)
 
 UNINSTALL: delete d3d9.dll and sg_helper.txt from the game's folder (and the launch option).
 "@ | Set-Content -Encoding ascii (Join-Path $sg "README.txt")

@@ -99,38 +99,88 @@ std::string VdfValue(const std::string& s, const std::string& key, size_t from =
   return v;
 }
 
-// The game's install folder (Steam's library folders, each with steamapps\appmanifest_<id>.acf); empty if not found.
-fs::path SteamGameDir(const char* app) {
+// Running under Wine / Proton (the Steam Deck): ntdll has wine_get_version.
+bool UnderWine() {
+  static const bool wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
+  return wine;
+}
+
+// A path as Steam wrote it, for this process: Linux paths ("/home/deck/...", "/run/media/...") are on Wine's Z:
+// drive (LAUNCHER_LINUX_DRIVE overrides it, for tests on Windows); Windows paths stay.
+fs::path HostPath(std::string p) {
+  if (p.empty() || p[0] != '/') return fs::path(p);
+  const char* drive = std::getenv("LAUNCHER_LINUX_DRIVE");
+  for (auto& c : p) if (c == '/') c = '\\';
+  return fs::path(std::string(drive ? drive : "Z:") + p);
+}
+
+// Steam's own folders: Windows Steam's (registry), and under Proton the real Steam client's, which Steam passes to
+// every Proton game (a non-Steam shortcut too) as STEAM_COMPAT_CLIENT_INSTALL_PATH (a Linux path).
+// LAUNCHER_NO_REGISTRY=1 skips the registry (tests of the Deck path on Windows).
+std::vector<fs::path> SteamRoots() {
+  std::vector<fs::path> roots;
+  if (const char* p = std::getenv("STEAM_COMPAT_CLIENT_INSTALL_PATH"); p && *p) roots.push_back(HostPath(p));
   char steam[MAX_PATH] = {};
   DWORD size = sizeof(steam);
-  if (RegGetValueA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath", RRF_RT_REG_SZ, nullptr, steam, &size) !=
-      ERROR_SUCCESS)
-    return {};
-  std::vector<fs::path> libs = {fs::path(steam)};
-  const std::string vdf = ReadFile(fs::path(steam) / "steamapps" / "libraryfolders.vdf");
-  for (size_t at = 0; (at = vdf.find("\"path\"", at)) != std::string::npos; at += 6)
-    libs.push_back(fs::path(VdfValue(vdf, "path", at)));
+  if (!std::getenv("LAUNCHER_NO_REGISTRY") &&
+      RegGetValueA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath", RRF_RT_REG_SZ, nullptr, steam, &size) ==
+          ERROR_SUCCESS)
+    roots.push_back(fs::path(steam));
+  return roots;
+}
+
+// The game's install folder (Steam's library folders, each with steamapps\appmanifest_<id>.acf); empty if not found.
+// Also the installed check for the Steam entries (Windows and the Deck alike).
+fs::path SteamGameDir(const char* app) {
+  std::vector<fs::path> libs;
+  for (const auto& root : SteamRoots()) {
+    libs.push_back(root);
+    const std::string vdf = ReadFile(root / "steamapps" / "libraryfolders.vdf");
+    for (size_t at = 0; (at = vdf.find("\"path\"", at)) != std::string::npos; at += 6)
+      libs.push_back(HostPath(VdfValue(vdf, "path", at)));
+  }
+  std::error_code ec;
   for (const auto& lib : libs) {
     const std::string acf = ReadFile(lib / "steamapps" / (std::string("appmanifest_") + app + ".acf"));
     const std::string dir = acf.empty() ? "" : VdfValue(acf, "installdir");
-    if (!dir.empty() && fs::exists(lib / "steamapps" / "common" / dir)) return lib / "steamapps" / "common" / dir;
+    if (!dir.empty() && fs::exists(lib / "steamapps" / "common" / dir, ec)) return lib / "steamapps" / "common" / dir;
   }
   return {};
+}
+
+// Copies `src` to `dst` when missing or different; false on failure.
+bool CopyIfDifferent(const fs::path& src, const fs::path& dst) {
+  if (fs::exists(dst) && ReadFile(src) == ReadFile(dst)) return true;
+  std::error_code ec;
+  fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
+  return !ec;
+}
+
+// Tempest 4000's helper (src/t4k/xinput_proxy.cpp): xinput1_4.dll + xinput1_3.dll into its Win10 and Win7-8 folders.
+std::string PrepareT4K(const fs::path& base) {
+  const fs::path dir = SteamGameDir(kSteamAppT4K);
+  if (dir.empty()) return "";
+  for (const fs::path& from : {base / "Tempest 4000 helper", base / "t4k"}) {
+    if (!fs::exists(from / "xinput1_4.dll")) continue;
+    for (const char* sub : {"Win10", "Win7-8"}) {
+      if (!fs::exists(dir / sub)) continue;
+      for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll"})
+        if (fs::exists(from / dll) && !CopyIfDifferent(from / dll, dir / sub / dll))
+          return "could not copy the helper into Tempest 4000's folder";
+    }
+    break;
+  }
+  return "";
 }
 
 // Puts the helper next to SpaceGiraffePC.exe (when missing or different) and the flavour into its sg_helper.txt
 // (other lines kept). Returns an error message, or empty.
 std::string PrepareSpaceGiraffe(const fs::path& base, const std::string& flavour) {
   const fs::path dir = SteamGameDir(kSteamAppSG);
-  if (dir.empty()) return "";   // (e.g. under Proton): Steam starts it as it is (a hand-installed helper still works)
-  std::error_code ec;
+  if (dir.empty()) return "";   // not found: Steam starts it as it is (a hand-installed helper still works)
   for (const fs::path& src : {base / "Space Giraffe helper" / "d3d9.dll", base / "sg" / "d3d9.dll"}) {
     if (!fs::exists(src)) continue;
-    const fs::path dst = dir / "d3d9.dll";
-    if (!fs::exists(dst) || ReadFile(src) != ReadFile(dst)) {
-      fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
-      if (ec) return "could not copy the helper into Space Giraffe's folder";
-    }
+    if (!CopyIfDifferent(src, dir / "d3d9.dll")) return "could not copy the helper into Space Giraffe's folder";
     break;
   }
   const fs::path cfg = dir / "sg_helper.txt";
@@ -166,14 +216,8 @@ std::vector<Game> MakeGames(const fs::path& base) {
   for (auto& x : g) {
     if (x.kind == Kind::NotYet) x.status = "coming later";
     else if (x.kind == Kind::Program && !fs::exists(base / x.target)) x.status = std::string(x.target) + " not found";
-    else if (x.kind == Kind::Steam) {
-      DWORD installed = 0, size = sizeof(installed);
-      const std::string key = std::string("Software\\Valve\\Steam\\Apps\\") + x.target;
-      if (RegGetValueA(HKEY_CURRENT_USER, key.c_str(), "Installed", RRF_RT_REG_DWORD, nullptr, &installed, &size) !=
-              ERROR_SUCCESS ||
-          !installed)
-        x.status = "not installed on Steam";
-    }
+    else if (x.kind == Kind::Steam && SteamGameDir(x.target).empty())
+      x.status = "not installed on Steam";
   }
   return g;
 }
@@ -276,12 +320,12 @@ int main(int argc, char** argv) {
       return;
     }
     if (g.kind == Kind::Steam) {
-      if (std::strcmp(g.target, kSteamAppSG) == 0) {
-        const std::string err = PrepareSpaceGiraffe(base, settings::Str("sg_flavour", "acid"));
-        if (!err.empty()) {
-          message = err;
-          return;
-        }
+      const std::string err = std::strcmp(g.target, kSteamAppSG) == 0
+                                  ? PrepareSpaceGiraffe(base, settings::Str("sg_flavour", "acid"))
+                                  : PrepareT4K(base);
+      if (!err.empty()) {
+        message = err;
+        return;
       }
       // We have the front now: let the game (started by Steam, not by us) take it when its window appears.
       AllowSetForegroundWindow(ASFW_ANY);
@@ -290,7 +334,9 @@ int main(int argc, char** argv) {
         message = "could not open Steam";
         return;
       }
-      if (const wchar_t* exe = SteamExe(g.target)) {   // wait for its process underneath, as for our own games
+      // Wait for its program underneath, as for our own games - not under Proton: there each Steam game runs in its own
+      // Wine prefix, out of our sight (and the Deck's gamescope puts the new game in front itself).
+      if (const wchar_t* exe = UnderWine() ? nullptr : SteamExe(g.target)) {
         starting = std::string("STARTING ") + g.title + "...";
         draw_starting();
         steam_wait = exe;
