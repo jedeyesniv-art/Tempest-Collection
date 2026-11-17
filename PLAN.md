@@ -641,7 +641,8 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
 - 00000300 (806A3108) = a plain fill: rectangle w0 (x, y) / w1 (w, h) in colour w2 (dup-mode pixel DMA of the one
   word, 8x4 tiles, no reads). In play after the level start every picture begins with it (black): no feedback trails.
 - 00300004 (806A5280; tools/t3k_zoomfit.py on NUANCE_SPANLOG=00300004, which now also prints "spanentry" words and
-  multi-row "spanb" blocks): out pixel p = previous picture at c + R(-a) (p - c + 1/2) / z, nearest pixel; c = w0,
+  multi-row "spanb" blocks): out pixel p = previous picture at c + R(-a) (p - c + 1/2) / z (bilinear, 2026-11-17: the
+  module's path A reads 4 pixels; nearest was the earlier fit); c = w0,
   z = w4 / w5 (16.16; 1.0625 steady, 1.4 -> 1.06 in transitions: free fits land on 1 / w4 wherever the source has
   detail), a = w6 (16 bits a turn), fade = w7 >> 16 as 2.14 (0.969 steady; > 1 = brightening at transition starts,
   clipped).
@@ -880,9 +881,27 @@ Next, in order (owner 2026-11-15: tools first, then the work; estimate steps 2-4
 6b. DONE 2026-11-16: clarity - sharp vectors (t3k_native.cpp kSegs: items <= 100 game px across or averaging
    <= 12 px a stroke get a core at sharp_core x the width + the original line at sharp_glow; web / streaks untouched).
    Not yet: the glowing text 0010000D (images), discs / particles, the thick title logo (long strokes).
-6c. Open: orange patches on the brightest warp / bonus feedback screens (chain only; single steps match; not
-   sampling, not the line blend, not rounding - tools/t3k_fadefit.py, t3k_chromafit.py); high_res has no native
+6c. DONE 2026-11-17: orange patches on the warp / bonus (see "Orange patches" below). Open: high_res has no native
    support (pictures are built from transformed entries) - native view should force 360x240 or high_res be dropped.
+### Orange patches (2026-11-17, fixed)
+- The zoom module (806A5280, warp row function = path A at 806A58DC, picked by w7 & 7 from the table at $20100EA0)
+  samples BILINEAR (4 x ld_p (uv), ru / rv 14-bit fractions), then out = w11 + (s - w11) x f with w11 = 10 80 80
+  (neutral), stored by st_p with chnorm (floor). tools/t3k_flatfade.py: on flat source areas the hardware is exactly
+  floor(n + (s - n) f), no bias.
+- Cause: floor about neutral is one-sided under a brightening fade - chroma 129 x 1.2 floors back to 129 (stable),
+  127 runs away (126, 124, ...). The emulation is bit-exact, ours is not (+-1 on a third of pixels at window
+  resolution), so every near-neutral pixel we put at 127 seeded an orange patch the warp grew; the window made it
+  worse by flooring at every present (fade^step on 8-bit textures).
+- tools/t3k_warpchain.py (CPU chain from the span log, models): floor drifts orange -> yellow -> green, truncation
+  toward neutral stays pink like the original (orange 0.1-0.7% vs 80%).
+- Fix: feedback textures RGBA64_FLOAT (created with colourspace sRGB - SDL's default linear colourspace for float
+  textures wrecked the YCrCb values: all green), the fade exact between presents and rounded once per game picture
+  (Renderer::Draw step_ends; t3k_main passes it when native_step_left runs out): truncate toward neutral when f > 1,
+  the hardware's floor when f <= 1 (stable; play unchanged, nativecheck play 2.38). 8-bit fallback rounds in between.
+  Window warp, orange share per present (2 runs each): old mean 7%, peak 47%, 68 presents > 5%; new 1%, 12%, 12-16
+  (the original has pale peach patches too). Warp single steps vs the hardware 5.43 -> 5.67 (expected).
+- Test switches: T3K_FADE_FLOOR=1 (the old floor every draw), T3K_FEEDBACK_8BIT=1, T3K_FEEDBACK_LOG=1.
+
 7. Polish: YCrCb fade shader for the zoom's brightening phase; wide screen; CRT looks; the web module's per-lane
    colour pulses / special lane mode if any picture needs them.
 8. Endgame add-on (owner: later): the web texture's lightsynth generator natively (find its writer with NUANCE_WATCH).

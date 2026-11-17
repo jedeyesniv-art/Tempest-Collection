@@ -154,8 +154,10 @@ class Renderer {
   // advances (1 = a whole picture, as the original; less for in-between frames: zoom^step, angle x step, fade^step).
   // view (wide screens): the window area to fill, around dst - the feedback, full-screen fills and planes carry on
   // past the 4:3 edges, and whatever the game places out there shows. nullptr = dst.
+  // step_ends: this draw completes a game picture's feedback step (the zoom fade rounds then, as the hardware does
+  // once per picture; in between it stays exact on a float feedback texture).
   void Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg>& segs, const SDL_FRect& dst, float step,
-            const SDL_FRect* view = nullptr);
+            const SDL_FRect* view = nullptr, bool step_ends = true);
   // Show the last drawn picture again (nothing new to draw).
   void Redraw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect* view = nullptr);
   // The previous picture was emulated: make it what the next native picture's feedback builds on (in dst; black
@@ -170,6 +172,7 @@ class Renderer {
   uint32_t glyph_flip_ = 0xFFFFFFFFu;
   SDL_Texture* disc_tex_ = nullptr;            // kBlobs: alpha = 1 - r^2 over the unit disc
   int cur_ = 0, w_ = 0, h_ = 0;
+  bool float_tex_ = false;                     // the feedback textures are 16-bit float (else 8-bit)
 };
 
 }  // namespace t3knative

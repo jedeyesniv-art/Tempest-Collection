@@ -133,12 +133,14 @@ Done this session (details in the dated sections below):
 Waiting on the owner's Deck test: TxK buttons / prompts / tap; launcher focus after a Steam game.
 - 2026-11-17 later: t81 draws the vectors itself (beams + glow, width by intensity, white-hot core) with framing
   fill (default, owner) / wide (in play the web fills the screen, HUD in the top corners) / whole monitor, shape
-  round (default, owner) or arcade 3:4. PLAN.md "t81 vectors drawn by us". Waiting on the owner's look on the Deck.
+  round (default, owner) or arcade 3:4.
+- 2026-11-17 later: T3K orange patches fixed (warp / bonus): float feedback textures + the zoom fade rounded once per
+  picture, toward neutral when brightening. PLAN.md "Orange patches". Owner to look in the window / on the Deck. PLAN.md "t81 vectors drawn by us". Waiting on the owner's look on the Deck.
 Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
 - T3K cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found
   yet: next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested).
   See "T3K menu cleanup, save states".
-- T3K: orange patches on the brightest warp / bonus screens; interpolation for everything + run-ahead; sharpen the
+- T3K: interpolation for everything + run-ahead; sharpen the
   glowing text (0010000D) if wanted; the claw fix was measured on levels 1 / 7 / 15 only.
 - SG hi-res objects (parked; heap scan + pointer, or hook the code that reads it).
 - T2K performance plan for the end (PLAN.md "T2K performance plan"); t81 CRT; TxK save states (none in Vita3K; only

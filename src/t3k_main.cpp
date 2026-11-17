@@ -1891,7 +1891,9 @@ int main(int argc, char** argv) {
           const float due = float(std::clamp(double(now_ns - native_last_ns) / double(picture_ns), 0.0, 1.0));
           const float take = std::min(native_step_left, due);
           native_step_left -= take;
-          native.Draw(ren, *shown_vec, native_segments(), dst, carry + take, view);
+          // the fade rounds once per game picture: on the present that completes its step (or finishes the last one's)
+          native.Draw(ren, *shown_vec, native_segments(), dst, carry + take, view,
+                      native_step_left <= 1e-4f || carry > 0.f);
         } else if (shown_vec != native_last_pic) {
           native.Draw(ren, *shown_vec, shown_vec->segs, dst, 1.f, view);
         } else {

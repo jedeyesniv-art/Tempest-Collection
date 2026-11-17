@@ -962,8 +962,9 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         op.angle = float(e[6] & 0xFFFF) * 6.2831853f / 65536.f;
         op.fade = float(e[7] >> 16) / 16384.f;
         if (std::getenv("T3K_ZOOM_LOG"))
-          std::fprintf(stderr, "zoom flip %u: centre %.0f,%.0f zoom %.4f %.4f angle %.2f deg fade %.3f w6 %08X\n", cap.flip,
-                       op.cx, op.cy, op.zx, op.zy, op.angle * 57.29578f, op.fade, e[6]);
+          std::fprintf(stderr, "zoom flip %u: centre %.0f,%.0f zoom %.4f %.4f angle %.2f deg fade %.3f w6 %08X w1 %08X w2 %08X "
+                       "w3 %08X w8 %08X w9 %08X w10 %08X w11 %08X\n", cap.flip, op.cx, op.cy, op.zx, op.zy,
+                       op.angle * 57.29578f, op.fade, e[6], e[1], e[2], e[3], e[8], e[9], e[10], e[11]);
         out->ops.push_back(op);
         break;
       }
@@ -1184,11 +1185,28 @@ void Renderer::Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& ds
 void Renderer::Resize(SDL_Renderer* ren, const SDL_FRect& dst) {
   const int w = std::max(1, int(dst.w + 0.5f)), h = std::max(1, int(dst.h + 0.5f));
   if (w == w_ && h == h_ && tex_[0]) return;
+  bool all_float = true;
   for (SDL_Texture*& t : tex_) {
     if (t) SDL_DestroyTexture(t);
-    t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    // float, so partial feedback steps between presents don't round (see ycc_fade.frag.hlsl); 8-bit if unsupported
+    // (colourspace sRGB: SDL treats float textures as linear by default and would convert our YCrCb values)
+    t = nullptr;
+    if (!std::getenv("T3K_FEEDBACK_8BIT")) {
+      const SDL_PropertiesID p = SDL_CreateProperties();
+      SDL_SetNumberProperty(p, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, SDL_PIXELFORMAT_RGBA64_FLOAT);
+      SDL_SetNumberProperty(p, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, SDL_TEXTUREACCESS_TARGET);
+      SDL_SetNumberProperty(p, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, w);
+      SDL_SetNumberProperty(p, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, h);
+      SDL_SetNumberProperty(p, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, SDL_COLORSPACE_SRGB);
+      t = SDL_CreateTextureWithProperties(ren, p);
+      SDL_DestroyProperties(p);
+    }
+    all_float = all_float && t != nullptr;
+    if (!t) t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
     SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
   }
+  float_tex_ = all_float;
+  if (std::getenv("T3K_FEEDBACK_LOG")) std::fprintf(stderr, "feedback textures %dx%d %s\n", w, h, all_float ? "float" : "8-bit");
   w_ = w;
   h_ = h;
   SDL_Texture* keep = SDL_GetRenderTarget(ren);
@@ -1200,7 +1218,7 @@ void Renderer::Resize(SDL_Renderer* ren, const SDL_FRect& dst) {
 }
 
 void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg>& segs, const SDL_FRect& dst,
-                    float step, const SDL_FRect* view) {
+                    float step, const SDL_FRect* view, bool step_ends) {
   const SDL_FRect vw = view ? *view : dst;
   Resize(ren, vw);
   const int w = w_, h = h_;
@@ -1237,7 +1255,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         auto uv = [&](float px, float py) {
           const float dx = px - op.cx, dy = py - op.cy;
           const float rx = (dx * ca - dy * sa) / zx, ry = (dx * sa + dy * ca) / zy;
-          // (the module takes the nearest source pixel, floor(S) + 1/2, whose average is S itself)
+          // (the module samples bilinear at the mapped point, as the texture does)
           return SDL_FPoint{((op.cx + rx) * sx + ox) / float(w), ((op.cy + ry) * sy + oy) / float(h)};
         };
         const float f1 = std::min(fade, 1.f), f2 = std::max(fade - 1.f, 0.f);
@@ -1250,7 +1268,9 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           SDL_RenderGeometry(ren, prev, v, 4, idx, 6);
         };
         if (g_ycc) {   // the module's fade: every component about its neutral value, clipped to a byte
-          const float u[4] = {fade, 0, 0, 0};
+          static const bool old_floor = std::getenv("T3K_FADE_FLOOR") != nullptr;
+          const float mode = old_floor ? 3.f : step_ends ? 1.f : (float_tex_ ? 0.f : 2.f);
+          const float u[4] = {fade, mode, 0, 0};
           SDL_SetGPURenderStateFragmentUniforms(g_fade, 0, u, sizeof(u));
           SDL_SetGPURenderState(ren, g_fade);
           quad(1.f, SDL_BLENDMODE_NONE);
