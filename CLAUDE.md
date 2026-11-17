@@ -33,6 +33,14 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
 - src/main.cpp: SDL3 window + headless test mode.
 - src/launcher.cpp: build\tempest.exe, the Tempest Collection launcher (starts t2k.exe / t3k.exe as processes,
   Steam link for T4K). PLAN.md "Tempest Collection".
+- Launcher look (2026-11-17, owner: "beautiful"): src/launcher_view.cpp, ported from the local design mockup
+  tools/launcher_mockup/index.html (open in a browser; keys L titles / C covers / M motion). Portrait 3:4 cover panels
+  scrolled LEFT / RIGHT (UP / DOWN = Space Giraffe's flavour), each game's logo animated in its flavour, moving
+  backgrounds (motion: SG > T3K > T2K > T4K > TxK > T81; T3K / SG = feedback buffers, emitters orbit OUTSIDE the panel
+  or they hide behind it), system text in a glowing 5x7 pixel font, a warp before a start. Art: tools/launcher_art.py
+  (art\ -> art\panels\<id>.png + <id>_logo.png; art\ is in .gitignore, never in git); the play folder gets art\
+  (package_collection.ps1). T81 cover = the colourful poster (owner). --shot saves the 90th frame;
+  LAUNCHER_FB_DEBUG=1 shows the raw feedback buffer.
 
 ## Build / test
 Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
