@@ -241,6 +241,21 @@ std::string PrepareT4K(const fs::path& base) {
     }
     break;
   }
+  // Under Proton (the Deck): no music - the game plays Tracks_xwma when it is there, and Proton can't decode xWMA. The
+  // Win7-8 build also has the music as ADPCM WAVs (Tracks_adpcm), used when Tracks_xwma is missing (ProtonDB, owner
+  // 2026-11-17), so that folder is renamed out of the way (kept: a rename back restores it; a Steam "verify files"
+  // brings it back and the next start renames it again). The Win10 build has only xWMA: the Deck needs the Win7-8 one
+  // (Steam's "Tempest 4000" launch entry, or the launch option's Win10 -> Win7-8 swap).
+  if (UnderWine()) {
+    const fs::path snd = dir / "Win7-8" / "Assets" / "Sounds";
+    std::error_code ec;
+    if (fs::exists(snd / "Tracks_xwma", ec) && fs::exists(snd / "Tracks_adpcm", ec)) {
+      fs::path off = snd / "Tracks_xwma.proton-off";
+      if (fs::exists(off, ec)) fs::remove_all(off, ec);   // (a "verify files" restored the original: renamed again)
+      fs::rename(snd / "Tracks_xwma", off, ec);
+      if (ec) return "could not switch Tempest 4000 to its WAV music (" + ec.message() + ")";
+    }
+  }
   return "";
 }
 
