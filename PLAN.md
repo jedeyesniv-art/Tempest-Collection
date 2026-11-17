@@ -1177,6 +1177,11 @@ To do, at the end:
    (KEEP the art: owner - it is all from public sites). The launcher then has to say what is missing and where each
    file goes (per game: file name, expected checksum or size, folder), and start the games once they are there.
    Never publish without the owner's go.
+   NO AOT IN A RELEASE: the AOT modules (build_aot\) are translations of the game's code, compiled into
+   nuance_libretro.dll - a public core must be built without them. Measured 2026-11-17 (headless --gate=2, desktop):
+   AOT off costs ~15% (play 1.26 -> 1.47 ms a field mean, p99 3.6 -> 4.3; title 1.46 -> 1.67, p99 3.5 -> 4.1; budget
+   16.7), pictures byte-identical; the JIT (built on the player's machine) runs the rest. No-AOT core: CMake without
+   NUANCE_AOT_DIR -> build_nuance_noaot\nuance_libretro.dll (1.6 MB vs 34.6 MB). Deck test of it: pending.
    BEFORE RELEASE (owner 2026-11-17, on hold until then): T3K compression from the launcher - t3k_compress.py ported
    to C++ (a t3k_compress.exe loading libsndfile_x64.dll, LGPL, for the Vorbis encoder; works under Proton), offered
    on the T3K panel when there is an .iso and no .nuz, with a progress bar, then a Yes / No (default No) to delete the
