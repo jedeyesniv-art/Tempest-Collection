@@ -128,7 +128,9 @@ BY HAND (without the launcher): copy xinput1_4.dll and xinput1_3.dll into BOTH o
   On the Steam Deck the folder is ~/.local/share/Steam/steamapps/common/Tempest 4000/ (or on the SD card's
   steamapps/common), and Proton needs the game to load these files instead of its own: in Steam, Tempest 4000 >
   Properties > General > Launch options:
-      WINEDLLOVERRIDES="xinput1_3,xinput1_4=n,b" %command%
+      WINEDLLOVERRIDES="xinput1_3,xinput1_4=n,b" bash -c 'exec "${@/Win10/Win7-8}"' -- %command%
+  (The bash part starts the game's Windows 7-8 build: under Proton Steam picks the Windows 10 one, whose music is
+  in a format Proton doesn't play - no music on the Deck. The Windows 7-8 build has the same music as plain WAVs.)
 
 UNINSTALL: delete the two files (and the launch option). A Steam "verify files" leaves them alone (they are not
 the game's files); a game update does too.

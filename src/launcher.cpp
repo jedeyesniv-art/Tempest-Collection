@@ -313,7 +313,10 @@ struct SteamSetup {
   const char* helper_dev; // ... or in build\ (development)
 };
 const SteamSetup kSetups[] = {
-    {kSteamAppT4K, "Tempest 4000", "WINEDLLOVERRIDES=\"xinput1_3,xinput1_4=n,b\" %command%", "xinput1_4",
+    // Tempest 4000: also the Win7-8 build - under Proton Steam picks "Play on Windows 10", whose music is xWMA only,
+    // which Proton doesn't play (no music on the Deck); the Win7-8 build has the same tracks as ADPCM WAVs.
+    {kSteamAppT4K, "Tempest 4000",
+     "WINEDLLOVERRIDES=\"xinput1_3,xinput1_4=n,b\" bash -c 'exec \"${@/Win10/Win7-8}\"' -- %command%", "Win7-8",
      "Tempest 4000 helper\\xinput1_4.dll", "t4k\\xinput1_4.dll"},
     {kSteamAppSG, "Space Giraffe", "WINEDLLOVERRIDES=\"d3d9=n,b\" %command%", "d3d9", "Space Giraffe helper\\d3d9.dll",
      "sg\\d3d9.dll"},

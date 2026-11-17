@@ -77,11 +77,27 @@ const std::map<char, std::string>& Glyphs() {
       {'\'', "..#....#..........................."}, {'/', "....#...#....#...#....#...#....#..."},
       {'<', "...#...#...#...#.....#.....#.....#."}, {'>', ".#.....#.....#.....#...#...#...#..."},
       {'(', "..#...#...#....#....#.....#.....#.."}, {')', "..#.....#.....#....#....#...#...#.."},
-      {',', ".........................#...#....."}, {'"', ".#.#..#.#.........................."},
+      {',', "...........................#...#..."}, {'"', ".#.#..#.#.........................."},
       {'=', "..........#####.....#####.........."}, {'%', "##...##..#...#...#...#...#..##...##"},
       {'_', "..............................#####"}, {'+', ".......#....#..#####..#....#......."},
       {'?', ".###.#...#....#...#...#.........#.."}, {'\\', "#.....#....#.....#.....#....#.....#"},
-      {'&', ".##..#..#..##...##.##.#..#.#..##.#"}, {'^', "..#...#.#.#...#...................."},
+      {'&', ".##..#..#..##...#...#.#.##..#..##.#"}, {'^', "..#...#.#.#...#...................."},
+      // lower case (setup help: Steam launch options are case-sensitive) and the shell's $ { } @
+      {'a', "...........###.....#.#####...#.####"}, {'b', "#....#....####.#...##...##...#####."},
+      {'c', "...........#####....#....#.....####"}, {'d', "....#....#.#####...##...##...#.####"},
+      {'e', "...........###.#...#######.....###."}, {'f', "..##..#....#...####..#....#....#..."},
+      {'g', "......#####...##...#.####....#.###."}, {'h', "#....#....####.#...##...##...##...#"},
+      {'i', "..#........##....#....#....#...###."}, {'j', "...#.........##....#....##..#..##.."},
+      {'k', "#....#....#..#.#.#..##...#.#..#..#."}, {'l', ".##....#....#....#....#....#...###."},
+      {'m', "..........##.#.#.#.##.#.##.#.##.#.#"}, {'n', "..........####.#...##...##...##...#"},
+      {'o', "...........###.#...##...##...#.###."}, {'p', ".....####.#...##...#####.#....#...."},
+      {'q', "......#####...##...#.####....#....#"}, {'r', "..........#.##.##..##....#....#...."},
+      {'s', "...........#####.....###.....#####."}, {'t', ".#....#...####..#....#....#..#..##."},
+      {'u', "..........#...##...##...##..##.##.#"}, {'v', "..........#...##...##...#.#.#...#.."},
+      {'w', "..........#...##.#.##.#.##.#.#.#.#."}, {'x', "..........#...#.#.#...#...#.#.#...#"},
+      {'y', ".....#...##...##...#.####....#.###."}, {'z', "..........#####...#...#...#...#####"},
+      {'$', "..#...#####.#...###...#.#####...#.."}, {'{', "...##..#....#..##.....#....#.....##"},
+      {'}', "##.....#....#.....##..#....#..##..."}, {'@', ".###.#...##.####.#.##.####.....####"},
   };
   for (const auto& [c, s] : src) {
     std::string v(s);
@@ -269,7 +285,10 @@ float TextWidth(const std::string& s, float unit) { return s.empty() ? 0.f : (s.
 void Text(const std::string& str, float x, float y, float unit, Col c, float a, int align = 0, float glow = 1.f) {
   if (a <= 0.f) return;
   std::string s = str;
-  for (char& ch : s) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+  // lower case where the font has it (the setup help), else capitals
+  const auto& gl0 = Glyphs();
+  for (char& ch : s)
+    if (!gl0.count(ch)) ch = char(std::toupper(static_cast<unsigned char>(ch)));
   const float w = TextWidth(s, unit);
   float x0 = align == 0 ? x - w / 2 : align > 0 ? x - w : x;
   const auto& gl = Glyphs();
@@ -656,13 +675,18 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
   const float show = std::max(0.f, 1 - std::fabs(sel - g_pos) * 2.5f);
   const float m = StyleOf(e.id).motion;
   const float logo_top = cy + ph / 2 + h * 0.025f;
-  const float logo_h = Logo(size_t(sel), w / 2, logo_top, pw * 1.7f, h * 0.11f, float(g_time) * (0.4f + m), show);
+  // with setup help to show (a Steam game not set up) the logo is smaller and the maker line goes: room for the help
+  const bool helping = !e.help.empty();
+  const float logo_box = helping ? h * 0.06f : h * 0.11f;
+  const float logo_h = Logo(size_t(sel), w / 2, logo_top, pw * 1.7f, logo_box, float(g_time) * (0.4f + m), show);
   const float u = std::max(1.5f, h / 330.f);
-  float ty = logo_top + std::max(logo_h, h * 0.11f) + h * 0.02f;   // under the logo, however tall it came out
+  float ty = logo_top + std::max(logo_h, logo_box) + h * 0.02f;   // under the logo, however tall it came out
   Text(e.line1, w / 2, ty, u, ac, show);
   ty += u * 11;
-  Text(e.line2, w / 2, ty, u * 0.8f, {180 / 255.f, 180 / 255.f, 200 / 255.f}, show * 0.8f);
-  ty += u * 10;
+  if (!helping) {
+    Text(e.line2, w / 2, ty, u * 0.8f, {180 / 255.f, 180 / 255.f, 200 / 255.f}, show * 0.8f);
+    ty += u * 10;
+  }
   if (!e.variant.empty()) {
     Text("^ " + e.variant + " v", w / 2, ty, u, {1, 1, 1}, show);
     ty += u * 11;
@@ -671,9 +695,15 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
     Text(e.status, w / 2, ty, u * 0.9f, {1, 160 / 255.f, 60 / 255.f}, show);
     ty += u * 10;
   }
-  for (const std::string& line : e.help) {
-    Text(line, w / 2, ty, u * 0.7f, {1, 190 / 255.f, 110 / 255.f}, show, 0, 0.6f);
-    ty += u * 8;
+  // the setup help: each line scaled to fit the width, the block kept clear of the hint row at the bottom
+  if (!e.help.empty()) {
+    const float hu = u * 0.7f;
+    ty = std::min(ty, h * 0.94f - float(e.help.size()) * hu * 11.f / 0.7f * 0.7f - u * 2);
+    for (const std::string& line : e.help) {
+      const float fit = std::min(hu, w * 0.94f / std::max(1.f, float(line.size()) * 6.f));
+      Text(line, w / 2, ty, fit, {1, 190 / 255.f, 110 / 255.f}, show, 0, 0.6f);
+      ty += hu * 11.f;
+    }
   }
   if (!message.empty()) Text(message, w / 2, ty + u * 2, u * 0.8f, {1, 1, 0.3f}, 1);
 

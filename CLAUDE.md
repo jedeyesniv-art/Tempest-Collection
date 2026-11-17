@@ -476,7 +476,9 @@ Tooling pitfalls (cost time today)
   (tools\build_t4k_helper.bat -> build\t4k\xinput1_4.dll / xinput1_3.dll, next to Win10\ / Win7-8\
   Tempest4000.exe; Steam runs Win7-8 here) hooks DialogBoxParamW, picks the desktop mode, rewrites the chosen
   entry of the game's mode table (found by matching the whole list) to the desktop mode, presses Start Game during
-  WM_INITDIALOG. Verified: 3840x2160 @ 120 full screen. Deck: WINEDLLOVERRIDES="xinput1_3,xinput1_4=n,b" %command%.
+  WM_INITDIALOG. Verified: 3840x2160 @ 120 full screen. Deck: WINEDLLOVERRIDES="xinput1_3,xinput1_4=n,b" bash -c
+  'exec "${@/Win10/Win7-8}"' -- %command% (2026-11-17: no music on the Deck - Proton = "Windows 10" launch entry, whose
+  music is xWMA only (Win10\Assets\Sounds\Tracks_xwma); Win7-8 has Tracks_adpcm WAVs; the launcher checks for "Win7-8").
 
 ## Lessons (2026-11-09)
 - From bash, give the exe forward-slash paths (logs/x.bmp): a quoted backslash scratchpad path silently failed to
