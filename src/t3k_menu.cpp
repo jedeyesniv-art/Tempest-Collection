@@ -87,6 +87,8 @@ void Install(bool from_launcher) {
   p.Choice("  Picture blend (F3)", "picture_blend", {"1", "0"}, {"On", "Off"})->when = emu;
   p.Choice("Frame-rate counter (F4)", "show_rates", {"0", "1"}, {"Off", "On"});
   crt_menu::Add(p, 1, 0);   // T3K: CRT+ only, off by default
+  p.Header("CHEATS");
+  p.Choice("Infinite lives", "cheat_inf_lives", {"0", "1"}, {"Off", "On"});
   p.Header("");
   p.Button(from_launcher ? "Return to launcher" : "Quit", menu::kQuit, true);
   menu::SetPage("TEMPEST 3000 - SETTINGS", std::move(p));

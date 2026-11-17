@@ -384,6 +384,20 @@ void ApplyLineStyle() {
 struct Press { int frame; int btn; int len; };
 struct AnalogHold { int frame; int x, y, len; };
 
+// Cheats (the menu's CHEATS section), after every field.
+// cheat_inf_lives: the lives count is at $800BAC7C (found 2026-11-16: a register spill in the game's context save
+// at $80010200; holding it keeps the game going through deaths). It is only a lives count in play, so it is only
+// touched while the web is on screen and only when it reads 1 or 2 (a death took one): back to 3.
+void CheatsAfterField(bool in_play) {
+  if (!in_play || settings::Num("cheat_inf_lives", 0) == 0) return;
+  size_t n = 0;
+  uint8_t* m = nuon::Memory(0, &n);
+  if (!m || n < 0x800000) return;
+  uint8_t* q = m + (0x800BAC7Cu & 0x7FFFFF);
+  const uint32_t v = uint32_t(q[0]) << 24 | uint32_t(q[1]) << 16 | uint32_t(q[2]) << 8 | q[3];
+  if (v == 1 || v == 2) q[0] = q[1] = q[2] = 0, q[3] = 3;
+}
+
 // Stick control of the claw (Tempest 3000). The claw is a game object at $8003E9E0: position (16.16 lanes), velocity,
 // a speed scale (+8, normally 1.0) and flags (+12, 0x80000401: handler 0, a bounded value the game wraps / clamps
 // on the web). The game sets the velocity from the d-pad each picture (input 40, 60, then 80, x 768) and adds
@@ -1254,6 +1268,7 @@ int main(int argc, char** argv) {
       {
         static nuon::Capture scap;
         speed.Field(nuon::GetCapture(&scap) ? &scap : nullptr);
+        CheatsAfterField(speed.web);
         if (std::getenv("T3K_SPEED_LOG") && f % 10 == 0) {   // tests: the speed control every 10 fields
           nuon::RunStats rs{};
           nuon::GetRunStats(&rs);
@@ -1724,6 +1739,7 @@ int main(int argc, char** argv) {
         sl.frame = nuon::LastFrame();
         sl.vec = vec;
         speed.Field(nullptr, vec.get());
+        CheatsAfterField(speed.web);
         sl.interval = speed.interval;
       }
       perf.Frame(uint64_t(k), t0, t1, SDL_GetTicksNS());

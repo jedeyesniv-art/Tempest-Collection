@@ -1206,7 +1206,8 @@ To do, at the end:
 5. LAUNCHER SETTINGS SCREEN (maybe - owner unsure what belongs there): the one idea so far is an overall resolution
    option - render below native resolution, applied to every game the launcher starts (each game's own render scale /
    window size from one launcher setting). Revisit when there are more candidates.
-6. T3K CHEATS (maybe): infinite lives found ($800BAC7C, verified); god mode not found yet; max level candidates
+6. T3K CHEATS (maybe): infinite lives DONE 2026-11-17 (menu CHEATS, setting cheat_inf_lives; $800BAC7C 1 / 2 -> 3, only
+   while the web is on screen; idle-claw test: game over by field 5400 without, still playing at 11700 with); god mode not found yet; max level candidates
    untested. See CLAUDE.md "T3K menu cleanup, save states".
 7. NEON MODE (big maybe, much later): plan below ("Neon Mode plan").
 
