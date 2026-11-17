@@ -481,7 +481,7 @@ Tooling pitfalls (cost time today)
   music is xWMA only (Win10\Assets\Sounds\Tracks_xwma); Win7-8 has Tracks_adpcm WAVs; the launcher checks for "Win7-8").
   Owner: still no music with Win7-8 alone - that build plays Tracks_xwma whenever the folder exists (ProtonDB:
   protondb.com/app/688140). Now PrepareT4K under Wine renames Win7-8\Assets\Sounds\Tracks_xwma -> Tracks_xwma.proton-off
-  (then it plays Tracks_adpcm). Tested in fake-Deck mode; waiting on the owner's Deck test.
+  (then it plays Tracks_adpcm). Owner verified on the Deck 2026-11-17: music plays ("worked flawlessly").
 
 ## Lessons (2026-11-09)
 - From bash, give the exe forward-slash paths (logs/x.bmp): a quoted backslash scratchpad path silently failed to
