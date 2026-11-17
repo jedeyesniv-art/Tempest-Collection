@@ -535,7 +535,20 @@ int main(int argc, char** argv) {
   // T2K_PERF=1: every ~5 s, the average time a shown frame spends emulating (incl. run-ahead), composing (our layer,
   // picture, HUD, CRT) and presenting, and frames shown a second.
   uint64_t perf_t1 = 0, perf_t2 = 0;   // (T2K_PERF: perf.h)
+  uint64_t cap_slot = 0;   // frame_cap: the next present's slot on a fixed grid
   while (running) {
+    // Frame rate (setting frame_cap: 0 = the display's, 60 = at most 60 pictures a second - less work, e.g. the Steam
+    // Deck at 90 Hz). Slots on a fixed 60 Hz grid; each picture goes to the first refresh after its slot (on 90 Hz:
+    // one, then two refreshes - 60 on average, never sliding to 45). The picture is drawn for the time it is shown
+    // (now is read after the wait), so motion stays right. Without vsync it simply waits for the slot.
+    if (const double cap = settings::Num("frame_cap", 0); cap >= 24 && !novsync) {
+      const uint64_t step = uint64_t(1e9 / cap), t = SDL_GetTicksNS();
+      if (cap_slot == 0 || t > cap_slot + 4 * step) cap_slot = t;   // start / resync after a stall
+      if (t + 1000000 < cap_slot) SDL_DelayPrecise(cap_slot - t - 1000000);
+      cap_slot += step;
+    } else {
+      cap_slot = 0;
+    }
     uint64_t now = SDL_GetTicksNS();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {

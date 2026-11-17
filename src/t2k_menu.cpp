@@ -44,6 +44,7 @@ void Install(bool from_launcher) {
   p.Choice("Original mode (all improvements off)", "native", {"0", "1"}, {"Off", "On"});
   p.Button("Fullscreen on / off", menu::kToggleFullscreen);
   p.Choice("Smooth motion (remaster)", "remaster_interpolate", {"1", "0"}, {"On", "Off (60 fps steps)"});
+  p.Choice("Frame rate", "frame_cap", {"0", "60"}, {"Display rate", "60 (lighter: Steam Deck)"});
   p.Choice("Native screen effects (melts, title, menus)", "remaster_feedback", {"1", "0"}, {"On", "Off"});
   p.Number("  Melt wobble", "melt_wobble", 0, 0.04, 0.002, "%.3f", 0.010);
   p.Number("  Melt drip", "melt_drip", 0, 0.03, 0.001, "%.3f", 0.006);
