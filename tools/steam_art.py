@@ -124,11 +124,39 @@ def reflection(img, gid, x, y, w, h, frac=0.3, alpha=0.22):
     img.alpha_composite(c, (x, y + h + max(2, w // 90)))
 
 
+ARCADE_LOGO = os.path.join(ROOT, 'art', 't81 logo new.png')   # the arcade's own TEMPEST lettering (owner)
+
+
+def arcade_logo(width):
+    """The arcade TEMPEST lettering (429 px line art) at `width`: upscaled, edges re-sharpened."""
+    im = Image.open(ARCADE_LOGO).convert('RGBA')
+    h = round(im.height * width / im.width)
+    rgb = im.convert('RGB').resize((width, h), Image.LANCZOS)
+    k = width / im.width
+    a = im.getchannel('A').resize((width, h), Image.BICUBIC)
+    if k > 1.5:
+        a = a.point(lambda v: max(0, min(255, int((v - 128) * 2.2 + 128))))
+    out = rgb.convert('RGBA')
+    out.putalpha(a)
+    return out
+
+
 def title(img, cx, y, unit, glow=1.0):
-    """'TEMPEST' large in magenta, 'COLLECTION' under it in cyan; returns the bottom."""
-    glow_text(img, 'TEMPEST', cx, y, unit, MAGENTA, glow)
-    glow_text(img, 'COLLECTION', cx, y + unit * 9, max(1, int(unit * 0.62)), CYAN, glow)
-    return y + unit * 9 + int(unit * 0.62) * 7
+    """The arcade 'TEMPEST' (white, a magenta glow), 'COLLECTION' under it in cyan pixel letters; returns the bottom.
+    (Sized as the pixel 'TEMPEST' it replaced: 41 font units wide.)"""
+    lg = arcade_logo(int(41 * unit * 1.05))
+    x0 = int(cx - lg.width / 2)
+    pad = unit * 4
+    halo = Image.new('L', (lg.width + 2 * pad, lg.height + 2 * pad), 0)
+    halo.paste(lg.getchannel('A'), (pad, pad))
+    halo = halo.filter(ImageFilter.GaussianBlur(unit * 1.4)).point(lambda v: min(255, int(v * 1.5 * glow)))
+    layer = Image.new('RGBA', halo.size, MAGENTA + (0,))
+    layer.putalpha(halo)
+    img.alpha_composite(layer, (x0 - pad, int(y) - pad))
+    img.alpha_composite(lg, (x0, int(y)))
+    cy = int(y) + lg.height + unit * 2
+    glow_text(img, 'COLLECTION', cx, cy, max(1, int(unit * 0.62)), CYAN, glow)
+    return cy + int(unit * 0.62) * 7
 
 
 def capsule(out):
