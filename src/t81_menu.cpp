@@ -22,6 +22,7 @@ void Install(bool from_launcher) {
   const int defaults[controls::kButtonCount] = {kFire, kZap, kZap, kCoin, kNone, kZap, kNone, kFire, kStart, kNone, kNone};
   controls::Setup({{"fire", "Fire"}, {"zap", "Superzapper"}, {"start", "Start (1 player)"}, {"coin", "Coin"}}, defaults);
 
+  menu::SetAccent(90 / 255.f, 200 / 255.f, 1.f);   // the launcher's colour for this game (launcher_view.cpp kStyles)
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");

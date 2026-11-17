@@ -1,5 +1,5 @@
-// menu.cpp - see menu.h. A panel sliding in from the left (half the window, semi-transparent, solid text), drawn
-// with SDL's built-in 8x8 debug font at a whole-number scale; sections fold ([+] / [-]), all folded at start.
+// menu.cpp - see menu.h. A panel sliding in from the left (half the window or more), drawn in the launcher's look
+// (the glowing pixel font, pixfont.h); sections fold (chevrons), all folded at start.
 #include "menu.h"
 
 #include <algorithm>
@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "controls.h"
+#include "pixfont.h"
 #include "settings.h"
 
 namespace menu {
@@ -194,6 +195,9 @@ void Open(bool expand_all) {
   g_prev = Nav{true, true, true, true, true, true, true};  // ignore buttons already held
   g_repeat_dir = 0;
   g_capture = 0;
+  // Tests: MENU_SELECT=N starts with the selection N rows down (screenshots of a selected value).
+  if (const char* e = std::getenv("MENU_SELECT"))
+    for (int k = std::atoi(e); k > 0; --k) Move(g_items, 1);
 }
 void Close() {
   if (g_open) g_changed_at = SDL_GetTicksNS();
@@ -276,6 +280,25 @@ std::vector<std::string> Wrap(const std::string& text, int cols) {
   return out;
 }
 
+// The look (2026-11-17, the launcher's): the glowing 5x7 pixel font (pixfont), a dark panel with the game's launcher
+// colour (SetAccent) for its edge, title, section names, values and the selection. Sizes in font units u.
+namespace {
+pixfont::Col g_accent{0.35f, 0.6f, 1.f};
+
+pixfont::Col Mix(pixfont::Col a, pixfont::Col b, float t) {
+  return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t};
+}
+void FillRect(SDL_Renderer* ren, float x, float y, float w, float h, pixfont::Col c, float a) {
+  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderDrawColorFloat(ren, c.r, c.g, c.b, a);
+  const SDL_FRect r{x, y, w, h};
+  SDL_RenderFillRect(ren, &r);
+}
+float Unit(int h) { return std::max(2.f, h / 300.f); }
+}  // namespace
+
+void SetAccent(float r, float g, float b) { g_accent = {r, g, b}; }
+
 void Draw(SDL_Renderer* ren, int w, int h) {
   const auto& items = Items();
   if (items.empty()) return;
@@ -285,37 +308,50 @@ void Draw(SDL_Renderer* ren, int w, int h) {
   float shown = g_open ? t : 1 - t;
   shown = 1 - (1 - shown) * (1 - shown);   // ease out
   if (shown <= 0) return;
+  const float secs = float(double(now % 100000000000ull) / 1e9);
 
-  const float s = std::max(1.f, std::floor(h / 360.f));   // text scale: whole pixels
-  const float cw = 8, lh = 12;                             // character / line size (unscaled)
-  const float pw = std::floor(w * 0.5f / s);               // panel width, unscaled
-  const float ph = h / s;
-  const float pad = 10;
-  const float ox = -pw * (1 - shown);                      // the slide
+  const float u = Unit(h);                    // one font pixel
+  const float cw = 6 * u, lh = 11 * u;        // character advance / line height
+  const float pad = 7 * u;
+  const float pw = std::floor(std::min(float(w), std::max(w * 0.5f, 44 * cw + 2 * pad)));   // panel width
+  const float ox = -pw * (1 - shown);         // the slide
+  const float x0 = ox + pad;
   const int cols = std::max(10, int((pw - 2 * pad) / cw));
+  const pixfont::Col white{1, 1, 1}, label_col{0.80f, 0.83f, 0.90f}, dim{0.55f, 0.58f, 0.66f};
+  const pixfont::Col value_col = Mix(g_accent, white, 0.35f);
 
-  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-  SDL_SetRenderScale(ren, s, s);
-  SDL_SetRenderDrawColor(ren, 0, 0, 16, 200);
-  SDL_FRect bg{ox, 0, pw, ph};
-  SDL_RenderFillRect(ren, &bg);
-  SDL_SetRenderDrawColor(ren, 60, 90, 255, 255);
-  SDL_FRect edge{ox + pw - 1, 0, 1, ph};
-  SDL_RenderFillRect(ren, &edge);
+  // The panel: dark, a faint wash of the accent at the top, a glowing edge.
+  FillRect(ren, ox, 0, pw, float(h), {0.012f, 0.014f, 0.035f}, 0.90f);
+  const float band = pad + 10.5f * u + lh * 1.6f;
+  for (int k = 0; k < 8; ++k)   // the wash, fading downwards
+    FillRect(ren, ox, band * k / 8.f, pw, band / 8.f, g_accent, 0.10f * (1 - k / 8.f));
+  pixfont::Glow(ren, ox + pw - u * 0.6f, 0, ox + pw - u * 0.6f, float(h), u * 0.5f, g_accent, 0.9f, 6.f);
 
-  // Title (fixed) and help (fixed, wrapped, at the bottom).
-  float x0 = ox + pad;
-  SDL_SetRenderDrawColor(ren, 255, 220, 0, 255);
-  SDL_RenderDebugText(ren, x0, pad, g_title.c_str());
-  SDL_SetRenderDrawColor(ren, 140, 140, 140, 255);
-  SDL_RenderDebugText(ren, x0, pad + lh, "(game paused)");
+  // Title: the game (big) and "settings - game paused" under it; a glowing rule.
+  std::string name = g_title, sub = "SETTINGS";
+  if (size_t d = g_title.find(" - "); d != std::string::npos) name = g_title.substr(0, d), sub = g_title.substr(d + 3);
+  float tu = u * 1.5f;
+  if (pixfont::TextWidth(name, tu) > pw - 2 * pad) tu = u;
+  pixfont::Text(ren, name, x0, pad, tu, g_accent, 1.f, -1, 1.3f);
+  const float sub_y = pad + 7 * tu + 3.5f * u;
+  pixfont::Text(ren, sub + "  -  game paused", x0, sub_y, u, dim, 0.9f, -1, 0.f);
+  const float rule_y = sub_y + 7 * u + 5 * u;
+  pixfont::Glow(ren, x0, rule_y, ox + pw - pad, rule_y, u * 0.25f, g_accent, 0.55f, 5.f);
+
+  // Help at the bottom (wrapped), under its own faint rule.
+  const Kind sel_kind = items[g_sel].kind;
   const std::string help = g_capture != 0
       ? "Press the button to bind (Back cancels). A bound button pressed again is removed."
+      : sel_kind == Kind::Bind
+      ? "A, then press a button to bind it to this (pressing a bound one again removes it). B / Back closes."
       : "Up / Down choose. Left / Right change, or fold / open a section. A selects. B / Back closes.";
   auto help_lines = Wrap(help, cols);
-  const float list_top = pad + 3 * lh, list_bottom = ph - pad - (help_lines.size() + 1) * lh;
+  const float help_top = h - pad - float(help_lines.size()) * lh + 2 * u;
   for (size_t k = 0; k < help_lines.size(); ++k)
-    SDL_RenderDebugText(ren, x0, ph - pad - float(help_lines.size() - k) * lh, help_lines[k].c_str());
+    pixfont::Text(ren, help_lines[k], x0, help_top + float(k) * lh, u, dim, 0.8f, -1, 0.f);
+  const float help_rule = help_top - lh * 0.6f;
+  pixfont::Glow(ren, x0, help_rule, ox + pw - pad, help_rule, u * 0.2f, g_accent, 0.25f, 4.f);
+  const float list_top = rule_y + lh * 0.9f, list_bottom = help_rule - lh * 0.5f;
 
   // Lay out the shown items: label wrapped beside a right-aligned value; a long value gets its own line.
   struct Row { int item; std::vector<std::string> label; std::string value; bool value_below; };
@@ -327,14 +363,13 @@ void Draw(SDL_Renderer* ren, int w, int h) {
     Row r{int(k), {}, "", false};
     bool sel = int(k) == g_sel;
     if (it.kind == Kind::Header) {
-      bool open = g_open_sections[k];
-      r.label = Wrap(std::string(open ? "[-] " : "[+] ") + it.label, cols);
+      r.label = Wrap(std::string(1, g_open_sections[k] ? pixfont::kOpen : pixfont::kFolded) + " " + it.label, cols);
     } else {
       r.value = ValueText(it);
       if (sel && !r.value.empty() && (it.kind == Kind::Choice || it.kind == Kind::Number)) r.value = "< " + r.value + " >";
       int vcols = int(r.value.size());
       int lcols = cols - 2 - (vcols ? vcols + 2 : 0);   // (2: the indent)
-      if (vcols && lcols < cols / 2) { r.value_below = true; lcols = cols - 2; }
+      if (vcols && int(it.label.size()) > lcols && lcols < cols / 2) { r.value_below = true; lcols = cols - 2; }
       r.label = Wrap(it.label, lcols);
     }
     int n = int(r.label.size()) + (r.value_below ? 1 : 0);
@@ -348,35 +383,38 @@ void Draw(SDL_Renderer* ren, int w, int h) {
   if (sel_line0 + sel_lines > g_scroll + view_lines) g_scroll = float(sel_line0 + sel_lines - view_lines);
   g_scroll = std::clamp(g_scroll, 0.f, float(std::max(0, total - view_lines)));
 
+  const float text_dy = 2 * u;   // the 7-unit glyphs centred in an 11-unit line
   float y = list_top - g_scroll * lh;
   for (const Row& r : rows) {
     const Item& it = items[r.item];
     int n = int(r.label.size()) + (r.value_below ? 1 : 0);
     bool sel = r.item == g_sel;
     auto in_view = [&](float ly) { return ly >= list_top - 0.5f && ly + lh <= list_bottom + 0.5f; };
-    if (sel) {
-      SDL_SetRenderDrawColor(ren, 60, 60, 160, 255);
-      float y0 = std::max(y - 2, list_top - 2), y1 = std::min(y - 2 + n * lh, list_bottom);
-      SDL_FRect hl{ox + 2, y0, pw - 4, y1 - y0};
-      if (y1 > y0) SDL_RenderFillRect(ren, &hl);
+    if (sel) {   // the selection: a tinted bar with a glowing, gently pulsing marker on its left
+      float y0 = std::max(y, list_top), y1 = std::min(y + n * lh, list_bottom);
+      if (y1 > y0) {
+        FillRect(ren, ox + u * 1.5f, y0, pw - u * 4.f, y1 - y0, g_accent, 0.16f);
+        const float pulse = 0.75f + 0.25f * std::sin(secs * 5.f);
+        pixfont::Glow(ren, ox + u * 2.5f, y0 + u, ox + u * 2.5f, y1 - u, u * 0.45f, g_accent, pulse, 5.f);
+      }
     }
-    float lx = x0 + (it.kind == Kind::Header || it.section < 0 ? 0 : 2 * cw);
-    if (it.kind == Kind::Header) SDL_SetRenderDrawColor(ren, 110, 160, 255, 255);
-    else SDL_SetRenderDrawColor(ren, sel ? 255 : 210, sel ? 255 : 210, sel ? 255 : 210, 255);
+    const bool header = it.kind == Kind::Header;
+    float lx = x0 + (header || it.section < 0 ? 0 : 2 * cw);
+    pixfont::Col lc = header ? g_accent : sel ? white : label_col;
+    float la = header ? 1.f : sel ? 1.f : 0.85f, lg = header ? 0.9f : sel ? 0.5f : 0.f;
     for (size_t k = 0; k < r.label.size(); ++k)
-      if (in_view(y + k * lh)) SDL_RenderDebugText(ren, lx, y + k * lh, r.label[k].c_str());
+      if (in_view(y + k * lh)) pixfont::Text(ren, r.label[k], lx, y + k * lh + text_dy, u, lc, la, -1, lg);
     if (!r.value.empty()) {
-      SDL_SetRenderDrawColor(ren, 255, 220, 0, 255);
       float vy = r.value_below ? y + r.label.size() * lh : y;
-      if (in_view(vy)) SDL_RenderDebugText(ren, ox + pw - pad - r.value.size() * cw, vy, r.value.c_str());
+      if (in_view(vy))
+        pixfont::Text(ren, r.value, ox + pw - pad, vy + text_dy, u, sel ? g_accent : value_col, 1.f, 1,
+                      sel ? 1.f : 0.35f);
     }
     y += n * lh;
   }
   // Scroll hints.
-  SDL_SetRenderDrawColor(ren, 110, 160, 255, 255);
-  if (g_scroll > 0) SDL_RenderDebugText(ren, ox + pw - pad - cw, list_top - lh, "^");
-  if (g_scroll + view_lines < total) SDL_RenderDebugText(ren, ox + pw - pad - cw, list_bottom, "v");
-  SDL_SetRenderScale(ren, 1, 1);
+  if (g_scroll > 0) pixfont::Text(ren, "^", ox + pw - pad, list_top - lh + text_dy, u, g_accent, 1.f, 1, 1.f);
+  if (g_scroll + view_lines < total) pixfont::Text(ren, "v", ox + pw - pad, list_bottom + text_dy - u, u, g_accent, 1.f, 1, 1.f);
 }
 
 void Toast(const std::string& text, uint64_t now) {
@@ -386,17 +424,13 @@ void Toast(const std::string& text, uint64_t now) {
 
 void DrawToast(SDL_Renderer* ren, int w, int h, uint64_t now) {
   if (now >= g_toast_until || g_toast.empty()) return;
-  float scale = std::max(1.f, std::floor(h / 360.f));
-  float tw = g_toast.size() * 8.f;
-  float x = (w / scale - tw) / 2, y = h / scale - 40;
-  SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-  SDL_SetRenderScale(ren, scale, scale);
-  SDL_SetRenderDrawColor(ren, 0, 0, 0, 180);
-  SDL_FRect r{x - 8, y - 6, tw + 16, 20};
-  SDL_RenderFillRect(ren, &r);
-  SDL_SetRenderDrawColor(ren, 255, 220, 0, 255);
-  SDL_RenderDebugText(ren, x, y, g_toast.c_str());
-  SDL_SetRenderScale(ren, 1, 1);
+  const float u = Unit(h);
+  const float tw = pixfont::TextWidth(g_toast, u);
+  const float bw = tw + 16 * u, bh = 17 * u, bx = (w - bw) / 2, by = h - bh - 12 * u;
+  FillRect(ren, bx, by, bw, bh, {0.012f, 0.014f, 0.035f}, 0.85f);
+  pixfont::Glow(ren, bx, by, bx + bw, by, u * 0.3f, g_accent, 0.6f, 4.f);
+  pixfont::Glow(ren, bx, by + bh, bx + bw, by + bh, u * 0.3f, g_accent, 0.6f, 4.f);
+  pixfont::Text(ren, g_toast, w / 2.f, by + 5 * u, u, g_accent, 1.f, 0, 1.f);
 }
 
 }  // namespace menu

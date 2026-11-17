@@ -18,6 +18,7 @@ void Install(bool from_launcher) {
   auto aim = [] { return settings::Str("stick_mode", "lr") == "aim"; };
   auto lr = [aim] { return !aim(); };
 
+  menu::SetAccent(1.f, 200 / 255.f, 40 / 255.f);   // the launcher's colour for this game (launcher_view.cpp kStyles)
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");

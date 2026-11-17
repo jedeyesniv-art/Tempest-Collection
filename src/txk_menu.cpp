@@ -26,6 +26,7 @@ void Install(bool from_launcher) {
                    {"l", "L"}, {"r", "R"}, {"start", "Start"}, {"select", "Select"}},
                   defaults);
 
+  menu::SetAccent(80 / 255.f, 200 / 255.f, 1.f);   // the launcher's colour for this game (launcher_view.cpp kStyles)
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");

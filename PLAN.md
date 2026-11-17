@@ -1147,7 +1147,10 @@ To do, at the end:
    and Off removed, code too; old values count as Step); T2K "Renderer: Remaster / Emulation (original)" as T3K, with
    the remaster's options only shown with Remaster; "Smooth motion" the same name in both; T2K melt sliders gone; one
    shared CRT section (src/crt_menu.cpp): T2K CRT+ / CRT++ (default CRT++), T81 CRT+ / CRT++ (new, default off; GPU
-   renderer, scanlines on 480 lines), T3K CRT+ (default off); TxK none. STILL TO DO: the restyle (launcher look).
+   renderer, scanlines on 480 lines), T3K CRT+ (default off); TxK none. RESTYLE first pass 2026-11-17: src/pixfont.cpp (the
+   launcher's glowing 5x7 font + glow lines, shared; launcher shots byte-identical after the move; added ; [ ] | * #,
+   chevrons, descenders for g p q y) and menu.cpp drawn with it in each game's launcher colour (menu::SetAccent); BUTTONS
+   header short, its help shows on a button row. Test hook MENU_SELECT=N. Waiting for the owner's look.
    Original note: restyle the shared in-game settings menu (src/menu.cpp, still the SDL debug font) in
    the launcher's look (glowing pixel font, colours, panels), AND make the ordering and options consistent and useful
    across the games (t2k_menu / t3k_menu / t81_menu / txk_menu): same sections in the same order, same names for the

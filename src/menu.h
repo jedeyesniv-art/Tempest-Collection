@@ -55,11 +55,13 @@ struct Page {
                double def);
   Item* Button(const std::string& label, int action, bool closes = false);
   // A BUTTONS section: one row per controls:: function (A on it, then a button) and "Reset buttons to defaults".
-  void Binds(const std::string& header = "BUTTONS (A on a function, then press a button; again removes it)");
+  void Binds(const std::string& header = "BUTTONS");
 };
 
-// title: shown at the top of the panel ("TEMPEST 2000 - SETTINGS").
+// title: shown at the top of the panel ("TEMPEST 2000 - SETTINGS": the game big, the rest under it).
 void SetPage(const std::string& title, Page page);
+// The game's colour (its launcher accent, 0..1): the panel's edge, title, section names, values, selection.
+void SetAccent(float r, float g, float b);
 
 bool IsOpen();
 // Drawn: open, or still sliding out after closing.
