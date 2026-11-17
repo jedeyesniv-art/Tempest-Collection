@@ -1237,6 +1237,12 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
   const SDL_FRect full{ox, oy, dst.w, dst.h};   // (DrawVectors: where the 360 x 240 picture goes)
   const float gx0 = -ox / sx, gx1 = (float(w) - ox) / sx, gy0 = -oy / sy, gy1 = (float(h) - oy) / sy;
   std::vector<Seg> part;
+  // A brightening zoom feedback (the warps: fade > 1) amplifies whatever the vectors leave in it every picture: the
+  // original's soft, wide strokes grow into round glows, sharp thin ones into long spikes (level 3's warp became a
+  // four-pointed star instead of a soft square; owner 2026-11-17, tools/t3k_zoomfit2.py: the zoom step itself is
+  // exact). Such pictures keep the original line look; play (darkening trails) stays sharp.
+  bool brightening = false;
+  for (const Op& op : pic.ops) brightening |= op.kind == Op::kZoom && op.fade > 1.f;
   for (const Op& op : pic.ops) {
     switch (op.kind) {
       case Op::kFill: {
@@ -1309,7 +1315,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
       }
       case Op::kSegs: {
         part.assign(segs.begin() + op.first, segs.begin() + op.first + op.count);
-        bool sharpen = g_sharp && !part.empty();
+        bool sharpen = g_sharp && !part.empty() && !brightening;
         if (sharpen) {   // only the small items: the web and the screen-wide streaks keep the original look
           // small (claw, enemies, HUD) or made of short strokes (lines of text); the web and the streaks have long ones
           float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, len = 0.f;
