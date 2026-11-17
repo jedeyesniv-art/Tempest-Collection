@@ -179,8 +179,7 @@ keep_high_scores = 1
 
 # --- Stick controls for the claw (left stick; the d-pad keeps the original controls) ---
 # step = a push is one lane at once, held it sweeps, released it settles (sp_release); stiff = Tempest 2000's lr handling (speed follows the stick, slow start then quick, stops on a lane);
-# lr = push left / right: speed follows how far the stick is pushed, per picture; momentum = TxK's feel (below);
-# off = stick acts as the d-pad.
+# lr = push left / right: speed follows how far the stick is pushed, per picture. (Any other value counts as step.)
 stick_mode = step
 lr_deadzone = 0.20
 # Top speed at full deflection, in lanes per picture (the game's own d-pad top speed is 0.94).
@@ -192,21 +191,6 @@ lr_ramp_pictures = 4
 lr_ramp_start = 0.30
 # Pictures the claw keeps easing after the stick is released (0 = stop dead, like the original).
 lr_release_pictures = 1
-# momentum = TxK's feel (measured on TxK): the stick accelerates the claw (a force, not a speed) up to a top speed;
-# on release it glides and settles on a lane. The mo_ values below.
-# Top speed, lanes a second (TxK 17.3).
-mo_top_speed = 22.0
-# Seconds from rest to top speed at full stick (TxK 0.35).
-mo_accel_time = 0.70
-# Pushing against the motion: that many times the acceleration (TxK turns round in about 4 frames).
-mo_brake = 4
-# Glide after release: seconds for the speed to halve (TxK 0.2; 0 = stop at once, then settle).
-mo_glide = 0.04
-# Pull to the nearest lane centre while gliding (1 = TxK; 0 = none, the claw may stop between lanes).
-mo_settle = 0.3
-# Stick response: acceleration = deflection ^ this (TxK 0.8), past the deadzone.
-mo_curve = 0.8
-mo_deadzone = 0.08
 # stiff (T2K's lr, the owner's tuning there): top speed in lanes a second (T2K 0.41 a frame = 24.6), seconds of
 # smoothstep ramp from st_ramp_start of it, deflection curve, deadzone, seconds of ease-off after release, then the
 # claw settles on the nearest lane (st_snap 1) at st_snap_rate x the distance a second.
@@ -405,10 +389,9 @@ struct AnalogHold { int frame; int x, y, len; };
 // velocity x scale to the position. So the stick presses the d-pad in its direction and sets the scale each field so
 // that the speed follows our curve and ramp; the game does the moving, wrapping and clamping itself.
 // Only while the object's signature is there (flags, and the renderer's copy at $800DC100 = the position).
-// stick_mode momentum: TxK's feel (measured on TxK 2026-11-16, PLAN.md "Claw feel study"): the stick is a force, not
-// a speed - it accelerates the claw up to a top speed, pushing against the motion brakes hard, and on release the
-// claw glides (friction) and a spring settles it on a lane centre. Our model runs in real time (per field); the game
-// claw follows it closed loop: each picture it is asked to move by (model - game position) + one picture ahead.
+// stick_mode step / stiff: our model of the claw runs in real time (per field); the game claw follows it closed loop:
+// each picture it is asked to move by (model - game position) + one picture ahead (Follow). (A TxK-like momentum mode
+// and an "off" mode were removed 2026-11-17 by the owner; PLAN.md "Claw feel study" has the TxK measurements.)
 // Game speed (game_speed) and the warp's own speed (warp_speed, ramped over warp_ramp): after every field, the minimum
 // fields between two pictures for the core's flip cap. The warp is told from the newest picture: zoom feedback
 // (00300004) and no web surface (0011000B) - play, the level start zoom and deaths all draw the web, the menus start
@@ -460,7 +443,7 @@ struct SpeedControl {
 };
 
 struct ClawControl {
-  // momentum mode
+  // the model the game claw follows (step / stiff)
   double mo_v = 0;              // model velocity, lanes a second (+ = position increasing = stick right)
   double mo_err = 0;            // model position - game position, lanes
   double mo_prev = 0;           // game position last field
@@ -658,9 +641,10 @@ struct ClawControl {
     if (sp_dir == 0 && sp_rem == 0 && std::fabs(mo_err) < 0.01) mo_err = 0;
   }
 
-  // kind: 0 momentum, 1 stiff, 2 step
-  uint16_t Momentum(uint8_t* m, float stick_x, bool new_picture, int kind) {
-    const bool stiff = kind == 1;
+  // step: the step model, else the stiff one
+  uint16_t Follow(uint8_t* m, float stick_x, bool new_picture, bool step) {
+    const int kind = step ? 2 : 1;
+    const bool stiff = !step;
     const double dt = 1.0 / 60.0;   // one field
     const double pos = int32_t(Get(m, claw_at)) / 65536.0;
     if (!mo_live) {
@@ -698,31 +682,8 @@ struct ClawControl {
     ++mo_since;
 
     // The model, one field.
-    if (kind == 2) {
-      StepModel(stick_x, pos, dt);
-    } else if (stiff) {
-      StiffModel(stick_x, pos, dt);
-    } else {
-    const double dz = settings::Num("mo_deadzone", 0.08);
-    const double ax = std::fabs(stick_x);
-    const double u = ax > dz ? std::pow(std::min(1.0, (ax - dz) / (1.0 - dz)), settings::Num("mo_curve", 0.8)) : 0.0;
-    const double top = settings::Num("mo_top_speed", 22.0);
-    if (u > 0) {
-      const int dir = stick_x > 0 ? 1 : -1;
-      double a = top / std::max(0.02, settings::Num("mo_accel_time", 0.70)) * u;
-      if (mo_v * dir < 0) a *= settings::Num("mo_brake", 4.0);   // pushing against the motion
-      mo_v = std::clamp(mo_v + dir * a * dt, -top, top);
-    } else {
-      const double half_life = settings::Num("mo_glide", 0.04);
-      mo_v *= half_life > 0.001 ? std::pow(0.5, dt / half_life) : 0.0;
-      const double p = pos + mo_err, centre = std::round(p);
-      mo_v += settings::Num("mo_settle", 0.3) * 27.8 * (centre - p) * dt;
-      if (std::fabs(mo_v) < 0.3 && std::fabs(centre - p) < 0.02) {   // settled: exactly on the lane
-        mo_v = 0;
-        mo_err = centre - pos;
-      }
-    }
-    }
+    if (step) StepModel(stick_x, pos, dt);
+    else StiffModel(stick_x, pos, dt);
     mo_err += mo_v * dt;
 
     // Ask the game for the model's position one picture ahead (it moves once a picture, a picture late).
@@ -765,16 +726,16 @@ struct ClawControl {
     // 2026-11-17: no input on the title after a game over).
     const bool found = m && n >= 0x800000 && FindClaw(m);
     const bool claw = found && web;
-    const std::string mode = settings::Str("stick_mode", "step");
-    const bool ours = mode == "lr" || mode == "momentum" || mode == "stiff" || mode == "step";
-    if (!claw || !ours || dpad_lr) {
+    std::string mode = settings::Str("stick_mode", "step");
+    if (mode != "lr" && mode != "stiff") mode = "step";   // (also the removed momentum / off)
+    if (!claw || dpad_lr) {
       if (found && Get(m, claw_at + 8) != 0x10000) Put(m, claw_at + 8, 0x10000);
       last_dir = 0;
       pictures_pushed = 0;
       release_left = 0;
       if (claw || ++mo_absent > 8) mo_live = false;
       // No claw in play (menus, between lives): the stick is the d-pad, as in stick_mode off.
-      if (!claw && !dpad_lr && ours && std::fabs(stick_x) > 0.5f)
+      if (!claw && !dpad_lr && std::fabs(stick_x) > 0.5f)
         return stick_x > 0 ? uint16_t(1u << nuon::RIGHT) : uint16_t(1u << nuon::LEFT);
       return 0;
     }
@@ -782,8 +743,7 @@ struct ClawControl {
     const bool new_picture = picture != last_picture;
     last_picture = picture;
     mo_absent = 0;
-    if (mode == "momentum" || mode == "stiff" || mode == "step")
-      return Momentum(m, stick_x, new_picture, mode == "step" ? 2 : mode == "stiff" ? 1 : 0);
+    if (mode == "stiff" || mode == "step") return Follow(m, stick_x, new_picture, mode == "step");
 
     const double dz = settings::Num("lr_deadzone", 0.2);
     const double ax = std::fabs(stick_x);
@@ -896,7 +856,7 @@ std::string FindDisc(const std::string& given) {
 }
 
 // Game buttons: the functions bound in the settings menu (t3k_menu.cpp: the owner's Nuance layout by default). Fixed:
-// d-pad and left stick = Nuon d-pad (the stick's x drives the claw in stick_mode lr), Back = settings menu.
+// d-pad and left stick = Nuon d-pad (the stick's x drives the claw: ClawControl), Back = settings menu.
 uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
   uint16_t b = t3k_menu::NuonButtons(controls::Held(pad));
   auto set = [&](int bit, bool on) { if (on) b |= uint16_t(1u << bit); };
@@ -905,10 +865,10 @@ uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
     const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
     set(nuon::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -16000);
     set(nuon::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 16000);
-    const std::string sm = settings::Str("stick_mode", "step");
-    const bool stick_lr = sm == "lr" || sm == "momentum" || sm == "stiff" || sm == "step";   // then the claw controller handles x
-    set(nuon::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || (!stick_lr && lx < -16000));
-    set(nuon::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || (!stick_lr && lx > 16000));
+    // the stick's x: the claw controller's (every stick mode)
+    set(nuon::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT));
+    set(nuon::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT));
+    (void)lx;
   }
   if (keys) {
     set(nuon::UP, keys[SDL_SCANCODE_UP]);

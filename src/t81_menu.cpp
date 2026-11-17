@@ -2,6 +2,7 @@
 #include "t81_menu.h"
 
 #include "controls.h"
+#include "crt_menu.h"
 #include "lr_host.h"
 #include "settings.h"
 
@@ -49,6 +50,7 @@ void Install(bool from_launcher) {
   p.Choice("Vector resolution", "mame_altres", {"1440x1080", "1920x1440", "2880x2160"},
            {"1440x1080", "1920x1440", "2880x2160"})->when = mame;
   p.Choice("Picture scaling", "picture_filter", {"smooth", "sharp"}, {"Smooth (bilinear)", "Sharp pixels"})->when = mame;
+  crt_menu::Add(p, 2, 0);   // T81: CRT+ and CRT++, off by default
   p.Header("");
   p.Button(from_launcher ? "Return to launcher" : "Quit", menu::kQuit, true);
   menu::SetPage("TEMPEST (1981) - SETTINGS", std::move(p));

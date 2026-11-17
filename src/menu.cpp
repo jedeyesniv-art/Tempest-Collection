@@ -42,9 +42,11 @@ bool Shown(const Item& i) {
 }
 bool Selectable(const Item& i) { return Shown(i); }
 
+const std::string& DefaultValue(const Item& i) { return i.def_value.empty() ? i.values[0] : i.def_value; }
+
 std::string ValueText(const Item& i) {
   if (i.kind == Kind::Choice) {
-    std::string cur = settings::Str(i.key, i.values[0]);
+    std::string cur = settings::Str(i.key, DefaultValue(i));
     for (size_t k = 0; k < i.values.size(); ++k)
       if (i.values[k] == cur) return i.names[k];
     return cur;
@@ -61,7 +63,7 @@ std::string ValueText(const Item& i) {
 
 void Change(const Item& i, int dir) {
   if (i.kind == Kind::Choice) {
-    std::string cur = settings::Str(i.key, i.values[0]);
+    std::string cur = settings::Str(i.key, DefaultValue(i));
     int k = 0;
     for (size_t n = 0; n < i.values.size(); ++n)
       if (i.values[n] == cur) k = int(n);

@@ -1143,7 +1143,12 @@ To do, at the end:
   run from the launcher.
 
 ### To do (owner's decisions 2026-11-17)
-1. MENUS (yes - marked to do): restyle the shared in-game settings menu (src/menu.cpp, still the SDL debug font) in
+1. MENUS (yes - marked to do). DONE 2026-11-17 (owner's edits): T3K stick modes Step / Stiff / Left-right (Momentum
+   and Off removed, code too; old values count as Step); T2K "Renderer: Remaster / Emulation (original)" as T3K, with
+   the remaster's options only shown with Remaster; "Smooth motion" the same name in both; T2K melt sliders gone; one
+   shared CRT section (src/crt_menu.cpp): T2K CRT+ / CRT++ (default CRT++), T81 CRT+ / CRT++ (new, default off; GPU
+   renderer, scanlines on 480 lines), T3K CRT+ (default off); TxK none. STILL TO DO: the restyle (launcher look).
+   Original note: restyle the shared in-game settings menu (src/menu.cpp, still the SDL debug font) in
    the launcher's look (glowing pixel font, colours, panels), AND make the ordering and options consistent and useful
    across the games (t2k_menu / t3k_menu / t81_menu / txk_menu): same sections in the same order, same names for the
    same things (fullscreen, CRT, smooth motion, frame rate, controls, save states, return to launcher), drop what

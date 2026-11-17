@@ -33,6 +33,7 @@ struct Item {
   std::string key;                      // settings key (Choice / Number)
   std::vector<std::string> values;      // Choice: stored values (the first = the value when the key is missing)
   std::vector<std::string> names;       // Choice: shown names
+  std::string def_value;                // Choice: the value when the key is missing ("" = values[0])
   double lo = 0, hi = 0, step = 0;      // Number
   double def = 0;                       // Number: the value when the setting is missing
   const char* fmt = "%.2f";

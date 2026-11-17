@@ -351,7 +351,7 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
   ~3000. Every picture is native now, boot logo included (0031000E, 00310409, 0000000F ported). Native: YCrCb pipeline (GPU renderer + src/shaders/ycc_*.hlsl), point-ring sign fix; open: orange patches
   on the brightest warp / bonus screens.
 - 2026-11-16: claw feel study done for TxK; T3K stick_mode stiff (T2K feel + lane settle) is the default and the
-  owner likes it (PLAN.md "Claw feel study" Results). Momentum (TxK feel) stays as an option.
+  owner likes it (PLAN.md "Claw feel study" Results). Momentum (TxK feel) and Off were removed 2026-11-17 (owner): Step, Stiff, Left/right remain.
 - Was next (owner 2026-11-15): the claw feel study (PLAN.md "Claw feel study: TxK and Tempest 4000") - measure TxK / T4K
   claw response, tune T2K / T3K controls; then T3K game speed; step 4 (interpolate-all) only if still needed; YCrCb
   pipeline (polish).

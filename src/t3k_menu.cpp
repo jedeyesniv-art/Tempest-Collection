@@ -2,6 +2,7 @@
 #include "t3k_menu.h"
 
 #include "controls.h"
+#include "crt_menu.h"
 #include "nuon_host.h"
 #include "settings.h"
 
@@ -26,7 +27,6 @@ void Install(bool from_launcher) {
                   defaults);
 
   auto lr = [] { return settings::Str("stick_mode", "step") == "lr"; };
-  auto mo = [] { return settings::Str("stick_mode", "step") == "momentum"; };
   auto st = [] { return settings::Str("stick_mode", "step") == "stiff"; };
   auto sp = [] { return settings::Str("stick_mode", "step") == "step"; };
   menu::Page p;
@@ -40,8 +40,8 @@ void Install(bool from_launcher) {
   p.Button("  Save state", menu::kSaveState)->slot_info = true;
   p.Button("  Load state", menu::kLoadState, true)->slot_info = true;
   p.Header("STICK");
-  p.Choice("Stick mode", "stick_mode", {"step", "stiff", "lr", "momentum", "off"},
-           {"Step (nudge = a lane)", "Stiff (T2K feel)", "Left / right", "Momentum (TxK feel)", "Off (stick = d-pad)"});
+  p.Choice("Stick mode", "stick_mode", {"step", "stiff", "lr"},
+           {"Step (nudge = a lane)", "Stiff (T2K feel)", "Left / right"});
   // the owner's tuning (2026-11-17) is each slider's default and its middle
   p.Choice("  On release after a sweep", "sp_release", {"off", "back", "nearest", "ahead"},
            {"Off (stop where it is)", "Step back a lane (stop short)", "Nearest lane", "On to the next lane"})->when = sp;
@@ -62,13 +62,6 @@ void Install(bool from_launcher) {
   p.Number("  Deadzone", "st_deadzone", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = st;
   p.Number("  Ease-off (s)", "st_ease_time", 0, 0.2, 0.01, "%.2f", 0)->when = st;
   p.Choice("  Stop on a lane (after a sweep)", "st_snap", {"0", "1"}, {"Off", "On"})->when = st;
-  p.Number("  Top speed (lanes a second)", "mo_top_speed", 10, 34, 0.5, "%.1f", 22.0)->when = mo;
-  p.Number("  Time to top speed (s)", "mo_accel_time", 0.05, 1.35, 0.05, "%.2f", 0.70)->when = mo;
-  p.Number("  Glide (speed half-life, s)", "mo_glide", 0, 0.08, 0.01, "%.2f", 0.04)->when = mo;
-  p.Number("  Lane settle", "mo_settle", 0, 0.6, 0.1, "%.1f", 0.3)->when = mo;
-  p.Number("  Reverse braking", "mo_brake", 1, 10, 0.5, "%.1f", 4)->when = mo;
-  p.Number("  Stick curve", "mo_curve", 0.4, 2, 0.1, "%.1f", 0.8)->when = mo;
-  p.Number("  Deadzone", "mo_deadzone", 0.02, 0.4, 0.01, "%.2f", 0.08)->when = mo;
   p.Number("  Top speed (lanes a picture)", "lr_max_speed", 0.30, 1.50, 0.01, "%.2f", 0.94)->when = lr;
   p.Number("  Ramp to top speed (pictures)", "lr_ramp_pictures", 1, 12, 1, "%.0f", 4)->when = lr;
   p.Number("  First-picture speed", "lr_ramp_start", 0, 1, 0.05, "%.2f", 0.30)->when = lr;
@@ -84,19 +77,13 @@ void Install(bool from_launcher) {
   auto sharp = [] { return settings::Num("native_view", 1) == 1 && settings::Num("sharp_vectors", 1) != 0; };
   p.Choice("Renderer", "native_view", {"1", "0"}, {"Remaster", "Emulation (original)"});
   p.Choice("  Wide screens", "widescreen", {"1", "0"}, {"Fill the width", "4:3 with bars"})->when = rem;
-  p.Choice("  Smooth motion (F6)", "native_interpolate", {"1", "0"}, {"On", "Off"})->when = rem;
+  p.Choice("  Smooth motion", "native_interpolate", {"1", "0"}, {"On", "Off"})->when = rem;
   p.Choice("  Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp (text, claw, enemies)", "Original"})->when = rem;
   p.Number("    Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;
   p.Number("    Glow", "sharp_glow", 0, 1, 0.05, "%.2f", 0.4)->when = sharp;
   p.Choice("  Picture blend (F3)", "picture_blend", {"1", "0"}, {"On", "Off"})->when = emu;
-  // CRT: T2K's CRT+ shader (crt.cpp); its defaults are T2K's (the owner's tuning on the ST)
-  auto crt_on = [] { return settings::Num("crt", 0) != 0; };
-  p.Choice("CRT look", "crt", {"0", "1"}, {"Off", "On (CRT+)"});
-  p.Number("  Scanlines", "crt_scanlines", 0, 1, 0.05, "%.2f", 0.45)->when = crt_on;
-  p.Number("  Phosphor mask", "crt_mask", 0, 1, 0.05, "%.2f", 0.35)->when = crt_on;
-  p.Number("  Softness", "crt_blur", 0, 1, 0.05, "%.2f", 0.4)->when = crt_on;
-  p.Number("  Screen curve", "crt_curvature", 0, 0.1, 0.01, "%.2f", 0.02)->when = crt_on;
   p.Choice("Frame-rate counter (F4)", "show_rates", {"0", "1"}, {"Off", "On"});
+  crt_menu::Add(p, 1, 0);   // T3K: CRT+ only, off by default
   p.Header("");
   p.Button(from_launcher ? "Return to launcher" : "Quit", menu::kQuit, true);
   menu::SetPage("TEMPEST 3000 - SETTINGS", std::move(p));

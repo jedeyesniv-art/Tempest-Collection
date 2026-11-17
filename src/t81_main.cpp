@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "controls.h"
+#include "crt.h"
 #include "lr_host.h"
 #include "menu.h"
 #include "settings.h"
@@ -368,8 +369,12 @@ int main(int argc, char** argv) {
 
   SDL_Window* win = SDL_CreateWindow("Tempest", win_w > 0 ? win_w : 1080, win_h > 0 ? win_h : 1080,
                                      SDL_WINDOW_RESIZABLE | (win_w > 0 ? 0 : SDL_WINDOW_HIGH_PIXEL_DENSITY));
-  SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
+  // The GPU renderer (it runs the CRT shaders; crt.h falls back to SDL's default renderer)
+  SDL_Renderer* ren = win ? crt::CreateRenderer(win) : nullptr;
   if (!ren) { std::fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
+  crt::SetModeDefault(0, 2);   // T81: CRT+ and CRT++, off unless chosen
+  if (!crt::Init(ren)) std::fprintf(stderr, "crt: unavailable on renderer %s\n", SDL_GetRendererName(ren));
+  SDL_Texture* crt_scene = nullptr;   // the picture before the CRT shader (window-sized)
   if (settings::Num("fullscreen", 1) != 0 && win_w <= 0) SDL_SetWindowFullscreen(win, true);
   SDL_SetRenderVSync(ren, settings::Num("vsync", 1) != 0 ? 1 : 0);
   SDL_HideCursor();
@@ -485,6 +490,20 @@ int main(int argc, char** argv) {
     }
     int ww = 0, wh = 0;
     SDL_GetRenderOutputSize(ren, &ww, &wh);
+    // CRT (setting crt): the picture is drawn into a window-sized texture, then through the CRT shader. The scanlines
+    // and mask follow 480 lines (a vector monitor has none of its own; MAME's raster of it is 480 lines high).
+    crt::LoadSettings();
+    const bool use_crt = crt::Mode() > 0 && ww > 0 && wh > 0;
+    if (use_crt) {
+      float sw = 0, sh = 0;
+      if (crt_scene) SDL_GetTextureSize(crt_scene, &sw, &sh);
+      if (!crt_scene || int(sw) != ww || int(sh) != wh) {
+        if (crt_scene) SDL_DestroyTexture(crt_scene);
+        crt_scene = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ww, wh);
+        if (crt_scene) SDL_SetTextureScaleMode(crt_scene, SDL_SCALEMODE_LINEAR);
+      }
+      if (crt_scene) SDL_SetRenderTarget(ren, crt_scene);
+    }
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
     const uint64_t draw_now = SDL_GetTicksNS();
@@ -499,6 +518,12 @@ int main(int argc, char** argv) {
       SDL_RenderTexture(ren, tex, nullptr, &dst);
     }
     last_draw = draw_now;
+    if (use_crt && crt_scene) {
+      SDL_SetRenderTarget(ren, nullptr);
+      SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+      SDL_RenderClear(ren);
+      crt::DrawPicture(ren, crt_scene, SDL_FRect{0, 0, float(ww), float(wh)}, 480.f * ww / wh, 480.f);
+    }
     if (menu::Shown()) menu::Draw(ren, ww, wh);
     menu::DrawToast(ren, ww, wh, SDL_GetTicksNS());
     if (menu_test && presents == 0) menu::Open(menu_test == 2);
@@ -524,6 +549,8 @@ int main(int argc, char** argv) {
   if (audio) SDL_DestroyAudioStream(audio);
   if (tex) SDL_DestroyTexture(tex);
   lr::Unload();
+  if (crt_scene) SDL_DestroyTexture(crt_scene);
+  crt::Shutdown();
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
   SDL_Quit();
