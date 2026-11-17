@@ -16,4 +16,7 @@ void Install(bool from_launcher);
 // The RetroPad button bits (1 << lr::Btn) of the functions held in `held` (controls::Held).
 uint16_t PadButtons(uint32_t held);
 
+// The menu's name of a version (a MAME set name: tempest, tempest3, ..., temptube).
+std::string VersionName(const std::string& set);
+
 }  // namespace t81_menu

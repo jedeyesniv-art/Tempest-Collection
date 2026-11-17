@@ -54,6 +54,9 @@ namespace {
 
 const char* kDefaults = R"(# Tempest (1981 arcade) settings.
 
+# Version (MAME's sets in a merged tempest.zip): tempest (rev 3, revised hardware), tempest3 (rev 3), tempest2 (rev 2),
+# tempest1 (rev 1), tempest1r (rev 1, revised hardware), temptube (Tempest Tubes, a 1981 hack).
+version = tempest
 # 1 = start fullscreen (F11 toggles and saves it).
 fullscreen = 1
 # 1 = wait for the display when presenting (no tearing).
@@ -129,6 +132,76 @@ bool WriteWav(const std::string& path, const std::vector<int16_t>& s, uint32_t r
   return true;
 }
 
+// The versions (MAME's sets in a merged tempest.zip: the parent rev 3 and its clones). MAME takes the set from the file
+// name it is given and looks for the ROMs in that folder, the clones' inside the parent's zip, so a version is
+// "<folder of tempest.zip>\<set>.zip" even though only tempest.zip exists. Setting `version`; the menu's GAME.
+// Switching reloads the game in the same core DLL (verified: the new set runs exactly as from a fresh start).
+const char* const kVersions[] = {"tempest", "tempest3", "tempest2", "tempest1", "tempest1r", "temptube"};
+std::string g_set = "tempest";   // the set running now (save states are per set)
+
+std::string VersionSetting() {
+  const std::string v = settings::Str("version", "tempest");
+  for (const char* k : kVersions)
+    if (v == k) return v;
+  return "tempest";
+}
+std::string VersionPath(const std::string& tempest_zip, const std::string& set) {
+  return (fs::path(tempest_zip).parent_path() / (set + ".zip")).string();
+}
+
+// The CRC32s in a zip's central directory (empty when it isn't one).
+std::vector<uint32_t> ZipCrcs(const fs::path& zip) {
+  std::vector<uint32_t> out;
+  std::ifstream f(zip, std::ios::binary);
+  if (!f) return out;
+  std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), {});
+  auto u16 = [&](size_t i) { return uint32_t(d[i] | d[i + 1] << 8); };
+  auto u32 = [&](size_t i) { return u16(i) | u16(i + 2) << 16; };
+  size_t eocd = std::string::npos;
+  for (size_t i = d.size() >= 22 ? d.size() - 22 : 0; i + 22 <= d.size() && i != size_t(-1); --i)
+    if (u32(i) == 0x06054b50) { eocd = i; break; }
+  if (eocd == std::string::npos) return out;
+  size_t p = u32(eocd + 16);
+  for (uint32_t n = u16(eocd + 10); n > 0 && p + 46 <= d.size() && u32(p) == 0x02014b50; --n) {
+    out.push_back(u32(p + 16));
+    p += 46 + u16(p + 28) + u16(p + 30) + u16(p + 32);
+  }
+  return out;
+}
+
+// Are a version's ROMs there (by CRC, MAME's driver tempest.cpp)? In tempest.zip (a merged set) or <set>.zip (split).
+// MAME can't be asked: a set with missing files is a fatal error it doesn't recover from (a second load crashed).
+bool VersionPresent(const std::string& tempest_zip, const std::string& set) {
+  static const std::vector<uint32_t> common = {0x9995256d, 0x5903af03, 0x8b04f921, 0x2af82e87, 0xb31f6e24,
+                                               0x8119b847, 0x09f5a4d5, 0x823b61ae, 0x276eadd5};
+  const std::vector<uint32_t> old = {0x65d61fe7, 0x11077375, 0xf3e2827a, 0xbeb352ab, 0xa4de050f, 0x35619648,
+                                     0x73d38e47, 0x29f7e937, 0xc16ec351};   // the 2 KB ROMs of the first boards
+  std::vector<uint32_t> need;
+  if (set == "tempest") need = {0x1d0cc503, 0xc88e3524, 0xa4b2ce3f, 0x65a9a9f9, 0xde4e9e34};
+  else if (set == "tempest1r") need = {0x1d0cc503, 0xc88e3524, 0x1ca27781, 0x65a9a9f9, 0xd75fd2ef};
+  else if (set == "tempest3") need = old, need.insert(need.end(), {0xaeb0f7e9, 0xef2eb645, 0x707bd5c3});
+  else if (set == "tempest2") need = old, need.insert(need.end(), {0x7356896c, 0xef2eb645, 0x707bd5c3});
+  else if (set == "tempest1") need = old, need.insert(need.end(), {0x7356896c, 0x55952119, 0x796a9918});
+  else if (set == "temptube") {
+    need = {0x65d61fe7, 0x11077375, 0xf3e2827a, 0xa4de050f, 0x35619648, 0x73d38e47, 0x29f7e937, 0xc16ec351,
+            0xaeb0f7e9, 0xef2eb645, 0x707bd5c3, 0xcefb03f0};
+  } else {
+    return false;
+  }
+  need.insert(need.end(), common.begin(), common.end());
+  if (set != "tempest" && set != "tempest1r")   // the first boards' vector ROM is the two 2 KB halves (123 / 124)
+    need.erase(std::remove(need.begin(), need.end(), 0x9995256du), need.end());
+  std::vector<uint32_t> have = ZipCrcs(tempest_zip);
+  const std::vector<uint32_t> own = ZipCrcs(VersionPath(tempest_zip, set));
+  have.insert(have.end(), own.begin(), own.end());
+  for (uint32_t c : need)
+    if (std::find(have.begin(), have.end(), c) == have.end()) {
+      std::fprintf(stderr, "version %s: a ROM with CRC %08x is missing\n", set.c_str(), c);
+      return false;
+    }
+  return true;
+}
+
 // The romset: tempest.zip (MAME's current set: parent rev 3 plus the clones).
 std::string FindRomset(const std::string& given) {
   if (!given.empty()) return given;
@@ -166,8 +239,9 @@ uint16_t ReadPad(SDL_Gamepad* pad, const bool* keys) {
   return b;
 }
 
-fs::path StatePath(const fs::path& dir) {
-  return dir / "states" / ("t81_slot" + std::to_string(int(settings::Num("state_slot", 1))) + ".state");
+fs::path StatePath(const fs::path& dir) {   // per version: t81_slot1.state (the main set), t81_temptube_slot1.state
+  const std::string set = g_set == "tempest" ? "" : g_set + "_";
+  return dir / "states" / ("t81_" + set + "slot" + std::to_string(int(settings::Num("state_slot", 1))) + ".state");
 }
 
 std::string SlotInfo(const fs::path& dir) {
@@ -277,6 +351,8 @@ int main(int argc, char** argv) {
   for (auto& [k, v] : sets) settings::Set(k, v);
   t81_menu::Install(from_launcher);
   menu::SetSlotInfo([&] { return SlotInfo(udir); });
+  // a clone's own file named on the command line (temptube.zip): that set, no version setting; tempest.zip: as found
+  const bool romset_given = !romset.empty() && fs::path(romset).stem().string() != "tempest";
   romset = FindRomset(romset);
   if (romset.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest", "Put the MAME romset tempest.zip next to the program.",
@@ -309,12 +385,22 @@ int main(int argc, char** argv) {
   std::string err;
   const fs::path system_dir = base / "system";
   fs::create_directories(system_dir);
-  if (!lr::Load((base / "tempest_libretro.dll").string(), romset, system_dir.string(), udir.string(), &err)) {
+  const std::string core_dll = (base / "tempest_libretro.dll").string();
+  std::string version_note;   // a toast for the window: a version whose ROMs are missing
+  g_set = romset_given ? fs::path(romset).stem().string() : VersionSetting();
+  if (!romset_given && g_set != "tempest" && !VersionPresent(romset, g_set)) {   // its ROMs aren't there
+    version_note = "That version's ROMs are missing - playing the main set";
+    g_set = "tempest";
+  }
+  const bool loaded = lr::Load(core_dll, romset_given ? romset : VersionPath(romset, g_set), system_dir.string(),
+                               udir.string(), &err);
+  if (!loaded) {
     std::fprintf(stderr, "load: %s\n", err.c_str());
     if (!headless) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest", err.c_str(), nullptr);
     return 1;
   }
-  std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio, aspect %.3f, rotation %u\n", romset.c_str(), lr::Fps(),
+  std::fprintf(stderr, "version %s; loaded %s: %.3f fps, %.0f Hz audio, aspect %.3f, rotation %u\n", g_set.c_str(),
+               romset.c_str(), lr::Fps(),
                lr::SampleRate(), lr::AspectRatio(), lr::Rotation());
 
   // Our own vector drawing needs the core's line export (third_party/mame-libretro, branch llamasoft-mame).
@@ -391,6 +477,29 @@ int main(int argc, char** argv) {
   uint64_t next = SDL_GetTicksNS();
   int frame = 0, presents = 0;
   bool prev_back = false;
+  bool menu_was_open = false;
+  if (!version_note.empty()) menu::Toast(version_note, SDL_GetTicksNS());
+  // A new version chosen in the menu: reload when the menu closes (stepping through the list costs nothing).
+  auto switch_version = [&](uint64_t now) {
+    if (romset_given) return;
+    const std::string want = VersionSetting();
+    if (want == g_set) return;
+    if (!VersionPresent(romset, want)) {
+      settings::Save("version", g_set);
+      menu::Toast("That version's ROMs are missing", now);
+      return;
+    }
+    lr::Unload();
+    std::string e;
+    if (lr::Load(core_dll, VersionPath(romset, want), system_dir.string(), udir.string(), &e)) {
+      g_set = want;
+      menu::Toast(t81_menu::VersionName(want), now);
+    } else {
+      std::fprintf(stderr, "load %s: %s\n", want.c_str(), e.c_str());
+    }
+    lines_fn = reinterpret_cast<t81_vectors::LinesFn>(lr::CoreProc("llama_mame_lines"));
+    lr::Audio().clear();
+  };
   uint32_t prev_held = 0;
   auto set_fullscreen = [&](bool on) {
     SDL_SetWindowFullscreen(win, on);
@@ -444,6 +553,17 @@ int main(int argc, char** argv) {
         next = now;   // paused: no catching up afterwards
       }
     }
+    if (menu_was_open && !menu::IsOpen()) switch_version(now);
+    if (static const char* st = std::getenv("T81_SWITCH_TEST"); st) {   // tests: <set>:<present> = chosen + menu closed
+      static bool done = false;
+      const char* c = std::strchr(st, ':');
+      if (!done && c && presents >= std::atoi(c + 1)) {
+        done = true;
+        settings::Set("version", std::string(st, c));
+        switch_version(now);
+      }
+    }
+    menu_was_open = menu::IsOpen();
     int todo = 0;
     if (!menu::IsOpen()) {
       while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }

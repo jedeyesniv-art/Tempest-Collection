@@ -1187,7 +1187,13 @@ To do, at the end:
    .nuz. Verified: same disc reads, pictures byte-identical to the .iso at fields 3000 / 5990 and from a state; audio
    aligned (lag 0, tools/wav_compare.py). Play folder 704 MB; owner tested it from Steam on Windows: works well. The .iso is still there (owner decides).
    For the publish version the tool needs Python + soundfile (libsndfile's Vorbis encoder).
-3. T81 ALTERNATE VERSIONS (could be neat): pick the other sets in tempest.zip (rev 1, rev 2, Tempest Tubes ...) from
+3. T81 ALTERNATE VERSIONS: DONE 2026-11-17. Menu GAME "Version" (setting version; switches when the menu closes):
+   tempest (rev 3 RH), tempest3, tempest2, tempest1, tempest1r, temptube (Tempest Tubes). The file name MAME is given
+   picks the set (<folder>\<set>.zip; the merged tempest.zip holds them all); reload in the same core DLL (verified:
+   frame 2400 identical to a fresh run). ROMs checked by CRC first (VersionPresent: a set with missing files is a
+   fatal MAME error a second load crashed on) -> main set + a note. Save states per set (t81_<set>_slotN.state).
+   All six attract screens: HUD in the same places. Not checked: the wide framing in play on the clones.
+   Original note: pick the other sets in tempest.zip (rev 1, rev 2, Tempest Tubes ...) from
    t81's menu, with our vector renderer / framing on all of them (check their monitor geometry and HUD positions -
    the wide framing's HUD boxes were measured on the parent set).
 4. PUBLISH VERSION (when the owner decides to publish): a blank package without ROMs, disc images, BIOS / firmware
