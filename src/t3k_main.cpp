@@ -64,6 +64,7 @@
 #include "controls.h"
 #include "menu.h"
 #include "nuon_host.h"
+#include "runlog.h"
 #include "settings.h"
 #include "t3k_menu.h"
 #include "crt.h"
@@ -1091,6 +1092,7 @@ int main(int argc, char** argv) {
   const fs::path base(SDL_GetBasePath());
   const fs::path udir = userdata.empty() ? base / "userdata" : fs::absolute(userdata);
   fs::create_directories(udir);
+  if (from_launcher) runlog::Start(udir, "t3k");   // no console: userdata\logs\t3k.log
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "t3k_settings.txt").string());   // (build/userdata is shared with t2k.exe)
   t3k_menu::Install(from_launcher);

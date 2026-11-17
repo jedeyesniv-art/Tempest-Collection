@@ -47,6 +47,7 @@
 
 #include "controls.h"
 #include "menu.h"
+#include "runlog.h"
 #include "settings.h"
 #include "txk_menu.h"
 #include "lr_host.h"
@@ -432,6 +433,7 @@ int main(int argc, char** argv) {
   const fs::path base(SDL_GetBasePath());
   const fs::path udir = userdata.empty() ? base / "userdata" : fs::absolute(userdata);
   fs::create_directories(udir);
+  if (from_launcher) runlog::Start(udir, "txk");   // no console: userdata\logs\txk.log
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "txk_settings.txt").string());
   txk_menu::Install(from_launcher);
@@ -659,6 +661,21 @@ int main(int argc, char** argv) {
       ++frame;
       PatchPrompts(frame);
       auto& au = lr::Audio();
+      {   // heartbeat for the log (userdata\logs\txk.log): when a hang began, whether sound came out
+        static size_t hb_samples = 0;
+        static int hb_peak = 0;
+        hb_samples += au.size();
+        for (int16_t s : au) hb_peak = std::max(hb_peak, std::abs(int(s)));
+        if (frame % 600 == 0) {
+          const std::time_t now = std::time(nullptr);
+          char when[16] = {};
+          std::strftime(when, sizeof when, "%H:%M:%S", std::localtime(&now));
+          std::fprintf(stderr, "%s frame %llu: %zu sound samples in the last 600 frames, peak %d\n", when,
+                       (unsigned long long)frame, hb_samples, hb_peak);
+          hb_samples = 0;
+          hb_peak = 0;
+        }
+      }
       if (audio && !au.empty()) {
         if (SDL_GetAudioStreamQueued(audio) > int(lr::SampleRate()) * 4 / 10) SDL_ClearAudioStream(audio);
         SDL_PutAudioStreamData(audio, au.data(), int(au.size() * 2));

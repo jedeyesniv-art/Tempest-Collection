@@ -26,7 +26,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang")
   target_compile_options(vj_libchdr PRIVATE -w)
 endif()
 
-add_executable(t2k WIN32 src/main.cpp src/host.cpp src/settings.cpp src/t2k.cpp src/menu.cpp src/pixfont.cpp src/t2k_menu.cpp src/controls.cpp src/traps.cpp src/gpulog.cpp src/remaster.cpp src/perf.cpp src/xbr.cpp src/crt.cpp src/crt_menu.cpp res/t2k.rc)
+add_executable(t2k WIN32 src/main.cpp src/host.cpp src/settings.cpp src/runlog.cpp src/t2k.cpp src/menu.cpp src/pixfont.cpp src/t2k_menu.cpp src/controls.cpp src/traps.cpp src/gpulog.cpp src/remaster.cpp src/perf.cpp src/xbr.cpp src/crt.cpp src/crt_menu.cpp res/t2k.rc)
 target_link_libraries(t2k PRIVATE vj_core SDL3::SDL3-static)
 target_compile_definitions(t2k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)
@@ -43,7 +43,7 @@ endif()
 
 # Tempest 3000 (Nuon): the Nuance libretro core is a separate DLL (tools\build_nuance.bat -> build_nuance\), loaded at
 # run time; its BIOS stubs (from the Nuance source) and our nuance.cfg go to system\nuance next to the exe.
-add_executable(t3k WIN32 src/t3k_main.cpp src/t3k_menu.cpp src/t3k_native.cpp src/t3k_scores.cpp src/nuon_host.cpp src/settings.cpp src/menu.cpp src/pixfont.cpp src/controls.cpp src/crt.cpp src/crt_menu.cpp)
+add_executable(t3k WIN32 src/t3k_main.cpp src/t3k_menu.cpp src/t3k_native.cpp src/t3k_scores.cpp src/nuon_host.cpp src/settings.cpp src/runlog.cpp src/menu.cpp src/pixfont.cpp src/controls.cpp src/crt.cpp src/crt_menu.cpp)
 target_link_libraries(t3k PRIVATE SDL3::SDL3-static opengl32)
 target_compile_definitions(t3k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)
@@ -61,7 +61,7 @@ add_custom_target(t3k_runtime ALL
 
 # TxK (PS Vita): the Vita3K libretro core is a separate DLL (tools\build_vita3k.bat -> build_vita3k\bin\Release\),
 # loaded at run time. Firmware comes from vita_firmware\ (txk.exe links it into system\vita3k\ on first start).
-add_executable(txk WIN32 src/txk_main.cpp src/txk_menu.cpp src/lr_host.cpp src/settings.cpp src/menu.cpp src/pixfont.cpp src/controls.cpp)
+add_executable(txk WIN32 src/txk_main.cpp src/txk_menu.cpp src/lr_host.cpp src/settings.cpp src/runlog.cpp src/menu.cpp src/pixfont.cpp src/controls.cpp)
 target_link_libraries(txk PRIVATE SDL3::SDL3-static opengl32)
 target_compile_definitions(txk PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)
@@ -74,7 +74,7 @@ add_custom_target(txk_runtime ALL
 
 # Tempest (1981 arcade): MAME's libretro core with the Tempest driver only (tools/build_mame.sh, MinGW gcc from the
 # portable Strawberry Perl -> third_party/mame-libretro/tempest_libretro.dll), loaded at run time.
-add_executable(t81 WIN32 src/t81_main.cpp src/t81_menu.cpp src/t81_vectors.cpp src/lr_host.cpp src/settings.cpp src/menu.cpp src/pixfont.cpp src/controls.cpp src/crt.cpp src/crt_menu.cpp)
+add_executable(t81 WIN32 src/t81_main.cpp src/t81_menu.cpp src/t81_vectors.cpp src/lr_host.cpp src/settings.cpp src/runlog.cpp src/menu.cpp src/pixfont.cpp src/controls.cpp src/crt.cpp src/crt_menu.cpp)
 target_link_libraries(t81 PRIVATE SDL3::SDL3-static opengl32)
 target_compile_definitions(t81 PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)

@@ -43,6 +43,7 @@ extern "C" uint32_t vjOPSkipLo, vjOPSkipHi, vjOPSkip2Lo, vjOPSkip2Hi;   // core 
 #include "menu.h"
 #include "perf.h"
 #include "t2k_menu.h"
+#include "runlog.h"
 #include "settings.h"
 #include "t2k.h"
 
@@ -373,6 +374,7 @@ int main(int argc, char** argv) {
   }
   // Saves / settings next to the program unless given (Steam and shortcuts start it from other folders).
   if (!userdata_given) userdata = (fs::path(SDL_GetBasePath()) / "userdata").string();
+  if (from_launcher) runlog::Start(fs::absolute(userdata), "t2k");   // no console: userdata\logs\t2k.log
   rom = FindRom(rom);
   if (rom.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 2000",

@@ -43,6 +43,7 @@
 #include "crt.h"
 #include "lr_host.h"
 #include "menu.h"
+#include "runlog.h"
 #include "settings.h"
 #include "t81_menu.h"
 #include "t81_vectors.h"
@@ -270,6 +271,7 @@ int main(int argc, char** argv) {
   const fs::path base(SDL_GetBasePath());
   const fs::path udir = userdata.empty() ? base / "userdata" : fs::absolute(userdata);
   fs::create_directories(udir);
+  if (from_launcher) runlog::Start(udir, "t81");   // no console: userdata\logs\t81.log
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "t81_settings.txt").string());
   for (auto& [k, v] : sets) settings::Set(k, v);
