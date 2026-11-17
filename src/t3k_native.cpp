@@ -959,7 +959,10 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         op.cy = float(e[0] & 0xFFFF);
         op.zx = float(e[4]) / 65536.f;
         op.zy = float(e[5]) / 65536.f;
-        op.angle = float(e[6] & 0xFFFF) * 6.2831853f / 65536.f;
+        // signed: $FF70 is -0.79 deg, not 359.21 - the same for a whole picture's step, but the window splits a step
+        // across presents (angle x step), and 359.21 x 1/4 turned the feedback ~90 deg a present: the kaleidoscope
+        // on "Crosseyed and Painless" (owner 2026-11-17)
+        op.angle = float(int16_t(e[6] & 0xFFFF)) * 6.2831853f / 65536.f;
         op.fade = float(e[7] >> 16) / 16384.f;
         if (std::getenv("T3K_ZOOM_LOG"))
           std::fprintf(stderr, "zoom flip %u: centre %.0f,%.0f zoom %.4f %.4f angle %.2f deg fade %.3f w6 %08X w1 %08X w2 %08X "

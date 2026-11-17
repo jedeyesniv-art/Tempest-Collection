@@ -177,7 +177,10 @@ T3K, all committed; play folder repackaged 2026-11-17 with all of it. Owner: "pl
 - Known and accepted: per-level background spin (disc data) makes deaths kaleidoscopic on some levels - owner: fine.
 
 ## T3K background spin / death "kaleidoscope" (2026-11-16, owner's state logs/t3k/rot/owner_rot.state)
-- Not a bug of ours: the Emulation picture does the same. The zoom feedback's angle (entry 00300004 w6, copied each
+- CORRECTED 2026-11-17: the kaleidoscope in the WINDOW was ours: the zoom angle was read unsigned ($FF70 = 359.21
+  deg), fine for a whole step (headless) but the window splits a step across presents (angle x step) -> ~90 deg a
+  present. Now signed (t3k_native.cpp). Test spin in the WINDOW (--winshot), not only headless --nativeshot.
+  States: logs/t3k/states/l3warp_f2860 / l3death_f3450 (level 3). Original note: The zoom feedback's angle (entry 00300004 w6, copied each
   picture by $8001F736 from the background preset's +$40 into $800B84BC) comes from per-level presets: three blocks
   at $8075FB30 / FC30 / FD30 ($100 apart), loaded from disc data (ISO 0x2C041CCC: "0000 A1C0 0280 ... FF70 4C5F ...").
   "Crosseyed and Painless" has rotation $FF70 = -0.79 deg a picture; level 1 has 0 in play. A death's feedback keeps
