@@ -6,15 +6,17 @@
 // the two; the game's window is handed the foreground when it appears (and once more after it goes fullscreen), and
 // the launcher comes back to the front when the game quits (as the Minotaur Project launcher does).
 //
-// Barebones for now (placeholder look, SDL debug font): the list, keyboard / pad control, start, Steam link.
+// The look (src/launcher_view.cpp, from tools/launcher_mockup): portrait cover panels scrolled left / right, each
+// game's logo and moving background; the art in art\ next to the program (play folder) or the repo's art\panels\
+// (tools/launcher_art.py; never in git).
 // userdata\launcher_settings.txt: fullscreen.
-// --shot=<file.bmp> saves the first frame and exits (tests); --autostart=N starts game N at once and logs the focus
+// --shot=<file.bmp> saves the 90th frame and exits (tests); --autostart=N starts game N at once and logs the focus
 // hand-over on stderr (tests); --select=N starts with entry N selected. Test environment: LAUNCHER_FAKE_WINE=1 (act as
 // under Proton), LAUNCHER_PROC_DIR (instead of Z:\proc), LAUNCHER_DRY_URL=1 (don't open steam:// links),
 // LAUNCHER_NO_REGISTRY=1 + STEAM_COMPAT_CLIENT_INSTALL_PATH + LAUNCHER_LINUX_DRIVE (the Deck's Steam lookup).
 // Steam entries say what to do when not set up: buy / install (A opens the store page), a missing helper, or on the
 // Deck the launch option to add (read from Steam's localconfig.vdf; Steam rewrites it, so we can't set it).
-// Keys: Up / Down (d-pad, left stick) choose, Left / Right the variant (Space Giraffe: Acid / Nuxx), Enter / A start,
+// Keys: Left / Right (d-pad, left stick) choose, Up / Down the variant (Space Giraffe: Acid / Nuxx), Enter / A start,
 // F11 fullscreen, Esc / B quit. Steam games: Tempest 4000; Space Giraffe (the helper d3d9.dll is copied next to the game
 // and its flavour written to sg_helper.txt there before Steam starts it).
 #include <SDL3/SDL.h>
@@ -30,6 +32,7 @@
 #include <string>
 #include <vector>
 
+#include "launcher_view.h"
 #include "settings.h"
 
 namespace fs = std::filesystem;
@@ -42,7 +45,7 @@ const char kDefaults[] =
     "# 1 = start fullscreen (F11 toggles and remembers).\n"
     "fullscreen = 1\n"
     "\n"
-    "# Space Giraffe flavour: acid or nuxx (LEFT / RIGHT on its entry changes and remembers).\n"
+    "# Space Giraffe flavour: acid or nuxx (UP / DOWN on its entry changes and remembers).\n"
     "sg_flavour = acid\n";
 
 constexpr const char* kSteamAppT4K = "688140";   // Tempest 4000 on Steam (store.steampowered.com/app/688140)
@@ -51,8 +54,10 @@ constexpr const char* kSteamAppSG = "27800";     // Space Giraffe on Steam (stor
 enum class Kind { Program, Steam, NotYet };
 
 struct Game {
+  const char* id;       // art and look (launcher_view): t81 t2k t3k sg txk t4k
   const char* title;
   const char* detail;   // year, platform
+  const char* by;
   Kind kind;
   const char* target;   // program file name, or Steam app ID
   std::string status;   // why it can't start (empty = ready); for Steam games also "setup needed" (it still starts)
@@ -288,12 +293,12 @@ const SteamSetup kSetups[] = {
 
 std::vector<Game> MakeGames(const fs::path& base) {
   std::vector<Game> g = {
-      {"TEMPEST", "1981  ARCADE", Kind::Program, "t81.exe", ""},
-      {"TEMPEST 2000", "1994  ATARI JAGUAR", Kind::Program, "t2k.exe", ""},
-      {"TEMPEST 3000", "2000  NUON", Kind::Program, "t3k.exe", ""},
-      {"SPACE GIRAFFE", "2008  STEAM", Kind::Steam, kSteamAppSG, ""},
-      {"TxK", "2014  PS VITA", Kind::Program, "txk.exe", ""},
-      {"TEMPEST 4000", "2018  STEAM", Kind::Steam, kSteamAppT4K, ""},
+      {"t81", "TEMPEST", "1981 - ARCADE", "ATARI - DAVE THEURER", Kind::Program, "t81.exe", ""},
+      {"t2k", "TEMPEST 2000", "1994 - ATARI JAGUAR", "LLAMASOFT", Kind::Program, "t2k.exe", ""},
+      {"t3k", "TEMPEST 3000", "2000 - NUON", "LLAMASOFT", Kind::Program, "t3k.exe", ""},
+      {"sg", "SPACE GIRAFFE", "2008 - PC - STEAM", "LLAMASOFT", Kind::Steam, kSteamAppSG, ""},
+      {"txk", "TxK", "2014 - PS VITA", "LLAMASOFT", Kind::Program, "txk.exe", ""},
+      {"t4k", "TEMPEST 4000", "2018 - PC - STEAM", "LLAMASOFT", Kind::Steam, kSteamAppT4K, ""},
   };
   for (auto& x : g) {
     if (x.kind == Kind::NotYet) x.status = "coming later";
@@ -356,10 +361,23 @@ HANDLE StartProgram(const fs::path& exe) {
   return pi.hProcess;
 }
 
-void Text(SDL_Renderer* ren, float x, float y, float scale, const char* s) {
-  SDL_SetRenderScale(ren, scale, scale);
-  SDL_RenderDebugText(ren, x / scale, y / scale, s);
-  SDL_SetRenderScale(ren, 1.f, 1.f);
+// The view's entries for the games (their status and setup help with them).
+std::vector<lview::Entry> ViewEntries(const std::vector<Game>& games) {
+  std::vector<lview::Entry> out;
+  for (const Game& g : games) {
+    lview::Entry e;
+    e.id = g.id;
+    e.title = g.title;
+    e.line1 = g.detail;
+    e.line2 = g.by;
+    e.status = g.status;
+    e.help = g.help;
+    e.ready = g.status.empty() || g.status == "setup needed" || g.store;
+    if (std::strcmp(g.target, kSteamAppSG) == 0 && (g.status.empty() || g.status == "setup needed"))
+      e.variant = settings::Str("sg_flavour", "acid") == "acid" ? "ACID" : "NUXX";
+    out.push_back(e);
+  }
+  return out;
 }
 
 }  // namespace
@@ -395,7 +413,11 @@ int main(int argc, char** argv) {
   SDL_SetRenderVSync(ren, 1);
   if (settings::Num("fullscreen", 1) != 0) SDL_SetWindowFullscreen(win, true);
 
+  // the art: art\ next to the program (the play folder), else the repo's art\panels (build\tempest.exe)
+  const fs::path art = fs::exists(base / "art") ? base / "art" : base / ".." / "art" / "panels";
+  lview::Init(ren, art);
   std::vector<Game> games = MakeGames(base);
+  lview::SetEntries(ViewEntries(games));
   int sel = 1;   // Tempest 2000: the first one that runs
   if (select_arg >= 0 && select_arg < int(games.size())) sel = select_arg;
   std::string message;
@@ -416,21 +438,18 @@ int main(int argc, char** argv) {
   int deck_misses = 0;
   float stick_y = 0.f;
   bool running = true;
+  uint64_t last_frame = 0;
+  int frames = 0;
 
-  // The screen under a starting game: black, "STARTING <title>..." in the middle.
+  // The screen under a starting game: its logo and "STARTING <title>..." on black.
+  int starting_i = -1;
   auto draw_starting = [&] {
-    int ww = 0, wh = 0;
-    SDL_GetRenderOutputSize(ren, &ww, &wh);
-    const float s = std::max(1.f, wh / 240.f);
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-    SDL_RenderClear(ren);
-    SDL_SetRenderDrawColor(ren, 255, 255, 0, 255);
-    const float ts = s * 0.75f;
-    Text(ren, (ww - starting.size() * 8 * ts) / 2, (wh - 8 * ts) / 2, ts, starting.c_str());
+    lview::DrawStarting(ren, starting_i, starting);
     SDL_RenderPresent(ren);
   };
   auto start = [&](int i) {
     const Game& g = games[i];
+    starting_i = i;
     message.clear();
     if (g.store) {   // not installed: its Steam store page
       const std::string url = std::string("steam://store/") + g.target;
@@ -489,14 +508,28 @@ int main(int argc, char** argv) {
     child_started = SDL_GetTicksNS();
     child_pushed = 0;
   };
+  int pending = -1;   // a game to start once the start warp has played
   auto move = [&](int d) {
-    sel = (sel + d + int(games.size())) % int(games.size());
+    if (pending >= 0) return;
+    sel = std::clamp(sel + d, 0, int(games.size()) - 1);
     message.clear();
   };
-  // LEFT / RIGHT: the selected game's variant (Space Giraffe's flavour).
+  // A / Enter: the warp, then the start - straight away when it can't start (its message instead) or opens the store.
+  auto request_start = [&](int i) {
+    if (pending >= 0) return;
+    const Game& g = games[i];
+    if (g.store || (!g.status.empty() && g.status != "setup needed")) {
+      start(i);
+      return;
+    }
+    pending = i;
+    lview::StartWarp(i);
+  };
+  // UP / DOWN: the selected game's variant (Space Giraffe's flavour).
   auto variant = [&](int) {
     if (std::strcmp(games[sel].target, kSteamAppSG) != 0) return;
     settings::Save("sg_flavour", settings::Str("sg_flavour", "acid") == "acid" ? "nuxx" : "acid");
+    lview::SetEntries(ViewEntries(games));
     message.clear();
   };
   stick_y = 0.f;
@@ -535,6 +568,7 @@ int main(int argc, char** argv) {
         child = nullptr;
         starting.clear();
         games = MakeGames(base);
+        lview::SetEntries(ViewEntries(games));
         SDL_RaiseWindow(win);
         if (auto* me = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(win),
                                                                 SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr)))
@@ -583,6 +617,7 @@ int main(int argc, char** argv) {
         bg_ok = true;
         message.clear();
         games = MakeGames(base);
+        lview::SetEntries(ViewEntries(games));
         SDL_RaiseWindow(win);
         if (me) SetForegroundWindow(me);
         ignore_until = SDL_GetTicksNS() + 400000000ull;
@@ -602,11 +637,11 @@ int main(int argc, char** argv) {
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED) SDL_OpenGamepad(e.gdevice.which);
       else if (e.type == SDL_EVENT_KEY_DOWN && live) {
         switch (e.key.scancode) {
-          case SDL_SCANCODE_UP: move(-1); break;
-          case SDL_SCANCODE_DOWN: move(1); break;
-          case SDL_SCANCODE_LEFT: variant(-1); break;
-          case SDL_SCANCODE_RIGHT: variant(1); break;
-          case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: case SDL_SCANCODE_SPACE: start(sel); break;
+          case SDL_SCANCODE_LEFT: move(-1); break;
+          case SDL_SCANCODE_RIGHT: move(1); break;
+          case SDL_SCANCODE_UP: variant(-1); break;
+          case SDL_SCANCODE_DOWN: variant(1); break;
+          case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: case SDL_SCANCODE_SPACE: request_start(sel); break;
           case SDL_SCANCODE_ESCAPE: running = false; break;
           case SDL_SCANCODE_F11: {
             const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
@@ -618,65 +653,39 @@ int main(int argc, char** argv) {
         }
       } else if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && live) {
         switch (e.gbutton.button) {
-          case SDL_GAMEPAD_BUTTON_DPAD_UP: move(-1); break;
-          case SDL_GAMEPAD_BUTTON_DPAD_DOWN: move(1); break;
-          case SDL_GAMEPAD_BUTTON_DPAD_LEFT: variant(-1); break;
-          case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: variant(1); break;
-          case SDL_GAMEPAD_BUTTON_SOUTH: case SDL_GAMEPAD_BUTTON_START: start(sel); break;
+          case SDL_GAMEPAD_BUTTON_DPAD_LEFT: move(-1); break;
+          case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: move(1); break;
+          case SDL_GAMEPAD_BUTTON_DPAD_UP: variant(-1); break;
+          case SDL_GAMEPAD_BUTTON_DPAD_DOWN: variant(1); break;
+          case SDL_GAMEPAD_BUTTON_SOUTH: case SDL_GAMEPAD_BUTTON_START: request_start(sel); break;
           case SDL_GAMEPAD_BUTTON_EAST: running = false; break;
           default: break;
         }
       } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTY && live) {
-        const float v = e.gaxis.value / 32767.f;   // one step per push past half way
-        if (v > 0.5f && stick_y <= 0.5f) move(1);
-        if (v < -0.5f && stick_y >= -0.5f) move(-1);
+        const float v = e.gaxis.value / 32767.f;   // one flavour change per push past half way
+        if ((v > 0.5f && stick_y <= 0.5f) || (v < -0.5f && stick_y >= -0.5f)) variant(v > 0 ? 1 : -1);
         stick_y = v;
       } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX && live) {
-        const float v = e.gaxis.value / 32767.f;
-        if ((v > 0.5f && stick_x <= 0.5f) || (v < -0.5f && stick_x >= -0.5f)) variant(v > 0 ? 1 : -1);
+        const float v = e.gaxis.value / 32767.f;   // one step per push past half way
+        if (v > 0.5f && stick_x <= 0.5f) move(1);
+        if (v < -0.5f && stick_x >= -0.5f) move(-1);
         stick_x = v;
       }
     }
 
-    int ww = 0, wh = 0;
-    SDL_GetRenderOutputSize(ren, &ww, &wh);
-    const float s = std::max(1.f, wh / 240.f);   // the 8-pixel font, scaled to the window
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-    SDL_RenderClear(ren);
-    SDL_SetRenderDrawColor(ren, 255, 255, 0, 255);
-    Text(ren, 24 * s / 2, 16 * s / 2, s * 1.5f, "TEMPEST COLLECTION");
-    for (int i = 0; i < int(games.size()); ++i) {
-      const Game& g = games[i];
-      const float y = (56 + i * 28) * s / 2;
-      const bool setup = g.status == "setup needed";   // starts, but without its helper
-      const bool ready = g.status.empty() || setup;
-      if (i == sel) SDL_SetRenderDrawColor(ren, 255, 64, 64, 255);
-      else if (ready) SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
-      else SDL_SetRenderDrawColor(ren, 110, 110, 110, 255);
-      Text(ren, 24 * s / 2, y, s, (std::string(i == sel ? "> " : "  ") + g.title).c_str());
-      SDL_SetRenderDrawColor(ren, ready ? 120 : 80, ready ? 160 : 80, ready ? 255 : 80, 255);
-      std::string detail = g.detail;
-      if (std::strcmp(g.target, kSteamAppSG) == 0 && ready)   // the flavour it starts in; LEFT / RIGHT change it
-        detail += settings::Str("sg_flavour", "acid") == "acid" ? "   < ACID >" : "   < NUXX >";
-      if (!g.status.empty()) detail += "  - " + g.status;
-      if (setup) SDL_SetRenderDrawColor(ren, 255, 160, 60, 255);
-      Text(ren, 24 * s / 2 + 18 * 8 * s, y, s * 0.6f, detail.c_str());
+    // the start warp has played: start the game
+    if (pending >= 0 && !lview::Warping()) {
+      const int i = pending;
+      pending = -1;
+      start(i);
+      continue;
     }
-    float below = (56 + int(games.size()) * 28 + 8) * s / 2;
-    SDL_SetRenderDrawColor(ren, 255, 255, 0, 255);
-    if (!message.empty()) {
-      Text(ren, 24 * s / 2, below, s * 0.6f, message.c_str());
-      below += 14 * s * 0.6f;
-    }
-    SDL_SetRenderDrawColor(ren, 255, 160, 60, 255);   // the selected entry's instructions
-    for (const auto& line : games[sel].help) {
-      below += 12 * s * 0.6f;
-      Text(ren, 24 * s / 2, below, s * 0.6f, line.c_str());
-    }
-    SDL_SetRenderDrawColor(ren, 140, 140, 140, 255);
-    Text(ren, 24 * s / 2, wh - 16 * s / 2, s * 0.5f,
-         "UP/DOWN choose   LEFT/RIGHT flavour   ENTER/A start   F11 fullscreen   ESC/B quit");
-    if (!shot.empty()) {
+    const uint64_t now_ns = SDL_GetTicksNS();
+    const double dt = last_frame ? (now_ns - last_frame) / 1e9 : 1.0 / 60;
+    last_frame = now_ns;
+    lview::Draw(ren, sel, shot.empty() ? dt : 1.0 / 60, message);
+    ++frames;
+    if (!shot.empty() && frames >= 90) {
       if (SDL_Surface* img = SDL_RenderReadPixels(ren, nullptr)) {
         SDL_SaveBMP(img, shot.c_str());
         SDL_DestroySurface(img);
@@ -685,6 +694,7 @@ int main(int argc, char** argv) {
     }
     SDL_RenderPresent(ren);
   }
+  lview::Shutdown();
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
   SDL_Quit();

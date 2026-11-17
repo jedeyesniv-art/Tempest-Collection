@@ -37,6 +37,18 @@ foreach ($d in @("", "game", "system", "userdata")) { New-Item -ItemType Directo
 
 # Programs and cores.
 Copy-Item (Join-Path $build "tempest.exe") (Join-Path $dist "TempestCollection.exe")
+# The launcher's art (tools/launcher_art.py -> art\panels\: each game's cover and logo; alternative covers stay out).
+$panels = Join-Path $repo "art\panels"
+if (Test-Path $panels) {
+    New-Item -ItemType Directory -Force (Join-Path $dist "art") | Out-Null
+    foreach ($id in @("t81", "t2k", "t3k", "sg", "txk", "t4k")) {
+        foreach ($f in @("$id.png", "${id}_logo.png")) {
+            if (Test-Path (Join-Path $panels $f)) { Copy-Item (Join-Path $panels $f) (Join-Path $dist "art") }
+        }
+    }
+} else {
+    Write-Warning "no art\panels (run tools\launcher_art.py): the launcher will show placeholders"
+}
 foreach ($f in @("t2k.exe", "t3k.exe", "txk.exe", "t81.exe", "nuance_libretro.dll", "vita3k_libretro.dll",
                  "tempest_libretro.dll")) {
     Copy-Item (Join-Path $build $f) $dist
