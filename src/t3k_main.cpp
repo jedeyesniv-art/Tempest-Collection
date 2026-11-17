@@ -191,32 +191,32 @@ lr_release_pictures = 1
 # momentum = TxK's feel (measured on TxK): the stick accelerates the claw (a force, not a speed) up to a top speed;
 # on release it glides and settles on a lane. The mo_ values below.
 # Top speed, lanes a second (TxK 17.3).
-mo_top_speed = 17.3
+mo_top_speed = 16.0
 # Seconds from rest to top speed at full stick (TxK 0.35).
-mo_accel_time = 0.35
+mo_accel_time = 0.75
 # Pushing against the motion: that many times the acceleration (TxK turns round in about 4 frames).
 mo_brake = 4
 # Glide after release: seconds for the speed to halve (TxK 0.2; 0 = stop at once, then settle).
-mo_glide = 0.2
+mo_glide = 0.10
 # Pull to the nearest lane centre while gliding (1 = TxK; 0 = none, the claw may stop between lanes).
-mo_settle = 1.0
+mo_settle = 0.5
 # Stick response: acceleration = deflection ^ this (TxK 0.8), past the deadzone.
 mo_curve = 0.8
 mo_deadzone = 0.08
 # stiff (T2K's lr, the owner's tuning there): top speed in lanes a second (T2K 0.41 a frame = 24.6), seconds of
 # smoothstep ramp from st_ramp_start of it, deflection curve, deadzone, seconds of ease-off after release, then the
 # claw settles on the nearest lane (st_snap 1) at st_snap_rate x the distance a second.
-st_top_speed = 21.0
-st_ramp_time = 1.0
-st_ramp_start = 0.05
-st_curve = 1.5
+st_top_speed = 25.0
+st_ramp_time = 0.40
+st_ramp_start = 0.08
+st_curve = 2.0
 st_deadzone = 0.10
 st_ease_time = 0
 st_snap = 0
 # Fine adjustment: stick pushes up to st_fine_threshold move the claw slowly (up to st_fine_speed lanes a second, in
 # proportion), clicking lane to lane like T2K (st_fine_click 1; 0 = gliding smoothly); past the threshold it sweeps.
-st_fine_threshold = 0.6
-st_fine_speed = 2.0
+st_fine_threshold = 0.75
+st_fine_speed = 1.5
 st_fine_click = 1
 st_snap_rate = 20
 # Past the last lane centre by this much (lanes) on release, the claw goes on to the next one (a tap = one lane).
@@ -503,8 +503,8 @@ struct ClawControl {
     // the claw clicking lane to lane (st_fine_click) - and past it the claw sweeps, from the fine speed up to the top
     // speed along the curve, with the ramp counted from crossing into the sweep.
     const double dz = settings::Num("st_deadzone", 0.10);
-    const double thr = std::clamp(settings::Num("st_fine_threshold", 0.6), dz + 0.01, 0.99);
-    const double fine = settings::Num("st_fine_speed", 2.0);
+    const double thr = std::clamp(settings::Num("st_fine_threshold", 0.75), dz + 0.01, 0.99);
+    const double fine = settings::Num("st_fine_speed", 1.5);
     const double ax = std::fabs(stick_x);
     if (ax > dz) {
       const int dir = stick_x > 0 ? 1 : -1;
@@ -517,11 +517,11 @@ struct ClawControl {
       } else {           // sweep
         st_held += dt;
         const double u = std::min(1.0, (ax - thr) / (1.0 - thr));
-        const double t = std::clamp(st_held / std::max(0.01, settings::Num("st_ramp_time", 1.0)), 0.0, 1.0);
-        const double r0 = std::clamp(settings::Num("st_ramp_start", 0.05), 0.0, 1.0);
+        const double t = std::clamp(st_held / std::max(0.01, settings::Num("st_ramp_time", 0.40)), 0.0, 1.0);
+        const double r0 = std::clamp(settings::Num("st_ramp_start", 0.08), 0.0, 1.0);
         const double ramp = r0 + (1 - r0) * t * t * (3 - 2 * t);
-        const double top = std::max(fine, settings::Num("st_top_speed", 21.0));
-        speed = fine + (top - fine) * std::pow(u, settings::Num("st_curve", 1.5)) * ramp;
+        const double top = std::max(fine, settings::Num("st_top_speed", 25.0));
+        speed = fine + (top - fine) * std::pow(u, settings::Num("st_curve", 2.0)) * ramp;
         st_fine = false;
       }
       mo_v = dir * speed;
@@ -538,7 +538,7 @@ struct ClawControl {
       mo_v = 0;
       return;
     }
-    const double ease = settings::Num("st_ease_time", 0.05);
+    const double ease = settings::Num("st_ease_time", 0);
     st_release += dt;
     if (st_release < ease) {   // ease-off, as T2K's lr_release_frames
       mo_v = st_v0 * (1.0 - st_release / ease);
@@ -599,17 +599,17 @@ struct ClawControl {
     const double dz = settings::Num("mo_deadzone", 0.08);
     const double ax = std::fabs(stick_x);
     const double u = ax > dz ? std::pow(std::min(1.0, (ax - dz) / (1.0 - dz)), settings::Num("mo_curve", 0.8)) : 0.0;
-    const double top = settings::Num("mo_top_speed", 17.3);
+    const double top = settings::Num("mo_top_speed", 16.0);
     if (u > 0) {
       const int dir = stick_x > 0 ? 1 : -1;
-      double a = top / std::max(0.02, settings::Num("mo_accel_time", 0.35)) * u;
+      double a = top / std::max(0.02, settings::Num("mo_accel_time", 0.75)) * u;
       if (mo_v * dir < 0) a *= settings::Num("mo_brake", 4.0);   // pushing against the motion
       mo_v = std::clamp(mo_v + dir * a * dt, -top, top);
     } else {
-      const double half_life = settings::Num("mo_glide", 0.2);
+      const double half_life = settings::Num("mo_glide", 0.10);
       mo_v *= half_life > 0.001 ? std::pow(0.5, dt / half_life) : 0.0;
       const double p = pos + mo_err, centre = std::round(p);
-      mo_v += settings::Num("mo_settle", 1.0) * 27.8 * (centre - p) * dt;
+      mo_v += settings::Num("mo_settle", 0.5) * 27.8 * (centre - p) * dt;
       if (std::fabs(mo_v) < 0.3 && std::fabs(centre - p) < 0.02) {   // settled: exactly on the lane
         mo_v = 0;
         mo_err = centre - pos;
