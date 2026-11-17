@@ -33,9 +33,22 @@ void Install(bool from_launcher) {
   p.Binds();
   p.Header("DISPLAY");
   p.Button("Fullscreen on / off", menu::kToggleFullscreen);
+  p.Choice("Vectors", "vector_renderer", {"1", "0"}, {"Beams (ours)", "MAME's picture"});
+  auto ours = [] { return settings::Num("vector_renderer", 1) != 0; };
+  auto mame = [] { return settings::Num("vector_renderer", 1) == 0; };
+  p.Choice("Framing", "framing", {"wide", "fill", "arcade"},
+           {"Wide (big web)", "Fill", "Whole monitor"})
+      ->when = ours;
+  p.Choice("Shape", "aspect", {"arcade", "round"}, {"Arcade 3:4 tube", "Round (square units)"})->when = ours;
+  p.Number("Line width", "line_width", 1.0, 8.0, 0.25, "%.2f", 2.5)->when = ours;
+  p.Number("Width by brightness", "width_by_intensity", 0.0, 2.0, 0.25, "%.2f", 1.0)->when = ours;
+  p.Number("Glow", "glow", 0.0, 2.0, 0.1, "%.1f", 1.0)->when = ours;
+  p.Number("Glow size", "glow_size", 2.0, 20.0, 1.0, "%.0f", 6.0)->when = ours;
+  p.Number("Brightness", "brightness", 0.5, 2.0, 0.05, "%.2f", 1.2)->when = ours;
+  p.Number("White-hot core", "hot_core", 0.0, 1.0, 0.05, "%.2f", 0.2)->when = ours;
   p.Choice("Vector resolution", "mame_altres", {"1440x1080", "1920x1440", "2880x2160"},
-           {"1440x1080", "1920x1440", "2880x2160"});
-  p.Choice("Picture scaling", "picture_filter", {"smooth", "sharp"}, {"Smooth (bilinear)", "Sharp pixels"});
+           {"1440x1080", "1920x1440", "2880x2160"})->when = mame;
+  p.Choice("Picture scaling", "picture_filter", {"smooth", "sharp"}, {"Smooth (bilinear)", "Sharp pixels"})->when = mame;
   p.Header("");
   p.Button(from_launcher ? "Return to launcher" : "Quit", menu::kQuit, true);
   menu::SetPage("TEMPEST (1981) - SETTINGS", std::move(p));

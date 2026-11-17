@@ -988,8 +988,25 @@ dial reads it. Buttons (remappable): A / RT fire, B / RB / X zap, Start, Y coin;
 5 slots in userdata\states\t81_slotN.state, spinner speed, buttons, fullscreen, vector resolution, scaling).
 Verified: attract -> coin -> start -> rate yourself -> play; spinner moves the claw; save state restores (the core
 restores at a scheduler-safe point: 1-2 frames off a plain run, fine for players); window keeps 3:4 (core aspect).
-Open: tune the spinner feel with the owner; vector look (beam width / glow: MAME ini options); clones (tempest1..3,
-temptube) not selectable yet.
+Open: tune the spinner feel with the owner; clones (tempest1..3, temptube) not selectable yet.
+
+### t81 vectors drawn by us (2026-11-17)
+Owner: on the Deck the picture is small in the centre; wants zoom, wide screens, readable vectors (width / glow).
+- Core (third_party/mame-libretro, branch llamasoft-mame): src/osd/libretro/window.cpp copies the frame's LINE
+  primitives when the OSD fetches them; export llama_mame_lines(count, w, h) -> 9 floats a line (x0 y0 x1 y1 in 0..1
+  of the monitor, MAME width, a r g b; a = beam intensity 0.63 / 0.75 / 0.88 in Tempest).
+- src/t81_vectors.cpp: beams = 3 quads (cap, body, cap) over a radial profile; glow pass ADD (custom blend ONE/ONE),
+  core pass MAXIMUM (no hot spots where lines meet); white-hot core; width follows intensity. Settings vector_renderer
+  framing aspect line_width glow glow_size brightness width_by_intensity hot_core (menu DISPLAY). MAME rasterises
+  640x480 while ours is on (fallback only; 0.79 vs 1.14 ms a frame).
+- Framing: arcade (whole monitor), fill (x 0.08..0.885, y 0.13..0.95: all the game uses), wide (default): in play
+  the web fills the window and the HUD (leading lines in boxes x<0.37 / 0.37..0.66, y 0.12..0.2225) slides to the top
+  corners. Play = left HUD drawn and < 25 short strokes below y 0.9 (attract credits), hysteresis 10 / 30 frames.
+  Web box = bbox of world lines unchanged 10 frames (>= 30 lines, >= 0.3 x 0.3) + 0.06 margin, held while nothing
+  is static (fly-in, fly-through, warp). No room beside the web (flat level 4 web): web + HUD band, HUD in place.
+- Tests: --linedump=F0:F1:csv (T81_LINEDUMP_STEP), --autoplay=F (fire pulses + sweeps; reaches level 4, game over),
+  --frameshot=F:bmp (window, repeatable), --winsize=WxH, --set=k=v, --loadstate in the window. Shots logs/t81/wide.
+- Open: owner's look tuning on the Deck; phosphor persistence (trails) not done; levels 5-16 not seen by the tests.
 
 ## Claw feel study: TxK and Tempest 4000 (planned 2026-11-15, to do 2026-11-16)
 

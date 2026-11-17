@@ -74,7 +74,7 @@ add_custom_target(txk_runtime ALL
 
 # Tempest (1981 arcade): MAME's libretro core with the Tempest driver only (tools/build_mame.sh, MinGW gcc from the
 # portable Strawberry Perl -> third_party/mame-libretro/tempest_libretro.dll), loaded at run time.
-add_executable(t81 WIN32 src/t81_main.cpp src/t81_menu.cpp src/lr_host.cpp src/settings.cpp src/menu.cpp src/controls.cpp)
+add_executable(t81 WIN32 src/t81_main.cpp src/t81_menu.cpp src/t81_vectors.cpp src/lr_host.cpp src/settings.cpp src/menu.cpp src/controls.cpp)
 target_link_libraries(t81 PRIVATE SDL3::SDL3-static opengl32)
 target_compile_definitions(t81 PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)

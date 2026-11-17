@@ -21,7 +21,8 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   -> build_vita3k\bin\Release\vita3k_libretro.dll (32 MB; needs the MSVC C++ runtime DLLs). Configure needs the
   portable Strawberry Perl in third_party\strawberry (owner approved the download) and downloads FFmpeg + curl.
   Firmware in vita_firmware\ (PSVUPDAT.PUP system, PSP2UPDAT.PUP fonts). None of these in the outer git.
-- third_party/mame-libretro: libretro/mame (current MAME 0.289, commit 5f5a0774, shallow) for arcade Tempest (1981),
+- third_party/mame-libretro: libretro/mame (current MAME 0.289, commit 5f5a0774, shallow; our branch llamasoft-mame:
+  the vector line export llama_mame_lines for t81's own beams, PLAN.md "t81 vectors drawn by us") for arcade Tempest (1981),
   built with only src/mame/atari/tempest.cpp by tools/build_mame.sh (Git Bash + the MinGW gcc 13.2 / GNU make in
   third_party/strawberry; SDL3 headers via -DSDLMAME_SDL3 for the libretro OSD's key table) ->
   tempest_libretro.dll (43 MB, only Windows DLLs). Romset: tempest.zip (MAME's current split set) - not in git.
@@ -130,6 +131,9 @@ Done this session (details in the dated sections below):
   tap). TxK's own saves work (userdata\vita3k). Owner to test on the Deck: buttons, prompts, tap.
 - T3K options found but not kept (owner: not needed): notes in "T3K options".
 Waiting on the owner's Deck test: TxK buttons / prompts / tap; launcher focus after a Steam game.
+- 2026-11-17 later: t81 draws the vectors itself (beams + glow, width by intensity, white-hot core) with framing
+  wide (default: in play the web fills the screen, HUD in the top corners) / fill / whole monitor, shape arcade 3:4
+  or round. PLAN.md "t81 vectors drawn by us". Waiting on the owner's look on the Deck.
 Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
 - T3K cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found
   yet: next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested).
