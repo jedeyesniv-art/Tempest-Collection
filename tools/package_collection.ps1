@@ -2,6 +2,7 @@
 # own devices - dist\ is not in git and holds the games: never publish it).
 #
 #   TempestCollection.exe          the launcher (build\tempest.exe)
+#   libsndfile_x64.dll + "libsndfile COPYING.txt"   the launcher's Vorbis encoder (T3K disc compression; LGPL)
 #   t2k.exe t3k.exe txk.exe t81.exe   the games' programs (the launcher starts them by these names)
 #   nuance_libretro.dll vita3k_libretro.dll tempest_libretro.dll   the emulator cores
 #   msvcp140*.dll vcruntime140*.dll    the C++ runtime the Vita3K core needs (app-local; the rest are static)
@@ -37,6 +38,9 @@ foreach ($d in @("", "game", "system", "userdata")) { New-Item -ItemType Directo
 
 # Programs and cores.
 Copy-Item (Join-Path $build "tempest.exe") (Join-Path $dist "TempestCollection.exe")
+# libsndfile (LGPL, loaded at run time) for the launcher's Tempest 3000 disc compression (.iso -> .nuz), with its licence.
+Copy-Item (Join-Path $build "libsndfile_x64.dll") $dist
+Copy-Item (Join-Path $build "COPYING") (Join-Path $dist "libsndfile COPYING.txt")
 # The launcher's art (tools/launcher_art.py -> art\panels\: each game's cover and logo; alternative covers stay out).
 $panels = Join-Path $repo "art\panels"
 if (Test-Path $panels) {
