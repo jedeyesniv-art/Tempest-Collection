@@ -21,7 +21,7 @@
 //   --poke=F:hexaddr:hexvalue[:len]       write a big-endian word into system RAM before fields F.. (headless)
 //   --stick=F:x[:len]                     hold the left stick at x (-1..1) for the claw controller (headless)
 //   --clawlog=F0:F1:<file>                headless: after each field F0..F1: field, stick x, claw position (lanes),
-//                                         velocity, scale, the game's picture counter (claw feel study)
+//                                         velocity, scale, the game's picture counter (claw feel study), web on screen (0 / 1), the claw position copy $800DC100
 //   --memdump=F:<prefix>                  dump the Nuon's memory after field F (headless; repeatable)
 //   --perflog=<file.csv>                  one line per frame: timing and the core's run statistics
 //   --userdata=<dir>                      save folder (default userdata next to the program)
@@ -414,6 +414,7 @@ struct SpeedControl {
   double rate = 0;        // pictures a second now
   double interval = 0;    // fields between pictures now (what the core was given)
   bool warp = false;
+  bool web = false;       // the newest picture draws the web surface: play (also level start, deaths, level select)
   uint32_t flip = 0;
   void Field(const nuon::Capture* cap, const t3knative::Picture* pic = nullptr) {
     if (pic && pic->flip != flip) {
@@ -424,6 +425,7 @@ struct SpeedControl {
         web |= op.kind == t3knative::Op::kWeb;
       }
       warp = zoom && !web;
+      this->web = web;
     } else if (!pic && cap && cap->flip != flip && !cap->entries.empty()) {
       flip = cap->flip;
       bool zoom = false, web = false;
@@ -432,6 +434,7 @@ struct SpeedControl {
         web |= cap->entries[i] == 0x0011000Bu;
       }
       warp = zoom && !web;
+      this->web = web;
     }
     const double game = std::clamp(settings::Num("game_speed", 24), 15.0, 60.0);
     const double ws = settings::Num("warp_speed", 60);
@@ -593,7 +596,10 @@ struct ClawControl {
     }
     if (how == "nearest") target = std::round(pos);
     else if (how == "ahead") target = d > 0 ? std::ceil(pos - 0.02) : std::floor(pos + 0.02);
-    else target = d > 0 ? std::floor(pos + 0.02) : std::ceil(pos - 0.02);   // back
+    else {   // back: the last centre passed - one within sp_back_grace lanes ahead counts as reached (it looks there)
+      const double g = std::clamp(settings::Num("sp_back_grace", 0.15), 0.02, 0.49);
+      target = d > 0 ? std::floor(pos + g) : std::ceil(pos - g);
+    }
     sp_rem = target - p;
   }
 
@@ -644,6 +650,8 @@ struct ClawControl {
     sp_rem -= mv;
     if (std::fabs(sp_rem) < 1e-6) sp_rem = 0;
     mo_v = mv / dt;
+    // settled (stick free, nothing to step): within a hundredth of a lane counts as there - stop asking the game
+    if (sp_dir == 0 && sp_rem == 0 && std::fabs(mo_err) < 0.01) mo_err = 0;
   }
 
   // kind: 0 momentum, 1 stiff, 2 step
@@ -714,7 +722,11 @@ struct ClawControl {
     mo_err += mo_v * dt;
 
     // Ask the game for the model's position one picture ahead (it moves once a picture, a picture late).
-    mo_req = mo_err + mo_v * dt * mo_fields * settings::Num("claw_lead", 0.5);
+    double lead = mo_v * dt * mo_fields * settings::Num("claw_lead", 0.5);
+    // step: a nudge / a settle has an end - never ask past it (the lead overshot a nudge, then came back)
+    if (kind == 2 && !(sp_dir != 0 && sp_sweeping))
+      lead = sp_rem * lead > 0 ? std::copysign(std::min(std::fabs(lead), std::fabs(sp_rem)), lead) : 0.0;
+    mo_req = mo_err + lead;
     // Fine adjustment, T2K style: the model creeps, the claw clicks to the lane the model is nearest.
     if (stiff && st_fine && settings::Num("st_fine_click", 1) != 0) {
       mo_req = std::round(pos + mo_err) - pos;
@@ -740,14 +752,19 @@ struct ClawControl {
   }
 
   // stick_x: -1..1; dpad_lr: the physical d-pad's left / right bits (they win). Returns the d-pad bits to press.
-  uint16_t Update(float stick_x, uint16_t dpad_lr) {
+  uint16_t Update(float stick_x, uint16_t dpad_lr, bool web) {
     size_t n = 0;
     uint8_t* const m = nuon::Memory(0, &n);
-    const bool claw = m && n >= 0x800000 && FindClaw(m);
+    // In play = the web is on screen (`web`, from the newest picture). The claw object stays in the pool from the first
+    // level select on (never cleared, also after a game over), so its signature alone made every later menu look like
+    // play: the stick lost its d-pad role there and a leftover correction could hold a direction down (owner
+    // 2026-11-17: no input on the title after a game over).
+    const bool found = m && n >= 0x800000 && FindClaw(m);
+    const bool claw = found && web;
     const std::string mode = settings::Str("stick_mode", "step");
     const bool ours = mode == "lr" || mode == "momentum" || mode == "stiff" || mode == "step";
     if (!claw || !ours || dpad_lr) {
-      if (claw && Get(m, claw_at + 8) != 0x10000) Put(m, claw_at + 8, 0x10000);
+      if (found && Get(m, claw_at + 8) != 0x10000) Put(m, claw_at + 8, 0x10000);
       last_dir = 0;
       pictures_pushed = 0;
       release_left = 0;
@@ -1243,7 +1260,7 @@ int main(int argc, char** argv) {
           if (f >= h.frame && f < h.frame + h.len) sx = h.x;
         const uint16_t b = scripted(f);
         const uint16_t lr = uint16_t((1u << nuon::LEFT) | (1u << nuon::RIGHT));
-        nuon::SetButtons(b | headless_claw.Update(sx, b & lr));
+        nuon::SetButtons(b | headless_claw.Update(sx, b & lr, speed.web));
       }
       scripted_analog(f);
       for (auto& k : pokes)
@@ -1282,9 +1299,10 @@ int main(int argc, char** argv) {
           auto get = [&](uint32_t a) { return int32_t(ClawControl::Get(m, a)); };
           headless_claw.FindClaw(m);
           const uint32_t ca = headless_claw.claw_at;
-          std::fprintf(clawlog, "%d %.3f %.5f %.5f %.4f %d %d %08X %08X\n", f, sx, get(ca) / 65536.0,
+          const int inplay = speed.web ? 1 : 0;
+          std::fprintf(clawlog, "%d %.3f %.5f %.5f %.4f %d %d %08X %08X %d %08X\n", f, sx, get(ca) / 65536.0,
                        get(ca + 4) / 65536.0, get(ca + 8) / 65536.0, get(0x80110AA0), get(0x801133D8),
-                       uint32_t(get(ca + 12)), ca);
+                       uint32_t(get(ca + 12)), ca, inplay, uint32_t(get(0x800DC100)));
         }
         if (f == clawlog_f1 && clawlog) { std::fclose(clawlog); clawlog = nullptr; }
       }
@@ -1672,7 +1690,7 @@ int main(int argc, char** argv) {
       {
         const uint16_t b = pad_buttons.load() | scripted(uint64_t(k));
         const uint16_t lr = uint16_t((1u << nuon::LEFT) | (1u << nuon::RIGHT));
-        nuon::SetButtons(b | claw.Update(stick_x.load(), b & lr));
+        nuon::SetButtons(b | claw.Update(stick_x.load(), b & lr, speed.web));
       }
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();

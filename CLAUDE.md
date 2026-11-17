@@ -143,6 +143,14 @@ Waiting on the owner's Deck test: TxK buttons / prompts / tap; launcher focus af
   release + a nudge. Headless (logs/t3k/step, from play_f2700): nudge 7 -> 8, three -> 10, wiggle RLRRL 8 7 8 9 8,
   first move 4 fields after the push (the game's late read). Owner's stiff tuning (Transfers file) = stiff defaults.
   Waiting on the owner's feel test (play folder rebuilt 15:08, userdata stick_mode = step).
+- 2026-11-17 later: owner: no input on the title after a game over. Cause (every stick mode): the claw object stays in
+  the pool from the first level select on, so ClawControl took every later menu for play (stick lost its d-pad role,
+  a leftover correction could hold a direction). Now "in play" = the newest picture draws the web surface
+  (SpeedControl::web, both renderers); else the stick is the d-pad and the scale is reset. Rejected markers: pool
+  handler $800B3090 (drops mid-play), $800DC100 rewrite probe (not rewritten each picture). Step also: no lead past a
+  nudge's end (overshoot), back release counts a centre within sp_back_grace 0.15 as reached, settled < 0.01 = stop
+  asking. Headless (logs/t3k/go/w): game over -> title -> A works, level select = the real d-pad; a save state
+  from play_f2700 goes black after its game over even with the stick off (state artifact; from boot it's fine).
 Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
 - T3K cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found
   yet: next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested).
