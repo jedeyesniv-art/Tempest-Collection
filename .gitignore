@@ -32,3 +32,4 @@ build_vita3k/
 third_party/mame-libretro/
 build_mame/
 *.zip
+art/
