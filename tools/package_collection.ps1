@@ -102,7 +102,8 @@ the game's files); a game update does too.
 "@ | Set-Content -Encoding ascii (Join-Path $t4k "README.txt")
 
 # The owner's userdata (settings, T2K EEPROM, save states, TxK saves), every program set to start fullscreen.
-Get-ChildItem (Join-Path $build "userdata") | Where-Object { $_.Name -notlike "*.bak" } |
+# Not emulated\ (T3K's log of pictures the native renderer couldn't draw: debug states + shots, ~180 MB).
+Get-ChildItem (Join-Path $build "userdata") | Where-Object { $_.Name -notlike "*.bak" -and $_.Name -ne "emulated" } |
     ForEach-Object { Copy-Item -Recurse $_.FullName (Join-Path $dist "userdata\$($_.Name)") }
 Get-ChildItem (Join-Path $dist "userdata") -Filter "*settings.txt" | ForEach-Object {
     $t = Get-Content $_.FullName
