@@ -6,6 +6,9 @@
 
 namespace t3k_menu {
 
+// The page's own action (menu::Update returns it).
+enum Action { kRestart = menu::kGameAction };
+
 // Registers the controls functions (the Nuon controller's buttons) and the menu page.
 // from_launcher: the last item says "Return to launcher".
 void Install(bool from_launcher);

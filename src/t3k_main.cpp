@@ -31,6 +31,7 @@
 //   --menu[=all]                          open the settings menu at start (all sections open; tests)
 //   --winshot=N:<file.bmp>                save the window after N presents, then quit (tests)
 //   --statetest=N:save|load               window tests: save / load the menu's state slot at present N
+//   --restarttest=N                       window test: the menu's "Restart the game" at present N
 //   --winsize=WxH                         window size (and not fullscreen; tests)
 //   T3K_PERF=1                            a timing summary every 5 s on stderr
 // Keys: arrows d-pad, Z = A, X = B, Enter = Start, Tab = Nuon, Q / E = L / R, I J K L = C up / left / down / right,
@@ -949,6 +950,7 @@ int main(int argc, char** argv) {
   float nativeaspect = 0.f;
   int winsize_w = 0, winsize_h = 0;
   std::vector<std::pair<int, bool>> state_tests;   // --statetest=N:save|load (window: as the menu's items, at present N)
+  int restart_test = -1;                            // --restarttest=N (window: the menu's "Restart the game")
   int frames = -1;   // headless default 600; the window runs until closed unless given
   std::vector<Shot> shots, memdumps, nativeshots, savestates;
   Shot loadstate{-1, ""};   // --loadstate=F:file: continue from field F + 1
@@ -1023,6 +1025,7 @@ int main(int argc, char** argv) {
       Shot s{std::atoi(v.substr(0, v.find(':')).c_str()), v.substr(v.find(':') + 1)};
       if (save) savestates.push_back(s); else loadstate = s;
     }
+    else if (a.rfind("--restarttest=", 0) == 0) restart_test = std::atoi(val("--restarttest=").c_str());
     else if (a.rfind("--statetest=", 0) == 0) {
       auto v = val("--statetest=");
       state_tests.push_back({std::atoi(v.c_str()), v.substr(v.find(':') + 1) == "save"});
@@ -1610,13 +1613,27 @@ int main(int argc, char** argv) {
   std::atomic<int64_t> fields_done{0};
   // The field grid's origin, shared: the main thread nudges it away from the vblanks (see below).
   std::atomic<uint64_t> grid_start{SDL_GetTicksNS() + field_ns};
-  // Menu save / load: the main thread asks (1 save, 2 load, path in state_req_path), the emulation thread does it
-  // between fields (it owns the core) and answers in state_done (1 ok, 2 failed).
+  // Menu save / load: the main thread asks (1 save, 2 load, path in state_req_path; 3 restart), the emulation thread
+  // does it between fields (it owns the core) and answers in state_done (1 ok, 2 failed).
   std::atomic<int> state_req{0}, state_done{0};
   std::string state_req_path;
+  // "Restart the game": the machine just after power-on (taken after the first field; ~62 MB in memory), loaded back.
+  // (The core's own retro_reset only resets the MPEs - RAM, BIOS, disc and video state would stay.)
+  std::vector<uint8_t> boot_state;
   auto serve_state = [&] {
     const int r = state_req.exchange(0);
     if (!r) return;
+    if (r == 3) {
+      size_t n = 0;
+      uint8_t* m = nuon::Memory(0, &n);
+      t3kscores::Flush(m, n);    // the table as it is now, then restored again once the defaults are back
+      t3kscores::Restart();
+      const bool ok = nuon::LoadStateMem(boot_state);
+      speed.flip = 0;
+      std::fprintf(stderr, "restart: %s\n", ok ? "ok" : "FAILED");
+      state_done = ok ? 1 : 2;
+      return;
+    }
     std::error_code ec;
     fs::create_directories(fs::path(state_req_path).parent_path(), ec);
     bool ok = false;
@@ -1667,6 +1684,9 @@ int main(int argc, char** argv) {
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
+      // The restart's power-on snapshot: before the high-score keeper may write the saved table into memory (the
+      // game's defaults must be there after a restart, or the keeper won't take the table again).
+      if (k == 0 && !nuon::SaveStateMem(&boot_state)) std::fprintf(stderr, "restart: no power-on snapshot\n");
       {
         size_t n = 0;
         uint8_t* m = nuon::Memory(0, &n);
@@ -1756,6 +1776,7 @@ int main(int argc, char** argv) {
   int native_view = int(settings::Num("native_view", 1));
   menu::SetSlotInfo([&] { return SlotInfo(udir); });
   bool state_req_save = false;
+  bool state_req_restart = false;
   uint64_t effect_note_until = 0;   // the orange "new effect" note stays up this long after the last emulated picture
   uint32_t effect_note_type = 0;
   const bool native_skip = settings::Num("native_skip", 1) != 0;
@@ -1828,6 +1849,13 @@ int main(int argc, char** argv) {
               state_req_path = StatePath(udir).string();
               state_req = act == menu::kSaveState ? 1 : 2;
               state_req_save = act == menu::kSaveState;
+              state_req_restart = false;
+            }
+            break;
+          case t3k_menu::kRestart:
+            if (!state_req.load()) {
+              state_req_restart = true;
+              state_req = 3;
             }
             break;
           default: break;
@@ -1843,8 +1871,9 @@ int main(int argc, char** argv) {
       emu_pause = menu::IsOpen();
       if (const int d = state_done.exchange(0)) {
         const bool ok = d == 1;
-        menu::Toast(state_req_save ? (ok ? "State saved (" + SlotInfo(udir) + ")" : "Save failed")
-                                   : (ok ? "State loaded (" + SlotInfo(udir) + ")" : "No state in this slot"), now);
+        menu::Toast(state_req_restart ? (ok ? "Restarting the game" : "Restart failed")
+                    : state_req_save ? (ok ? "State saved (" + SlotInfo(udir) + ")" : "Save failed")
+                                     : (ok ? "State loaded (" + SlotInfo(udir) + ")" : "No state in this slot"), now);
       }
     }
     pad_buttons = ReadPad(pad, SDL_GetKeyboardState(nullptr));
@@ -2080,8 +2109,13 @@ int main(int argc, char** argv) {
       if (presents == at && !state_req.load()) {
         state_req_path = StatePath(udir).string();
         state_req_save = save;
+        state_req_restart = false;
         state_req = save ? 1 : 2;
       }
+    if (restart_test >= 0 && presents == restart_test && !state_req.load()) {   // --restarttest=N
+      state_req_restart = true;
+      state_req = 3;
+    }
     // T3K_WINSEQ=<first present>:<count>:<dir> (tests): save each of those presents as <dir>/p<n>.bmp.
     if (static const char* ws = std::getenv("T3K_WINSEQ"); ws) {
       static int w0 = -1, wn = 0;

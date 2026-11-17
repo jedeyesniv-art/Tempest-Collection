@@ -94,5 +94,8 @@ bool SetPictureCallback(int (*cb)(int mpe, uint32_t flips));
 bool GateStats(uint32_t* drawn, uint32_t* skipped);
 bool SaveState(const std::string& path);
 bool LoadState(const std::string& path);
+// The same in memory (the restart's power-on snapshot).
+bool SaveStateMem(std::vector<uint8_t>* out);
+bool LoadStateMem(const std::vector<uint8_t>& in);
 
 }  // namespace nuon

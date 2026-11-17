@@ -33,6 +33,7 @@ void Install(bool from_launcher) {
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");
+  p.Button("Restart the game", kRestart, true);
   p.Number("Game speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 24);
   auto warp = [] { return settings::Num("warp_speed", 60) > 0; };
   p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60/s (original)", "Game speed"});

@@ -305,6 +305,18 @@ bool LoadState(const std::string& path) {
   return !buf.empty() && g_core.unserialize(buf.data(), buf.size());
 }
 
+bool SaveStateMem(std::vector<uint8_t>* out) {
+  if (!out || !g_core.serialize_size || !g_core.serialize) return false;
+  const size_t n = g_core.serialize_size();
+  if (!n) return false;
+  out->resize(n);
+  return g_core.serialize(out->data(), n);
+}
+
+bool LoadStateMem(const std::vector<uint8_t>& in) {
+  return g_core.unserialize && !in.empty() && g_core.unserialize(const_cast<uint8_t*>(in.data()), in.size());
+}
+
 void ReleaseContext() { SDL_GL_MakeCurrent(g_glwin, nullptr); }
 void MakeContextCurrent() { SDL_GL_MakeCurrent(g_glwin, g_gl); }
 

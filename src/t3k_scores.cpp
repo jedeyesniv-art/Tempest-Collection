@@ -175,6 +175,10 @@ void AfterField(uint8_t* m, size_t n) {
   if (now != g_saved && Save(now)) g_saved = now;
 }
 
+void Restart() {
+  if (g_state == State::kRunning) g_state = State::kWaiting;
+}
+
 void Flush(const uint8_t* m, size_t n) {
   if (g_state != State::kRunning || !m || n < kTextEnd) return;
   std::array<uint32_t, kEntries> at;

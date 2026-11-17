@@ -16,5 +16,8 @@ void Init(const std::string& file, bool enabled);
 void AfterField(uint8_t* m, size_t n);
 // At exit: a last save if anything changed.
 void Flush(const uint8_t* m, size_t n);
+// The game restarts from power-on (its defaults come back): save first (Flush), then wait for the defaults to
+// restore the table again, as at a boot. Without this the defaults would be saved over the file.
+void Restart();
 
 }  // namespace t3kscores
