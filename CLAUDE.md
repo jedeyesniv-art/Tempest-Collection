@@ -215,7 +215,16 @@ Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collect
   appmanifest found (no more registry Apps key). Copies both helpers (T4K's xinput DLLs into Win10 + Win7-8) on every
   start. Under Wine (ntdll wine_get_version) no process wait (other prefix). Tested on Windows with
   LAUNCHER_NO_REGISTRY=1 STEAM_COMPAT_CLIENT_INSTALL_PATH=/Program Files (x86)/Steam LAUNCHER_LINUX_DRIVE=C: (--shot).
-  NOT yet tested on the Deck: whether steam://rungameid from inside Proton reaches Steam.
+  Owner tested on the Deck: works (steam:// reaches Steam).
+- Launcher on the Deck, round 2 (2026-11-17): list in date order (SG between T3K and TxK). Steam entries show what to
+  do when selected: not installed (A opens steam://store/<id>), helper missing, or under Wine a missing launch option
+  (read from Steam's userdata\*\config\localconfig.vdf apps\<id>\LaunchOptions - read only: Steam rewrites that
+  file while running, so the launcher can't set it; VdfValue unescapes \" for it). "setup needed" still starts.
+  Return focus: under Wine the launcher watches Linux's process list (Z:\proc\<pid>\cmdline names the exe); when the
+  game is gone (2 checks, 1 s apart) it raises itself and takes the pad back (SDL background joystick events, only
+  when no watched game may run). Never seen in 90 s -> not watched (tap needed, as before). Tests on Windows:
+  LAUNCHER_FAKE_WINE=1, LAUNCHER_PROC_DIR=<fake proc dir>, LAUNCHER_DRY_URL=1, --select=N with --shot.
+  NOT yet tested on the Deck: whether Z:\proc shows other Proton containers' processes.
 - Front: the launcher calls AllowSetForegroundWindow(ASFW_ANY) before steam://, waits for the program (SteamExe:
   SpaceGiraffePC.exe / Tempest4000.exe) as its `child`, and pushes the game's window while the launcher itself is
   still in front (first 30 s). Measured: the helper's own SetForegroundWindow is refused; the launcher's push works.

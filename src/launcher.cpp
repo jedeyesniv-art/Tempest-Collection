@@ -9,7 +9,11 @@
 // Barebones for now (placeholder look, SDL debug font): the list, keyboard / pad control, start, Steam link.
 // userdata\launcher_settings.txt: fullscreen.
 // --shot=<file.bmp> saves the first frame and exits (tests); --autostart=N starts game N at once and logs the focus
-// hand-over on stderr (tests).
+// hand-over on stderr (tests); --select=N starts with entry N selected. Test environment: LAUNCHER_FAKE_WINE=1 (act as
+// under Proton), LAUNCHER_PROC_DIR (instead of Z:\proc), LAUNCHER_DRY_URL=1 (don't open steam:// links),
+// LAUNCHER_NO_REGISTRY=1 + STEAM_COMPAT_CLIENT_INSTALL_PATH + LAUNCHER_LINUX_DRIVE (the Deck's Steam lookup).
+// Steam entries say what to do when not set up: buy / install (A opens the store page), a missing helper, or on the
+// Deck the launch option to add (read from Steam's localconfig.vdf; Steam rewrites it, so we can't set it).
 // Keys: Up / Down (d-pad, left stick) choose, Left / Right the variant (Space Giraffe: Acid / Nuxx), Enter / A start,
 // F11 fullscreen, Esc / B quit. Steam games: Tempest 4000; Space Giraffe (the helper d3d9.dll is copied next to the game
 // and its flavour written to sg_helper.txt there before Steam starts it).
@@ -51,7 +55,9 @@ struct Game {
   const char* detail;   // year, platform
   Kind kind;
   const char* target;   // program file name, or Steam app ID
-  std::string status;   // why it can't start (empty = ready)
+  std::string status;   // why it can't start (empty = ready); for Steam games also "setup needed" (it still starts)
+  std::vector<std::string> help;   // what to do, shown under the list while this entry is selected
+  bool store = false;   // a Steam game not installed: A opens its Steam store page
 };
 
 // The program a Steam game runs as (the launcher waits for it to hand it the front and to come back when it quits).
@@ -92,17 +98,49 @@ std::string VdfValue(const std::string& s, const std::string& key, size_t from =
   const size_t k = s.find("\"" + key + "\"", from);
   if (k == std::string::npos) return "";
   const size_t a = s.find('"', k + key.size() + 2);
-  const size_t b = a == std::string::npos ? a : s.find('"', a + 1);
-  if (b == std::string::npos) return "";
-  std::string v = s.substr(a + 1, b - a - 1);
-  for (size_t i = 0; (i = v.find("\\\\", i)) != std::string::npos; ++i) v.erase(i, 1);   // "C:\\x" -> "C:\x"
-  return v;
+  if (a == std::string::npos) return "";
+  std::string v;   // up to the closing quote; \" and \\ escaped (launch options: WINEDLLOVERRIDES=\"d3d9=n,b\")
+  for (size_t i = a + 1; i < s.size(); ++i) {
+    if (s[i] == '"') return v;
+    if (s[i] == '\\' && i + 1 < s.size()) ++i;
+    v += s[i];
+  }
+  return "";
 }
 
-// Running under Wine / Proton (the Steam Deck): ntdll has wine_get_version.
+// Running under Wine / Proton (the Steam Deck): ntdll has wine_get_version. LAUNCHER_FAKE_WINE=1: act so on Windows
+// (tests).
 bool UnderWine() {
-  static const bool wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
+  static const bool wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr ||
+                           std::getenv("LAUNCHER_FAKE_WINE") != nullptr;
   return wine;
+}
+
+// Under Proton a Steam game runs in its own Wine prefix, out of our process list - but Linux's own list is on Wine's
+// Z: drive: true while some process's command line (Z:\proc\<pid>\cmdline) names `exe`. LAUNCHER_PROC_DIR replaces
+// Z:\proc (tests). False also when the list can't be read (then we never see the game).
+bool LinuxProcessRunning(const wchar_t* exe) {
+  const char* dir_env = std::getenv("LAUNCHER_PROC_DIR");
+  const std::wstring dir = dir_env ? fs::path(dir_env).wstring() : L"Z:\\proc";
+  std::string want;
+  for (const wchar_t* c = exe; *c; ++c) want += char(std::tolower(char(*c)));
+  WIN32_FIND_DATAW fd;
+  HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+  if (h == INVALID_HANDLE_VALUE) return false;
+  bool found = false;
+  do {
+    if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] < L'0' || fd.cFileName[0] > L'9') continue;
+    if (FILE* f = _wfopen((dir + L"\\" + fd.cFileName + L"\\cmdline").c_str(), L"rb")) {
+      char buf[4096];
+      const size_t n = std::fread(buf, 1, sizeof buf, f);
+      std::fclose(f);
+      std::string s(buf, n);
+      for (auto& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+      found = s.find(want) != std::string::npos;
+    }
+  } while (!found && FindNextFileW(h, &fd));
+  FindClose(h);
+  return found;
 }
 
 // A path as Steam wrote it, for this process: Linux paths ("/home/deck/...", "/run/media/...") are on Wine's Z:
@@ -204,20 +242,86 @@ std::string PrepareSpaceGiraffe(const fs::path& base, const std::string& flavour
   return "";
 }
 
+// The Steam launch options the player set for `app` (Steam's userdata\<id>\config\localconfig.vdf, apps\<app>\
+// LaunchOptions), or nullopt-like "?" when Steam's settings can't be read. Read only: Steam keeps that file in memory
+// while it runs and writes it back, so the launcher can't set the options - it tells the player instead.
+std::string SteamLaunchOptions(const char* app) {
+  bool any_config = false;
+  for (const auto& root : SteamRoots()) {
+    std::error_code ec;
+    for (fs::directory_iterator it(root / "userdata", ec), end; !ec && it != end; it.increment(ec)) {
+      const std::string s = ReadFile(it->path() / "config" / "localconfig.vdf");
+      if (s.empty()) continue;
+      any_config = true;
+      const std::string key = std::string("\"") + app + "\"";
+      for (size_t at = s.find(key); at != std::string::npos; at = s.find(key, at + 1)) {
+        const size_t open = s.find_first_not_of(" \t\r\n", at + key.size());
+        if (open == std::string::npos || s[open] != '{') continue;
+        int depth = 0;
+        size_t close = open;
+        for (; close < s.size(); ++close) {
+          if (s[close] == '{') ++depth;
+          else if (s[close] == '}' && --depth == 0) break;
+        }
+        const std::string block = s.substr(open, close - open);
+        if (block.find("\"LaunchOptions\"") != std::string::npos) return VdfValue(block, "LaunchOptions");
+      }
+    }
+  }
+  return any_config ? "" : "?";
+}
+
+struct SteamSetup {
+  const char* app;
+  const char* name;       // as Steam lists it
+  const char* override;   // the launch option the helper needs under Proton
+  const char* needle;     // what that option must contain
+  const char* helper;     // the helper file in the launcher's folder
+  const char* helper_dev; // ... or in build\ (development)
+};
+const SteamSetup kSetups[] = {
+    {kSteamAppT4K, "Tempest 4000", "WINEDLLOVERRIDES=\"xinput1_3,xinput1_4=n,b\" %command%", "xinput1_4",
+     "Tempest 4000 helper\\xinput1_4.dll", "t4k\\xinput1_4.dll"},
+    {kSteamAppSG, "Space Giraffe", "WINEDLLOVERRIDES=\"d3d9=n,b\" %command%", "d3d9", "Space Giraffe helper\\d3d9.dll",
+     "sg\\d3d9.dll"},
+};
+
 std::vector<Game> MakeGames(const fs::path& base) {
   std::vector<Game> g = {
       {"TEMPEST", "1981  ARCADE", Kind::Program, "t81.exe", ""},
       {"TEMPEST 2000", "1994  ATARI JAGUAR", Kind::Program, "t2k.exe", ""},
       {"TEMPEST 3000", "2000  NUON", Kind::Program, "t3k.exe", ""},
+      {"SPACE GIRAFFE", "2008  STEAM", Kind::Steam, kSteamAppSG, ""},
       {"TxK", "2014  PS VITA", Kind::Program, "txk.exe", ""},
       {"TEMPEST 4000", "2018  STEAM", Kind::Steam, kSteamAppT4K, ""},
-      {"SPACE GIRAFFE", "2008  STEAM", Kind::Steam, kSteamAppSG, ""},
   };
   for (auto& x : g) {
     if (x.kind == Kind::NotYet) x.status = "coming later";
     else if (x.kind == Kind::Program && !fs::exists(base / x.target)) x.status = std::string(x.target) + " not found";
-    else if (x.kind == Kind::Steam && SteamGameDir(x.target).empty())
-      x.status = "not installed on Steam";
+    else if (x.kind == Kind::Steam) {
+      const SteamSetup* su = nullptr;
+      for (const auto& s : kSetups)
+        if (std::strcmp(s.app, x.target) == 0) su = &s;
+      if (SteamGameDir(x.target).empty()) {
+        x.status = "not installed";
+        x.store = true;
+        x.help = {std::string("Buy and install ") + su->name + " in Steam (A opens its store page).",
+                  "Then come back here: the launcher sets it up each time it starts it."};
+      } else if (!fs::exists(base / su->helper) && !fs::exists(base / su->helper_dev)) {
+        x.status = "helper missing";
+        x.help = {std::string("The helper is missing from the launcher's folder: ") + su->helper,
+                  "(copy it back from the Tempest Collection package)"};
+      } else if (UnderWine()) {
+        const std::string opts = SteamLaunchOptions(x.target);
+        if (opts != "?" && opts.find(su->needle) == std::string::npos) {
+          x.status = "setup needed";
+          x.help = {"One-time setup on the Steam Deck - in Steam:",
+                    std::string(su->name) + " > Properties > General > Launch Options:",
+                    std::string("    ") + su->override,
+                    "(A starts it anyway, without the helper)"};
+        }
+      }
+    }
   }
   return g;
 }
@@ -262,12 +366,16 @@ void Text(SDL_Renderer* ren, float x, float y, float scale, const char* s) {
 
 int main(int argc, char** argv) {
   std::string shot;   // --shot=<file.bmp>: draw one frame, save it, exit (tests)
+  int select_arg = -1;   // --select=N: start with entry N selected (tests: its instructions in --shot)
   int autostart = -1;   // --autostart=N: start game N (list order) at once (tests; logs the focus hand-over)
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]).rfind("--shot=", 0) == 0) shot = argv[i] + 7;
     if (std::string(argv[i]).rfind("--autostart=", 0) == 0) autostart = std::atoi(argv[i] + 12);
+    if (std::string(argv[i]).rfind("--select=", 0) == 0) select_arg = std::atoi(argv[i] + 9);
   }
   SetProcessDPIAware();
+  // The Deck: the pad must reach the launcher after a Steam game even before it has input focus (see bg_ok).
+  if (UnderWine()) SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
     std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
     return 1;
@@ -289,6 +397,7 @@ int main(int argc, char** argv) {
 
   std::vector<Game> games = MakeGames(base);
   int sel = 1;   // Tempest 2000: the first one that runs
+  if (select_arg >= 0 && select_arg < int(games.size())) sel = select_arg;
   std::string message;
   HANDLE child = nullptr;
   uint64_t child_started = 0, child_first_push = 0;
@@ -297,6 +406,14 @@ int main(int argc, char** argv) {
   uint64_t ignore_until = 0;   // input that arrives just after a game quits is not for us
   const wchar_t* steam_wait = nullptr;   // a Steam game's program we wait to appear (then it is `child`)
   uint64_t steam_wait_start = 0, last_push = 0;
+  // Under Proton (the Deck): a started Steam game is watched in Linux's process list; when it ends the launcher takes
+  // the front and the pad back by itself (gamescope shows it again, but without input focus it needed a screen tap).
+  // The pad works without focus there (SDL background events) only when bg_ok: at start, and after a watched game
+  // ended - never while a game may be running.
+  const wchar_t* deck_exe = nullptr;
+  uint64_t deck_start = 0, deck_check = 0;
+  bool deck_seen = false, bg_ok = true;
+  int deck_misses = 0;
   float stick_y = 0.f;
   bool running = true;
 
@@ -315,7 +432,12 @@ int main(int argc, char** argv) {
   auto start = [&](int i) {
     const Game& g = games[i];
     message.clear();
-    if (!g.status.empty()) {
+    if (g.store) {   // not installed: its Steam store page
+      const std::string url = std::string("steam://store/") + g.target;
+      message = SDL_OpenURL(url.c_str()) ? "opening the Steam store page..." : "could not open Steam";
+      return;
+    }
+    if (!g.status.empty() && g.status != "setup needed") {   // (setup needed: it starts without the helper)
       message = std::string(g.title) + ": " + g.status;
       return;
     }
@@ -330,7 +452,9 @@ int main(int argc, char** argv) {
       // We have the front now: let the game (started by Steam, not by us) take it when its window appears.
       AllowSetForegroundWindow(ASFW_ANY);
       const std::string url = std::string("steam://rungameid/") + g.target;
-      if (!SDL_OpenURL(url.c_str())) {
+      if (std::getenv("LAUNCHER_DRY_URL")) {   // tests: don't really start it
+        std::fprintf(stderr, "launcher: would open %s\n", url.c_str());
+      } else if (!SDL_OpenURL(url.c_str())) {
         message = "could not open Steam";
         return;
       }
@@ -343,6 +467,13 @@ int main(int argc, char** argv) {
         steam_wait_start = SDL_GetTicksNS();
       } else {
         message = std::string("starting ") + g.title + " in Steam...";
+        if (UnderWine() && SteamExe(g.target)) {   // watch Linux's process list for it (see LinuxProcessRunning)
+          deck_exe = SteamExe(g.target);
+          deck_start = SDL_GetTicksNS();
+          deck_seen = false;
+          deck_misses = 0;
+          bg_ok = false;   // the pad is the game's now
+        }
       }
       return;
     }
@@ -441,9 +572,32 @@ int main(int argc, char** argv) {
       }
       continue;
     }
+    if (deck_exe && SDL_GetTicksNS() - deck_check > 1000000000ull) {   // the Deck: is the Steam game still running?
+      deck_check = SDL_GetTicksNS();
+      if (LinuxProcessRunning(deck_exe)) {
+        if (!deck_seen && autostart >= 0) std::fprintf(stderr, "launcher: Steam game seen in the Linux process list\n");
+        deck_seen = true;
+        deck_misses = 0;
+      } else if (deck_seen && ++deck_misses >= 2) {   // gone (twice, so not a restart in between): back to us
+        deck_exe = nullptr;
+        bg_ok = true;
+        message.clear();
+        games = MakeGames(base);
+        SDL_RaiseWindow(win);
+        if (me) SetForegroundWindow(me);
+        ignore_until = SDL_GetTicksNS() + 400000000ull;
+        if (autostart >= 0) std::fprintf(stderr, "launcher: Steam game ended, launcher to the front\n");
+      } else if (!deck_seen && SDL_GetTicksNS() - deck_start > 90000000000ull) {
+        deck_exe = nullptr;   // never seen (the list can't be read here): a screen tap gives the launcher focus
+        if (autostart >= 0) std::fprintf(stderr, "launcher: Steam game never seen - not watched\n");
+      }
+    }
+    // Input is ours when the window has focus, or (the Deck) when no Steam game may be running.
+    const bool focused = (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    const bool pad_ours = !(deck_exe && deck_seen) && (focused || bg_ok);
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
-      const bool live = SDL_GetTicksNS() >= ignore_until;
+      const bool live = SDL_GetTicksNS() >= ignore_until && (e.type == SDL_EVENT_KEY_DOWN ? focused : pad_ours);
       if (e.type == SDL_EVENT_QUIT) running = false;
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED) SDL_OpenGamepad(e.gdevice.which);
       else if (e.type == SDL_EVENT_KEY_DOWN && live) {
@@ -494,20 +648,31 @@ int main(int argc, char** argv) {
     for (int i = 0; i < int(games.size()); ++i) {
       const Game& g = games[i];
       const float y = (56 + i * 28) * s / 2;
-      const bool ready = g.status.empty();
+      const bool setup = g.status == "setup needed";   // starts, but without its helper
+      const bool ready = g.status.empty() || setup;
       if (i == sel) SDL_SetRenderDrawColor(ren, 255, 64, 64, 255);
       else if (ready) SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
       else SDL_SetRenderDrawColor(ren, 110, 110, 110, 255);
       Text(ren, 24 * s / 2, y, s, (std::string(i == sel ? "> " : "  ") + g.title).c_str());
       SDL_SetRenderDrawColor(ren, ready ? 120 : 80, ready ? 160 : 80, ready ? 255 : 80, 255);
-      std::string detail = std::string(g.detail) + (ready ? "" : "  - " + g.status);
+      std::string detail = g.detail;
       if (std::strcmp(g.target, kSteamAppSG) == 0 && ready)   // the flavour it starts in; LEFT / RIGHT change it
         detail += settings::Str("sg_flavour", "acid") == "acid" ? "   < ACID >" : "   < NUXX >";
+      if (!g.status.empty()) detail += "  - " + g.status;
+      if (setup) SDL_SetRenderDrawColor(ren, 255, 160, 60, 255);
       Text(ren, 24 * s / 2 + 18 * 8 * s, y, s * 0.6f, detail.c_str());
     }
+    float below = (56 + int(games.size()) * 28 + 8) * s / 2;
     SDL_SetRenderDrawColor(ren, 255, 255, 0, 255);
-    if (!message.empty())
-      Text(ren, 24 * s / 2, (56 + int(games.size()) * 28 + 8) * s / 2, s * 0.6f, message.c_str());
+    if (!message.empty()) {
+      Text(ren, 24 * s / 2, below, s * 0.6f, message.c_str());
+      below += 14 * s * 0.6f;
+    }
+    SDL_SetRenderDrawColor(ren, 255, 160, 60, 255);   // the selected entry's instructions
+    for (const auto& line : games[sel].help) {
+      below += 12 * s * 0.6f;
+      Text(ren, 24 * s / 2, below, s * 0.6f, line.c_str());
+    }
     SDL_SetRenderDrawColor(ren, 140, 140, 140, 255);
     Text(ren, 24 * s / 2, wh - 16 * s / 2, s * 0.5f,
          "UP/DOWN choose   LEFT/RIGHT flavour   ENTER/A start   F11 fullscreen   ESC/B quit");
