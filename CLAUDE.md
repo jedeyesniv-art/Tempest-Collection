@@ -151,6 +151,9 @@ Waiting on the owner's Deck test: TxK buttons / prompts / tap; launcher focus af
   nudge's end (overshoot), back release counts a centre within sp_back_grace 0.15 as reached, settled < 0.01 = stop
   asking. Headless (logs/t3k/go/w): game over -> title -> A works, level select = the real d-pad; a save state
   from play_f2700 goes black after its game over even with the stick off (state artifact; from boot it's fine).
+- 2026-11-17 end: owner's step tune = the defaults ("as good as we can get it for now"): sp_release off,
+  sp_repeat_delay 0.10, sp_ramp_time 0.30, sp_ramp_start 0.30, sp_step_time 0.09 (sliders widened / re-centred);
+  momentum mo_top_speed 22, mo_accel_time 0.70, mo_glide 0.04, mo_settle 0.3. build\userdata = the play folder's file.
 Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
 - T3K cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found
   yet: next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested).

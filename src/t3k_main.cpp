@@ -191,15 +191,15 @@ lr_release_pictures = 1
 # momentum = TxK's feel (measured on TxK): the stick accelerates the claw (a force, not a speed) up to a top speed;
 # on release it glides and settles on a lane. The mo_ values below.
 # Top speed, lanes a second (TxK 17.3).
-mo_top_speed = 16.0
+mo_top_speed = 22.0
 # Seconds from rest to top speed at full stick (TxK 0.35).
-mo_accel_time = 0.75
+mo_accel_time = 0.70
 # Pushing against the motion: that many times the acceleration (TxK turns round in about 4 frames).
 mo_brake = 4
 # Glide after release: seconds for the speed to halve (TxK 0.2; 0 = stop at once, then settle).
-mo_glide = 0.10
+mo_glide = 0.04
 # Pull to the nearest lane centre while gliding (1 = TxK; 0 = none, the claw may stop between lanes).
-mo_settle = 0.5
+mo_settle = 0.3
 # Stick response: acceleration = deflection ^ this (TxK 0.8), past the deadzone.
 mo_curve = 0.8
 mo_deadzone = 0.08
@@ -225,13 +225,13 @@ st_snap_ahead = 0.2
 # sp_top_speed (lanes a second) to top over sp_ramp_time s (stick depth caps the speed along sp_curve). On release
 # after a sweep: sp_release back (the last lane passed: stop short) / nearest / ahead (the next lane) / off.
 sp_deadzone = 0.20
-sp_step_time = 0.05
-sp_repeat_delay = 0.15
+sp_step_time = 0.09
+sp_repeat_delay = 0.10
 sp_top_speed = 25.0
-sp_ramp_time = 0.40
-sp_ramp_start = 0.25
+sp_ramp_time = 0.30
+sp_ramp_start = 0.30
 sp_curve = 1.5
-sp_release = back
+sp_release = off
 )";
 
 struct Shot { int frame; std::string path; };
@@ -586,7 +586,7 @@ struct ClawControl {
 
   void SpRelease(double pos, double p) {
     // pos = the game's claw (what is seen), p = the model
-    const std::string how = settings::Str("sp_release", "back");
+    const std::string how = settings::Str("sp_release", "off");
     const double d = sp_dir;
     double target;
     if (how == "off") {   // where it is seen (the model may be behind the game's late move): hold the claw there
@@ -620,19 +620,19 @@ struct ClawControl {
       sp_held = 0;
       sp_sweeping = false;
     }
-    const double step_v = 1.0 / std::max(0.01, settings::Num("sp_step_time", 0.05));   // lanes a second
+    const double step_v = 1.0 / std::max(0.01, settings::Num("sp_step_time", 0.09));   // lanes a second
     if (sp_dir != 0) {
       sp_held += dt;
-      if (!sp_sweeping && sp_held >= settings::Num("sp_repeat_delay", 0.15)) {
+      if (!sp_sweeping && sp_held >= settings::Num("sp_repeat_delay", 0.10)) {
         sp_sweeping = true;
         sp_held = 0;
       }
       if (sp_sweeping) {
         const double top = std::max(1.0, settings::Num("sp_top_speed", 25.0));
-        const double r0 = std::clamp(settings::Num("sp_ramp_start", 0.25), 0.0, 1.0);
+        const double r0 = std::clamp(settings::Num("sp_ramp_start", 0.30), 0.0, 1.0);
         const double u = std::min(1.0, (ax - dz) / std::max(0.01, 1.0 - dz));
         const double cap = top * (r0 + (1 - r0) * std::pow(std::max(0.0, u), settings::Num("sp_curve", 1.5)));
-        const double t = std::clamp(sp_held / std::max(0.01, settings::Num("sp_ramp_time", 0.40)), 0.0, 1.0);
+        const double t = std::clamp(sp_held / std::max(0.01, settings::Num("sp_ramp_time", 0.30)), 0.0, 1.0);
         const double speed = std::min(cap, top * (r0 + (1 - r0) * t * t * (3 - 2 * t)));
         // finish the nudge's step first (never slower than the sweep)
         if (sp_rem * sp_dir > 1e-6) {
@@ -702,17 +702,17 @@ struct ClawControl {
     const double dz = settings::Num("mo_deadzone", 0.08);
     const double ax = std::fabs(stick_x);
     const double u = ax > dz ? std::pow(std::min(1.0, (ax - dz) / (1.0 - dz)), settings::Num("mo_curve", 0.8)) : 0.0;
-    const double top = settings::Num("mo_top_speed", 16.0);
+    const double top = settings::Num("mo_top_speed", 22.0);
     if (u > 0) {
       const int dir = stick_x > 0 ? 1 : -1;
-      double a = top / std::max(0.02, settings::Num("mo_accel_time", 0.75)) * u;
+      double a = top / std::max(0.02, settings::Num("mo_accel_time", 0.70)) * u;
       if (mo_v * dir < 0) a *= settings::Num("mo_brake", 4.0);   // pushing against the motion
       mo_v = std::clamp(mo_v + dir * a * dt, -top, top);
     } else {
-      const double half_life = settings::Num("mo_glide", 0.10);
+      const double half_life = settings::Num("mo_glide", 0.04);
       mo_v *= half_life > 0.001 ? std::pow(0.5, dt / half_life) : 0.0;
       const double p = pos + mo_err, centre = std::round(p);
-      mo_v += settings::Num("mo_settle", 0.5) * 27.8 * (centre - p) * dt;
+      mo_v += settings::Num("mo_settle", 0.3) * 27.8 * (centre - p) * dt;
       if (std::fabs(mo_v) < 0.3 && std::fabs(centre - p) < 0.02) {   // settled: exactly on the lane
         mo_v = 0;
         mo_err = centre - pos;

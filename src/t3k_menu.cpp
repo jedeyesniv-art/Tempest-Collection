@@ -43,13 +43,13 @@ void Install(bool from_launcher) {
   p.Choice("Stick mode", "stick_mode", {"step", "stiff", "lr", "momentum", "off"},
            {"Step (nudge = a lane)", "Stiff (T2K feel)", "Left / right", "Momentum (TxK feel)", "Off (stick = d-pad)"});
   // the owner's tuning (2026-11-17) is each slider's default and its middle
-  p.Choice("  On release after a sweep", "sp_release", {"back", "nearest", "ahead", "off"},
-           {"Step back a lane (stop short)", "Nearest lane", "On to the next lane", "Off (stop where it is)"})->when = sp;
+  p.Choice("  On release after a sweep", "sp_release", {"off", "back", "nearest", "ahead"},
+           {"Off (stop where it is)", "Step back a lane (stop short)", "Nearest lane", "On to the next lane"})->when = sp;
   p.Number("  Top speed (lanes a second)", "sp_top_speed", 16, 34, 0.5, "%.1f", 25.0)->when = sp;
-  p.Number("  Hold before sweeping (s)", "sp_repeat_delay", 0.05, 0.35, 0.01, "%.2f", 0.15)->when = sp;
-  p.Number("  Ramp to top speed (s)", "sp_ramp_time", 0.02, 0.78, 0.02, "%.2f", 0.40)->when = sp;
-  p.Number("  Sweep start (of top)", "sp_ramp_start", 0.05, 0.45, 0.01, "%.2f", 0.25)->when = sp;
-  p.Number("  Step time (s a lane)", "sp_step_time", 0.01, 0.09, 0.01, "%.2f", 0.05)->when = sp;
+  p.Number("  Hold before sweeping (s)", "sp_repeat_delay", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = sp;
+  p.Number("  Ramp to top speed (s)", "sp_ramp_time", 0.02, 0.58, 0.02, "%.2f", 0.30)->when = sp;
+  p.Number("  Sweep start (of top)", "sp_ramp_start", 0.05, 0.55, 0.01, "%.2f", 0.30)->when = sp;
+  p.Number("  Step time (s a lane)", "sp_step_time", 0.01, 0.17, 0.01, "%.2f", 0.09)->when = sp;
   p.Number("  Stick depth curve", "sp_curve", 0.5, 2.5, 0.1, "%.1f", 1.5)->when = sp;
   p.Number("  Deadzone", "sp_deadzone", 0.10, 0.30, 0.01, "%.2f", 0.20)->when = sp;
   p.Number("  Fine zone (stick push)", "st_fine_threshold", 0.55, 0.95, 0.05, "%.2f", 0.75)->when = st;
@@ -62,10 +62,10 @@ void Install(bool from_launcher) {
   p.Number("  Deadzone", "st_deadzone", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = st;
   p.Number("  Ease-off (s)", "st_ease_time", 0, 0.2, 0.01, "%.2f", 0)->when = st;
   p.Choice("  Stop on a lane (after a sweep)", "st_snap", {"0", "1"}, {"Off", "On"})->when = st;
-  p.Number("  Top speed (lanes a second)", "mo_top_speed", 6, 26, 0.5, "%.1f", 16.0)->when = mo;
-  p.Number("  Time to top speed (s)", "mo_accel_time", 0.05, 1.45, 0.05, "%.2f", 0.75)->when = mo;
-  p.Number("  Glide (speed half-life, s)", "mo_glide", 0, 0.2, 0.02, "%.2f", 0.10)->when = mo;
-  p.Number("  Lane settle", "mo_settle", 0, 1, 0.1, "%.1f", 0.5)->when = mo;
+  p.Number("  Top speed (lanes a second)", "mo_top_speed", 10, 34, 0.5, "%.1f", 22.0)->when = mo;
+  p.Number("  Time to top speed (s)", "mo_accel_time", 0.05, 1.35, 0.05, "%.2f", 0.70)->when = mo;
+  p.Number("  Glide (speed half-life, s)", "mo_glide", 0, 0.08, 0.01, "%.2f", 0.04)->when = mo;
+  p.Number("  Lane settle", "mo_settle", 0, 0.6, 0.1, "%.1f", 0.3)->when = mo;
   p.Number("  Reverse braking", "mo_brake", 1, 10, 0.5, "%.1f", 4)->when = mo;
   p.Number("  Stick curve", "mo_curve", 0.4, 2, 0.1, "%.1f", 0.8)->when = mo;
   p.Number("  Deadzone", "mo_deadzone", 0.02, 0.4, 0.01, "%.2f", 0.08)->when = mo;
