@@ -658,6 +658,41 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
   }
 }
 
+void DrawPrompt(SDL_Renderer* ren, int i, const std::string& title, const std::vector<std::string>& lines,
+                const std::string& buttons, float progress) {
+  SDL_GetRenderOutputSize(ren, &g_w, &g_h);
+  const float w = W(), h = H(), u = std::max(1.5f, h / 330.f);
+  const Col ac = i >= 0 && i < int(g_entries.size()) ? StyleOf(g_entries[i].id).accent : Col{1, 80 / 255.f, 1};
+  Fill(0, 0, w, h, {0, 0, 0}, 0.72f);
+  const float pw = std::min(w * 0.9f, std::max(w * 0.6f, u * 6 * 62)), ph = h * 0.46f;
+  const float x = (w - pw) / 2, y = (h - ph) / 2;
+  Fill(x, y, pw, ph, {0.02f, 0.02f, 0.05f}, 0.94f);
+  const float lw = std::max(1.f, h / 600) * 1.5f;
+  Glow(x, y, x + pw, y, lw, ac, 0.9f, 6);
+  Glow(x + pw, y, x + pw, y + ph, lw, ac, 0.9f, 6);
+  Glow(x + pw, y + ph, x, y + ph, lw, ac, 0.9f, 6);
+  Glow(x, y + ph, x, y, lw, ac, 0.9f, 6);
+  // each line as big as fits the panel (up to the normal size)
+  auto fit = [&](const std::string& s, float size) {
+    return std::min(size, (pw - u * 16) / std::max(1.f, float(s.size()) * 6.f));
+  };
+  float ty = y + ph * 0.12f;
+  Text(title, w / 2, ty, fit(title, u * 1.3f), ac, 1, 0, 1.2f);
+  ty += u * 1.3f * 7 + u * 9;
+  for (const std::string& line : lines) {
+    Text(line, w / 2, ty, fit(line, u * 0.85f), {0.88f, 0.9f, 1.f}, 1, 0, 0.4f);
+    ty += u * 0.85f * 11;
+  }
+  if (progress >= 0.f) {   // a bar with a glowing edge
+    const float bw = pw * 0.7f, bh = u * 5, bx = (w - bw) / 2, by = y + ph * 0.66f;
+    Fill(bx, by, bw, bh, {1, 1, 1}, 0.08f);
+    Fill(bx, by, bw * std::clamp(progress, 0.f, 1.f), bh, ac, 0.85f);
+    Glow(bx + bw * std::clamp(progress, 0.f, 1.f), by - u, bx + bw * std::clamp(progress, 0.f, 1.f), by + bh + u,
+         lw, ac, 1.f, 5);
+  }
+  Text(buttons, w / 2, y + ph - u * 16, fit(buttons, u * 0.9f), {120 / 255.f, 200 / 255.f, 1}, 1);
+}
+
 void DrawStarting(SDL_Renderer* ren, int i, const std::string& text) {
   SDL_GetRenderOutputSize(ren, &g_w, &g_h);
   SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);

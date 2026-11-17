@@ -38,6 +38,11 @@ bool Warping();
 // An extra button in the hint row (e.g. "Y  ADD TO STEAM"); empty = none.
 void SetExtraHint(const std::string& hint);
 
+// A question over the picker (after Draw): the screen dimmed, a panel in entry i's colour with a title, lines, an
+// optional progress bar (progress < 0: none) and the buttons ("A  COMPRESS     B  NO").
+void DrawPrompt(SDL_Renderer* ren, int i, const std::string& title, const std::vector<std::string>& lines,
+                const std::string& buttons, float progress = -1.f);
+
 // The screen under a starting game: its logo and "STARTING ..." on black.
 void DrawStarting(SDL_Renderer* ren, int i, const std::string& text);
 

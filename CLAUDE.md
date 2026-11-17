@@ -30,6 +30,13 @@ PLAN.md "Tempest Collection" and "Collection status and open items".
   t81 offers rev 3 and Tempest Tubes (menu Version; PLAN.md item 3) - not in git.
 - T3K disc: Nuance_067\Tempest 3000.nuz (2026-11-17, tools/t3k_compress.py from the .iso: the music in nuon.dat as
   Ogg Vorbis, the rest raw; core src/disc_image.cpp). t3k.exe / the play folder prefer it over the .iso. PLAN.md item 2.
+  The launcher does the same (src/t3k_compress.cpp, libsndfile_x64.dll (LGPL, third_party/libsndfile, copied next to
+  tempest.exe) loaded at run time): starting T3K with only an .iso asks to compress (~31 s headless, ~70 s in the
+  window, one thread: a 4-thread first run coincided with a hard machine freeze 2026-11-17, probably unrelated), then
+  to delete the .iso (warns when it has other hard links); "no" = never asked again (launcher settings
+  t3k_offer_compress / t3k_offer_delete). Output equals the Python tool's except the Ogg serials + page CRCs (random).
+  Tests: tempest.exe --compress-test=<iso> (T3KC_THREADS=N), and in a throwaway root (dummy t3k.exe, game\ = a hard
+  link of the .iso) --select=2 --press-start --answers=<y/n/c...> --prompt-shots=<prefix>.
 - src/lr_host.cpp: the shared libretro host for DLL cores (txk.exe: Vita3K, OpenGL on demand; t81.exe: MAME,
   software frames, mouse deltas for the spinner, save states). GET_VARIABLE answers the defaults the core declared
   (MAME takes a missing answer as an empty value). LR_LOG_DEBUG=1 shows the cores' debug log.

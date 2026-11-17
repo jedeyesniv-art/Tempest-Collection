@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <memory>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -38,6 +39,7 @@
 #include "launcher_view.h"
 #include "steam_shortcut.h"
 #include "settings.h"
+#include "t3k_compress.h"
 
 namespace fs = std::filesystem;
 
@@ -50,7 +52,12 @@ const char kDefaults[] =
     "fullscreen = 1\n"
     "\n"
     "# Space Giraffe flavour: acid or nuxx (UP / DOWN on its entry changes and remembers).\n"
-    "sg_flavour = acid\n";
+    "sg_flavour = acid\n"
+    "\n"
+    "# Tempest 3000's disc: 1 = on starting it, offer to compress the .iso (743 MB -> ~196 MB), then to delete the\n"
+    "# .iso; answering no sets these to 0 (never asked again; t3k.exe plays the compressed disc when it is there).\n"
+    "t3k_offer_compress = 1\n"
+    "t3k_offer_delete = 1\n";
 
 constexpr const char* kSteamAppT4K = "688140";   // Tempest 4000 on Steam (store.steampowered.com/app/688140)
 constexpr const char* kSteamAppSG = "27800";     // Space Giraffe on Steam (store.steampowered.com/app/27800)
@@ -426,18 +433,60 @@ std::vector<lview::Entry> ViewEntries(const std::vector<Game>& games) {
   return out;
 }
 
+// Tempest 3000's disc: the .iso and the .nuz beside it, in the first folder (as t3k.exe searches) that has either.
+struct T3kDisc { fs::path iso, nuz; };
+T3kDisc FindT3kDisc(const fs::path& base) {
+  for (const fs::path& d : {base, base / "game", base.parent_path().parent_path() / "Nuance_067"}) {
+    std::error_code ec;
+    fs::path iso, nuz;
+    for (auto& e : fs::directory_iterator(d, ec)) {
+      std::string ext = e.path().extension().string();
+      for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+      if (e.path().filename().string().find("Tempest") == std::string::npos) continue;
+      if (ext == ".iso") iso = e.path();
+      if (ext == ".nuz") nuz = e.path();
+    }
+    if (!iso.empty()) return {iso, fs::path(iso).replace_extension(".nuz")};
+    if (!nuz.empty()) return {{}, nuz};
+  }
+  return {};
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   std::string shot;   // --shot=<file.bmp>: draw one frame, save it, exit (tests)
   int select_arg = -1;   // --select=N: start with entry N selected (tests: its instructions in --shot)
   bool steam_button_arg = false;   // --steam-button: press Y (add to Steam / its art) at start (tests)
+  bool press_start = false;        // --press-start: press A on the selected entry at start (tests: its questions)
+  std::string compress_test;       // --compress-test=<iso>
+  // Tests of the T3K disc questions (with --press-start): --answers=<y|n per question, in order; c = cancel the
+  // compression>, and
+  // --prompt-shots=<prefix> saves <prefix>N.bmp of each question (and the progress every 5 s); exits at the start warp.
+  std::string answers_arg, prompt_shots;
   int autostart = -1;   // --autostart=N: start game N (list order) at once (tests; logs the focus hand-over)
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]).rfind("--shot=", 0) == 0) shot = argv[i] + 7;
     if (std::string(argv[i]).rfind("--autostart=", 0) == 0) autostart = std::atoi(argv[i] + 12);
     if (std::string(argv[i]).rfind("--select=", 0) == 0) select_arg = std::atoi(argv[i] + 9);
     if (std::string(argv[i]) == "--steam-button") steam_button_arg = true;
+    if (std::string(argv[i]) == "--press-start") press_start = true;
+    if (std::string(argv[i]).rfind("--compress-test=", 0) == 0) compress_test = argv[i] + 16;
+    if (std::string(argv[i]).rfind("--answers=", 0) == 0) answers_arg = argv[i] + 10;
+    if (std::string(argv[i]).rfind("--prompt-shots=", 0) == 0) prompt_shots = argv[i] + 15;
+  }
+  // --compress-test=<iso>: compress it to <iso>.nuz without the window (tests), print the result, exit
+  if (!compress_test.empty()) {
+    const fs::path iso(compress_test);
+    t3kc::Job job;
+    const uint64_t t0 = SDL_GetTicks();
+    t3kc::Start(&job, iso, fs::path(iso).replace_extension(".nuz"),
+                fs::path(SDL_GetBasePath()) / "libsndfile_x64.dll");
+    while (job.phase != 3) SDL_Delay(100);
+    job.worker.join();
+    std::fprintf(stderr, "compress test: %s in %.1f s %s\n", job.ok ? "ok" : "FAILED", (SDL_GetTicks() - t0) / 1000.0,
+                 job.error.c_str());
+    return job.ok ? 0 : 1;
   }
   SetProcessDPIAware();
   // The Deck: the pad must reach the launcher after a Steam game even before it has input focus (see bg_ok).
@@ -632,6 +681,62 @@ int main(int argc, char** argv) {
   };
 
   int pending = -1;   // a game to start once the start warp has played
+  // ---- Tempest 3000's disc: on starting it, compress the .iso (asked once), then delete the .iso (asked once) ----
+  enum class Ask { None, Compress, Compressing, Delete };
+  Ask ask = Ask::None;
+  Ask test_last = Ask::None;   // (--answers / --prompt-shots)
+  int test_frames = 0, test_answered = 0, test_shot = 0;
+  int ask_game = -1;
+  T3kDisc disc;
+  double iso_mb = 0;
+  int iso_links = 1;
+  std::unique_ptr<t3kc::Job> job;
+  auto go = [&](int i) {   // the start warp, then the game
+    pending = i;
+    lview::StartWarp(i);
+    lsound::Launch(games[i].id);
+  };
+  auto disc_question = [&](int i) {   // true: a question is up (the game starts after it)
+    if (std::strcmp(games[i].id, "t3k") != 0) return false;
+    disc = FindT3kDisc(base);
+    std::error_code ec;
+    const bool iso = !disc.iso.empty() && fs::exists(disc.iso, ec), nuz = !disc.nuz.empty() && fs::exists(disc.nuz, ec);
+    if (iso) {
+      iso_mb = double(fs::file_size(disc.iso, ec)) / 1e6;
+      iso_links = t3kc::LinkCount(disc.iso);
+    }
+    if (iso && !nuz && settings::Num("t3k_offer_compress", 1) != 0) ask = Ask::Compress;
+    else if (iso && nuz && settings::Num("t3k_offer_delete", 1) != 0) ask = Ask::Delete;
+    else return false;
+    ask_game = i;
+    return true;
+  };
+  auto answer = [&](bool yes) {   // A = yes, B = no (while compressing: B cancels)
+    const int i = ask_game;
+    if (ask == Ask::Compress) {
+      if (yes) {
+        job = std::make_unique<t3kc::Job>();
+        t3kc::Start(job.get(), disc.iso, disc.nuz, base / "libsndfile_x64.dll");
+        ask = Ask::Compressing;
+      } else {
+        settings::Save("t3k_offer_compress", "0");
+        ask = Ask::None;
+        go(i);
+      }
+    } else if (ask == Ask::Compressing) {
+      if (!yes && job) job->cancel = true;
+    } else if (ask == Ask::Delete) {
+      if (yes) {
+        std::error_code ec;
+        fs::remove(disc.iso, ec);
+        message = ec ? "could not delete the .iso: " + ec.message() : "deleted " + disc.iso.filename().string();
+      } else {
+        settings::Save("t3k_offer_delete", "0");
+      }
+      ask = Ask::None;
+      go(i);
+    }
+  };
   auto move = [&](int d) {
     if (pending >= 0) return;
     const int was = sel;
@@ -647,9 +752,8 @@ int main(int argc, char** argv) {
       start(i);
       return;
     }
-    pending = i;
-    lview::StartWarp(i);
-    lsound::Launch(g.id);
+    if (ask != Ask::None || disc_question(i)) return;
+    go(i);
   };
   // UP / DOWN: the selected game's variant (Space Giraffe's flavour).
   auto variant = [&](int) {
@@ -765,7 +869,15 @@ int main(int argc, char** argv) {
       const bool live = SDL_GetTicksNS() >= ignore_until && (e.type == SDL_EVENT_KEY_DOWN ? focused : pad_ours);
       if (e.type == SDL_EVENT_QUIT) running = false;
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED) SDL_OpenGamepad(e.gdevice.which);
-      else if (e.type == SDL_EVENT_KEY_DOWN && live) {
+      else if (ask != Ask::None) {   // a question: A / Enter yes, B / Esc no
+        const bool key = e.type == SDL_EVENT_KEY_DOWN && live, btn = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && live;
+        if ((key && (e.key.scancode == SDL_SCANCODE_RETURN || e.key.scancode == SDL_SCANCODE_KP_ENTER)) ||
+            (btn && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH))
+          answer(true);
+        else if ((key && (e.key.scancode == SDL_SCANCODE_ESCAPE || e.key.scancode == SDL_SCANCODE_BACKSPACE)) ||
+                 (btn && e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST))
+          answer(false);
+      } else if (e.type == SDL_EVENT_KEY_DOWN && live) {
         switch (e.key.scancode) {
           case SDL_SCANCODE_LEFT: move(-1); break;
           case SDL_SCANCODE_RIGHT: move(1); break;
@@ -805,6 +917,19 @@ int main(int argc, char** argv) {
       }
     }
 
+    if (ask == Ask::Compressing && job && job->phase == 3) {   // the compression finished
+      job->worker.join();
+      const bool ok = job->ok;
+      const std::string err = job->error;
+      job.reset();
+      if (ok && settings::Num("t3k_offer_delete", 1) != 0) {
+        ask = Ask::Delete;
+      } else {
+        ask = Ask::None;
+        if (ok) go(ask_game);
+        else message = "Tempest 3000 disc not compressed: " + err;
+      }
+    }
     // the start warp has played: start the game
     if (pending >= 0 && !lview::Warping()) {
       const int i = pending;
@@ -816,7 +941,59 @@ int main(int argc, char** argv) {
     const double dt = last_frame ? (now_ns - last_frame) / 1e9 : 1.0 / 60;
     last_frame = now_ns;
     lview::Draw(ren, sel, shot.empty() ? dt : 1.0 / 60, message);
+    if (ask != Ask::None) {
+      char mb[96];
+      if (ask == Ask::Compress) {
+        std::snprintf(mb, sizeof mb, "%.0f MB -> ABOUT %.0f MB", iso_mb, iso_mb * 0.263);
+        lview::DrawPrompt(ren, ask_game, "COMPRESS THE TEMPEST 3000 DISC?",
+                          {mb, "THE MUSIC BECOMES OGG VORBIS (ABOUT 260 KBPS).",
+                           "THE GAME ITSELF IS UNCHANGED. IT TAKES A MINUTE OR TWO."},
+                          "A  COMPRESS          B  NO - DON'T ASK AGAIN");
+      } else if (ask == Ask::Compressing && job) {
+        const int ph = job->phase, done = job->tracks_done;
+        std::snprintf(mb, sizeof mb, "MUSIC TRACK %d OF %d", std::min(done + 1, int(job->tracks)), int(job->tracks));
+        const std::string what = ph == 0 ? mb : ph == 1 ? "WRITING THE NEW DISC..." : "CHECKING IT...";
+        const float prog = 0.9f * done / float(job->tracks) + (ph >= 1 ? 0.05f : 0.f) + (ph >= 2 ? 0.05f : 0.f);
+        lview::DrawPrompt(ren, ask_game, "COMPRESSING TEMPEST 3000...", {what}, "B  CANCEL", prog);
+      } else if (ask == Ask::Delete) {
+        std::snprintf(mb, sizeof mb, "DELETING IT FREES %.0f MB.", iso_mb);
+        const std::string frees = iso_links > 1
+            ? "IT HAS " + std::to_string(iso_links - 1) + " MORE NAME(S) ON THIS DISK: DELETING THIS ONE FREES NOTHING."
+            : std::string(mb);
+        lview::DrawPrompt(ren, ask_game, "DELETE THE ORIGINAL DISC IMAGE?",
+                          {disc.iso.filename().string(), "THE COMPRESSED DISC IS PLAYED EITHER WAY.", frees},
+                          "A  DELETE          B  KEEP IT - DON'T ASK AGAIN");
+      }
+    }
     ++frames;
+    if (press_start && frames == 2) request_start(sel);
+    if (press_start && (!answers_arg.empty() || !prompt_shots.empty()) && frames > 2) {   // (tests)
+      if (ask != test_last) {
+        test_last = ask;
+        test_frames = 0;
+        std::fprintf(stderr, "question %d\n", int(ask));
+      }
+      ++test_frames;
+      const bool snap = ask != Ask::None && (test_frames == 20 || (ask == Ask::Compressing && test_frames % 300 == 0));
+      if (snap && !prompt_shots.empty())
+        if (SDL_Surface* img = SDL_RenderReadPixels(ren, nullptr)) {
+          SDL_SaveBMP(img, (prompt_shots + std::to_string(test_shot++) + ".bmp").c_str());
+          SDL_DestroySurface(img);
+        }
+      if ((ask == Ask::Compress || ask == Ask::Delete) && test_frames == 30 &&
+          test_answered < int(answers_arg.size()))
+        answer(answers_arg[test_answered++] == 'y');
+      if (ask == Ask::Compressing && test_frames == 120 && test_answered < int(answers_arg.size()) &&
+          answers_arg[test_answered] == 'c') {   // 'c': B (cancel) two seconds into the compression
+        ++test_answered;
+        answer(false);
+      }
+      if (ask == Ask::None && (pending >= 0 || frames > 120)) {
+        std::fprintf(stderr, "end: %s; message \"%s\"\n", pending >= 0 ? games[pending].id : "no start",
+                     message.c_str());
+        running = false;
+      }
+    }
     if (!shot.empty() && frames >= 90) {
       if (SDL_Surface* img = SDL_RenderReadPixels(ren, nullptr)) {
         SDL_SaveBMP(img, shot.c_str());
