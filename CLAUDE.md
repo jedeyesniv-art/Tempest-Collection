@@ -76,6 +76,9 @@ by the compositor here). 4K fullscreen CRT++: 120 fps locked, emulate ~1.7 ms, c
 1.2 ms an emulated frame (the remaster skips the GPU work: 3x faster than the original's 3.8 ms); run-ahead 2 =
 3.6 ms a 60 Hz frame (pictures skipped for unseen frames via GET_AUDIO_VIDEO_ENABLE, state buffer reused).
 `build.bat` (clang + Ninja in the VS 18 Community env) -> build\t2k.exe.
+SMOKE TEST before packaging: python -I tools/smoke_test.py [--dist] [--only ...] [--no-windows] (~1 min): every game
+headless to play / attract / title, the launcher, each menu in a window, the play folder README; a table + logs/smoke/sheet.png.
+Headless T2K pictures need --set=remaster=0 (with the remaster on, the native drawing is not in the picture: HUD only).
 Headless: `build\t2k.exe "Tempest 2000 (1994).jag" --headless --frames=N --shot=F:file.bmp --press=F:btn[:len]
 --wav=f.wav --opt=key=value --userdata=logs\ud`. Always use --userdata=logs\... for scripted runs (never the
 owner's saves). Buttons are RetroPad names (b=Jag B, a=Jag A, y=Jag C, start=Option, select=Pause).
