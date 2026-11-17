@@ -41,6 +41,12 @@ next), TxK (Vita), a Steam link to Tempest 4000, maybe arcade Tempest (1981); PL
   (art\ -> art\panels\<id>.png + <id>_logo.png; art\ is in .gitignore, never in git); the play folder gets art\
   (package_collection.ps1). T81 cover = the colourful poster (owner). --shot saves the 90th frame;
   LAUNCHER_FB_DEBUG=1 shows the raw feedback buffer.
+- Launcher Y = Steam (src/steam_shortcut.cpp): adds TempestCollection.exe to the most recent account's shortcuts.vdf
+  (binary VDF, current Steam's spelling: appname / exe lower case, StartDir with a trailing \, sortas; Steam closed
+  with steam.exe -shutdown and restarted; .bak kept) + grid art (<appid>p.png / .png / _hero / _logo from steam_art\ =
+  tools/steam_art.py); when already in Steam (the Deck) only the art. Owner verified on Windows 2026-11-17 (in Steam
+  with the art). Deck art path untested. Tests: --steam-button, LAUNCHER_STEAM_NOT_RUNNING=1 + a fake root
+  (LAUNCHER_NO_REGISTRY + STEAM_COMPAT_CLIENT_INSTALL_PATH), tools/vdf_dump.py.
 
 ## Build / test
 Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
