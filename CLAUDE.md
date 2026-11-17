@@ -114,31 +114,28 @@ Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog
 reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
 classifier (downloaded code) - ask the owner before trying again.
 
-## Where we are (end of 2026-11-16; start here next time)
-T3K, all committed:
-- Every picture is native from power-on (all 18 + the last three types: 0031000E title field, 00310409 title wave,
-  0000000F ripple feedback). Full route fields 60-9000: 2980 of 2980 native, mean error 2.78 against the emulator.
-- YCrCb pipeline: native pictures + feedback kept in YCrCb like the hardware (fade about 16 / 128, clip per byte,
-  truncating), SDL GPU renderer + src/shaders/ycc_{fade,out,in,ripple}.hlsl (tools/build_shaders.py; afterwards
-  `git checkout` T2K's regenerated *.dxil.h - newer dxc output, same source). The light machine is no longer white.
-- Sharp vectors (owner: "gorgeous"): small items / short-stroke items (text, claw, enemies, HUD) = thin core + glow;
-  web and streaks keep the 240p look. Settings sharp_vectors / sharp_core / sharp_glow (menu Display).
-- Controls: stick_mode stiff (default) with a fine zone (<= 60%: creep + click lane to lane, T2K style) and a sweep
-  zone (owner's tuning: top 21 lanes/s, ramp 1 s, curve 1.5, deadzone 0.10) - owner happy, still tweaking.
-  Momentum (TxK feel, measured) kept as an option. PLAN.md "Claw feel study" Results.
-- No controller-changed nag at boot (skip_controller_screen). log_emulated: unported pictures -> userdata\emulated\
-  (log + save state + shot of the first per type).
-- Bug found + fixed: point rings 00310008 sign (level-select dots). Lesson: whole-picture mean error hides sparse
-  errors and the checks never ran the native feedback CHAIN or high_res - use the sweep (emulated | native every 300
-  fields from boot) and per-type checks; the native renderer has no high_res handling (owner set high_res 0).
-Next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"): T3K high scores / settings
-(flash not saved), repackage the play folder for the Deck (today's work isn't on it), interpolation for everything +
-run-ahead, orange patches on the brightest warp / bonus screens, sharpen the glowing text (0010000D) if wanted,
-T2K to-do batch DONE 2026-11-16 (B / Backspace = back in menus, enemy bullets at the original size
-(remaster_shot_size), bonus 1 pink line (image row 128), bonus 2 = the tunnel's dot drawing cost; T3K powerup burst
-00310208 native); T2K performance plan for the end (PLAN.md "T2K performance plan": Deck measurement, a ~120 ms
-event stall, run-ahead / catch-up),
-T4K on the Deck, Space Giraffe entry, t81 CRT, TxK saves.
+## Where we are (end of the 2026-11-16 evening session, ran past midnight; start here next time)
+T3K, all committed; play folder repackaged 2026-11-17 with all of it (dist\TempestCollection, 1.21 GB, no
+userdata\emulated any more). Owner: "playing and feeling very well".
+- Session's work (details in the dated T3K sections below): wide screens (any aspect wider than 4:3), game_speed
+  15-60 (owner plays 26) + the warp at 60 with a ramp, menu cleanup (Renderer Remaster / Emulation, per-renderer
+  options, save states slots 1-5, high_res removed, orange note only for emulated pictures), core fix for pad input
+  after a state load, the claw found on every level (it was d-pad-only on most levels before).
+- Earlier the same day: every picture native from power-on, YCrCb pipeline (src/shaders/ycc_*.hlsl;
+  tools/build_shaders.py, then `git checkout` the other regenerated *.dxil.h), sharp vectors, stiff stick mode
+  (owner's tuning; momentum kept as an option), no boot controller nag, point-ring sign fix. Lesson: whole-picture
+  mean error hides sparse errors - use sweeps / per-type / chain checks.
+- Known and accepted: per-level background spin (disc data) makes deaths kaleidoscopic on some levels - owner: fine.
+Open / next candidates (owner picks; PLAN.md "Native renderer status" + "Collection status"):
+- Cheats (paused by the owner mid-hunt): infinite lives ($800BAC7C, verified), god mode (no "caught" flag found yet:
+  next step = the flipper / enemy side, or the code that starts the death), max level candidates (untested). See
+  "T3K menu cleanup, save states".
+- The claw fix was measured on levels 1 / 7 / 15 only (level select reached nothing else with fast presses): check
+  more levels / an open web in the window if the owner reports anything.
+- T3K options / music / fx levels not saved (flash); interpolation for everything + run-ahead; orange patches on the
+  brightest warp / bonus screens; sharpen the glowing text (0010000D) if wanted.
+- T2K performance plan for the end (PLAN.md "T2K performance plan"); T4K on the Deck, Space Giraffe entry, t81 CRT,
+  TxK saves.
 
 ## T3K background spin / death "kaleidoscope" (2026-11-16, owner's state logs/t3k/rot/owner_rot.state)
 - Not a bug of ours: the Emulation picture does the same. The zoom feedback's angle (entry 00300004 w6, copied each
