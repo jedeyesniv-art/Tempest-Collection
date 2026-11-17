@@ -27,10 +27,8 @@ void Install(bool from_launcher) {
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");
   // MAME's sets in tempest.zip (t81_main.cpp kVersions); the switch happens when the menu closes
-  p.Choice("Version (changes when the menu closes)", "version",
-           {"tempest", "tempest3", "tempest2", "tempest1", "tempest1r", "temptube"},
-           {VersionName("tempest"), VersionName("tempest3"), VersionName("tempest2"), VersionName("tempest1"),
-            VersionName("tempest1r"), VersionName("temptube")});
+  p.Choice("Version (changes when the menu closes)", "version", {"tempest", "temptube"},
+           {VersionName("tempest"), VersionName("temptube")});
   p.Button("Restart the game", kReset, true);
   p.Choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
   p.Button("  Save state", menu::kSaveState)->slot_info = true;
@@ -63,12 +61,8 @@ void Install(bool from_launcher) {
 }
 
 std::string VersionName(const std::string& set) {
-  if (set == "tempest3") return "Rev 3";
-  if (set == "tempest2") return "Rev 2";
-  if (set == "tempest1") return "Rev 1";
-  if (set == "tempest1r") return "Rev 1, revised hardware";
   if (set == "temptube") return "Tempest Tubes (1981 hack)";
-  return "Rev 3, revised hardware";
+  return "Tempest (rev 3)";
 }
 
 uint16_t PadButtons(uint32_t held) {

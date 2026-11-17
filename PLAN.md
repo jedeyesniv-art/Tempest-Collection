@@ -1193,6 +1193,10 @@ To do, at the end:
    frame 2400 identical to a fresh run). ROMs checked by CRC first (VersionPresent: a set with missing files is a
    fatal MAME error a second load crashed on) -> main set + a note. Save states per set (t81_<set>_slotN.state).
    All six attract screens: HUD in the same places. Not checked: the wide framing in play on the clones.
+   Trimmed (owner): only Rev 3 (tempest) and Tempest Tubes offered. ROM comparison: rev 3 RH == rev 3 program;
+   rev 2 -> 3 = 2 bytes ($A8AF, $AA6D: two jump targets; the 2-player screen-collapse fix per the sources); rev 1 ->
+   2 ~1050 bytes ($B000, $D800 areas: score cheat removed, test-mode spinner display); Tubes = rev 3 + 845 bytes of
+   webs in tube-118 ($B800).
    Original note: pick the other sets in tempest.zip (rev 1, rev 2, Tempest Tubes ...) from
    t81's menu, with our vector renderer / framing on all of them (check their monitor geometry and HUD positions -
    the wide framing's HUD boxes were measured on the parent set).

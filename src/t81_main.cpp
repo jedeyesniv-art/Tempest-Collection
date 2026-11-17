@@ -54,8 +54,7 @@ namespace {
 
 const char* kDefaults = R"(# Tempest (1981 arcade) settings.
 
-# Version (MAME's sets in a merged tempest.zip): tempest (rev 3, revised hardware), tempest3 (rev 3), tempest2 (rev 2),
-# tempest1 (rev 1), tempest1r (rev 1, revised hardware), temptube (Tempest Tubes, a 1981 hack).
+# Version (MAME's sets in a merged tempest.zip): tempest (rev 3) or temptube (Tempest Tubes, a 1981 hack of rev 3).
 version = tempest
 # 1 = start fullscreen (F11 toggles and saves it).
 fullscreen = 1
@@ -136,7 +135,9 @@ bool WriteWav(const std::string& path, const std::vector<int16_t>& s, uint32_t r
 // name it is given and looks for the ROMs in that folder, the clones' inside the parent's zip, so a version is
 // "<folder of tempest.zip>\<set>.zip" even though only tempest.zip exists. Setting `version`; the menu's GAME.
 // Switching reloads the game in the same core DLL (verified: the new set runs exactly as from a fresh start).
-const char* const kVersions[] = {"tempest", "tempest3", "tempest2", "tempest1", "tempest1r", "temptube"};
+// Offered (owner 2026-11-17): rev 3 and Tempest Tubes only. (Rev 3 on the old boards, tempest3, is the same program as
+// the main set; rev 2 differs from rev 3 in 2 bytes; rev 1 / 1R are rev 2 before its score-cheat fix.)
+const char* const kVersions[] = {"tempest", "temptube"};
 std::string g_set = "tempest";   // the set running now (save states are per set)
 
 std::string VersionSetting() {
@@ -172,25 +173,17 @@ std::vector<uint32_t> ZipCrcs(const fs::path& zip) {
 // Are a version's ROMs there (by CRC, MAME's driver tempest.cpp)? In tempest.zip (a merged set) or <set>.zip (split).
 // MAME can't be asked: a set with missing files is a fatal error it doesn't recover from (a second load crashed).
 bool VersionPresent(const std::string& tempest_zip, const std::string& set) {
-  static const std::vector<uint32_t> common = {0x9995256d, 0x5903af03, 0x8b04f921, 0x2af82e87, 0xb31f6e24,
-                                               0x8119b847, 0x09f5a4d5, 0x823b61ae, 0x276eadd5};
-  const std::vector<uint32_t> old = {0x65d61fe7, 0x11077375, 0xf3e2827a, 0xbeb352ab, 0xa4de050f, 0x35619648,
-                                     0x73d38e47, 0x29f7e937, 0xc16ec351};   // the 2 KB ROMs of the first boards
-  std::vector<uint32_t> need;
-  if (set == "tempest") need = {0x1d0cc503, 0xc88e3524, 0xa4b2ce3f, 0x65a9a9f9, 0xde4e9e34};
-  else if (set == "tempest1r") need = {0x1d0cc503, 0xc88e3524, 0x1ca27781, 0x65a9a9f9, 0xd75fd2ef};
-  else if (set == "tempest3") need = old, need.insert(need.end(), {0xaeb0f7e9, 0xef2eb645, 0x707bd5c3});
-  else if (set == "tempest2") need = old, need.insert(need.end(), {0x7356896c, 0xef2eb645, 0x707bd5c3});
-  else if (set == "tempest1") need = old, need.insert(need.end(), {0x7356896c, 0x55952119, 0x796a9918});
-  else if (set == "temptube") {
-    need = {0x65d61fe7, 0x11077375, 0xf3e2827a, 0xa4de050f, 0x35619648, 0x73d38e47, 0x29f7e937, 0xc16ec351,
-            0xaeb0f7e9, 0xef2eb645, 0x707bd5c3, 0xcefb03f0};
+  // the PROMs both need (the vector generator's and the mathbox's)
+  std::vector<uint32_t> need = {0x5903af03, 0x8b04f921, 0x2af82e87, 0xb31f6e24, 0x8119b847, 0x09f5a4d5, 0x823b61ae,
+                                0x276eadd5};
+  if (set == "tempest") {   // the revised boards' 4 KB program ROMs + vector ROM
+    need.insert(need.end(), {0x1d0cc503, 0xc88e3524, 0xa4b2ce3f, 0x65a9a9f9, 0xde4e9e34, 0x9995256d});
+  } else if (set == "temptube") {   // the first boards' 2 KB ROMs (rev 3) with the hack's web ROM (tube-118)
+    need.insert(need.end(), {0x65d61fe7, 0x11077375, 0xf3e2827a, 0xaeb0f7e9, 0xef2eb645, 0xcefb03f0, 0xa4de050f,
+                             0x35619648, 0x73d38e47, 0x707bd5c3, 0x29f7e937, 0xc16ec351});
   } else {
     return false;
   }
-  need.insert(need.end(), common.begin(), common.end());
-  if (set != "tempest" && set != "tempest1r")   // the first boards' vector ROM is the two 2 KB halves (123 / 124)
-    need.erase(std::remove(need.begin(), need.end(), 0x9995256du), need.end());
   std::vector<uint32_t> have = ZipCrcs(tempest_zip);
   const std::vector<uint32_t> own = ZipCrcs(VersionPath(tempest_zip, set));
   have.insert(have.end(), own.begin(), own.end());
