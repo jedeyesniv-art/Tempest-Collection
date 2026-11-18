@@ -31,6 +31,7 @@
 #include "controls.h"
 #include "gpulog.h"
 #include "jagsurvey.h"
+#include "d2k.h"
 #include "host.h"
 #include "remaster.h"
 #include "xbr.h"
@@ -272,6 +273,7 @@ int main(int argc, char** argv) {
   std::vector<std::pair<std::string, std::string>> sets;
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
   std::vector<int> menuback_at;   // --menuback=F[,F..]: B (back) in the game's menus at these frames
+  std::vector<std::pair<int, std::string>> d2k_checks;
   std::string save_file, load_file, gpulog_spec, survey_spec, start_state, winshot_file;
   int winshot_at = -1;
   struct Poke { int frame; uint32_t addr, value; };
@@ -352,6 +354,9 @@ int main(int argc, char** argv) {
       auto v = val("--winshot="); auto c = v.find(':');
       winshot_at = std::atoi(v.substr(0, c).c_str());
       winshot_file = v.substr(c + 1);
+    } else if (a.rfind("--d2kcheck=", 0) == 0) {   // --d2kcheck=F:<prefix>: Defender 2000 renderer vs the core
+      std::string v = val("--d2kcheck=");
+      d2k_checks.push_back({std::atoi(v.c_str()), v.substr(v.find(':') + 1)});
     } else if (a.rfind("--survey=", 0) == 0) {
       survey_spec = val("--survey=");
     } else if (a.rfind("--gpulog=", 0) == 0) {
@@ -397,7 +402,12 @@ int main(int argc, char** argv) {
     return 1;
   }
   std::fprintf(stderr, "loaded %s: %.3f fps, %.0f Hz audio\n", rom.c_str(), host::Fps(), host::SampleRate());
-  if (!t2k::Install(&err)) std::fprintf(stderr, "t2k: %s (stick controls off)\n", err.c_str());
+  if (d2k::IsDefender(rom)) {
+    d2k::Install();
+    std::fprintf(stderr, "d2k: Defender 2000 renderer on\n");
+  } else if (!t2k::Install(&err)) {
+    std::fprintf(stderr, "t2k: %s (stick controls off)\n", err.c_str());
+  }
   const fs::path udir = fs::absolute(userdata);
   if (!remaster::Install()) std::fprintf(stderr, "remaster: install failed\n");
   remaster::SetEnabled(settings::Num("remaster", 1) != 0);
@@ -459,7 +469,11 @@ int main(int argc, char** argv) {
           jagMemSpace[p.addr & 0xFFFFFF] = uint8_t(p.value >> 8);
           jagMemSpace[(p.addr + 1) & 0xFFFFFF] = uint8_t(p.value);
         }
+      d2k::BeforeFrame();
       host::RunFrame();
+      d2k::AfterFrame();
+      for (auto& [cf, cp] : d2k_checks)
+        if (cf == f) d2k::Check(cp);
       t2k::AfterFrame();
       if (runahead > 0) {
         remaster::AfterFrame(false);
@@ -710,7 +724,9 @@ int main(int argc, char** argv) {
       host::SetInput(0, in);
       t2k::BeforeFrame(tp);
       host::SetVideoEnabled(i == todo - 1 && run_ahead == 0);   // (catch-up frames / the frame before run-ahead: unseen)
+      d2k::BeforeFrame();
       host::RunFrame();
+      d2k::AfterFrame();
       host::SetVideoEnabled(true);
       t2k::AfterFrame();
       // Run-ahead after the last real frame of this batch only (its picture is the one shown).
