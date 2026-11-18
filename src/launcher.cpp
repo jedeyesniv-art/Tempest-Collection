@@ -70,7 +70,33 @@ const char kDefaults[] =
 constexpr const char* kSteamAppT4K = "688140";   // Tempest 4000 on Steam (store.steampowered.com/app/688140)
 constexpr const char* kSteamAppSG = "27800";     // Space Giraffe on Steam (store.steampowered.com/app/27800)
 
-enum class Kind { Program, Steam, NotYet };
+enum class Kind { Program, Steam, NotYet, Promo };   // Promo: the MORE LLAMASOFT panel (A opens its list)
+
+// The MORE LLAMASOFT list: Jeff's games on Steam (by year), then our other two collections (free, on GitHub).
+struct MoreGame {
+  const char* key;     // its picture: art\more_<key>.png (tools/more_art.py)
+  const char* title;
+  const char* line;
+  const char* app;     // Steam app ID, or nullptr (ours)
+  const char* url;     // the store / project page
+};
+const MoreGame kMore[] = {
+    {"gridrunner_revolution", "GRIDRUNNER REVOLUTION", "2010 - STEAM", "27810",
+     "https://store.steampowered.com/app/27810/Gridrunner_Revolution/"},
+    {"minotaur_arcade", "MINOTAUR ARCADE VOLUME 1", "2018 - STEAM - GRIDRUNNER AND GOATUP", "906110",
+     "https://store.steampowered.com/app/906110/Minotaur_Arcade_Volume_1/"},
+    {"polybius", "POLYBIUS", "2018 - STEAM", "906120", "https://store.steampowered.com/app/906120/POLYBIUS/"},
+    {"moose_life", "MOOSE LIFE", "2020 - STEAM", "1342740", "https://store.steampowered.com/app/1342740/Moose_Life/"},
+    {"akka_arrh", "AKKA ARRH", "2023 - STEAM", "2005680", "https://store.steampowered.com/app/2005680/Akka_Arrh/"},
+    {"jeff_minter_story", "LLAMASOFT: THE JEFF MINTER STORY", "2024 - STEAM", "2236680",
+     "https://store.steampowered.com/app/2236680/Llamasoft_The_Jeff_Minter_Story/"},
+    {"i_robot", "I, ROBOT", "2025 - STEAM", "2932910", "https://store.steampowered.com/app/2932910/I_Robot/"},
+    {"minotaur_project", "MINOTAUR PROJECT REMASTERED", "JEFF MINTER'S MINOTAUR PROJECT iOS GAMES ON PC", nullptr,
+     "https://github.com/jedeyesniv-art/MinotaurProjectRemastered"},
+    {"llamasoft_st", "LLAMASOFT ON THE ST REMASTERED", "JEFF MINTER'S ATARI ST GAMES, REMASTERED", nullptr,
+     "https://github.com/jedeyesniv-art/Llamatron-PC-Recomp"},
+};
+constexpr int kMoreFirstOurs = 7;
 
 struct Game {
   const char* id;       // art and look (launcher_view): t81 t2k t3k sg txk t4k
@@ -360,6 +386,8 @@ std::vector<Game> MakeGames(const fs::path& base) {
       {"sg", "SPACE GIRAFFE", "2008 - PC - STEAM", "LLAMASOFT", Kind::Steam, kSteamAppSG, ""},
       {"txk", "TxK", "2014 - PS VITA", "LLAMASOFT", Kind::Program, "txk.exe", ""},
       {"t4k", "TEMPEST 4000", "2018 - PC - STEAM", "LLAMASOFT", Kind::Steam, kSteamAppT4K, ""},
+      {"more", "MORE LLAMASOFT", "JEFF MINTER'S GAMES ON STEAM", "AND OUR OTHER REMASTERED COLLECTIONS", Kind::Promo, "",
+       ""},
   };
   for (auto& x : g) {
     if (x.kind == Kind::NotYet) x.status = "coming later";
@@ -434,6 +462,7 @@ std::vector<lview::Entry> ViewEntries(const std::vector<Game>& games) {
     e.status = g.status;
     e.help = g.help;
     e.ready = g.status.empty() || g.status == "setup needed" || g.store;
+    if (g.kind == Kind::Promo) e.action = "SEE THE LIST";
     if (std::strcmp(g.target, kSteamAppSG) == 0 && (g.status.empty() || g.status == "setup needed"))
       e.variant = settings::Str("sg_flavour", "acid") == "acid" ? "ACID" : "NUXX";
     out.push_back(e);
@@ -492,6 +521,7 @@ int main(int argc, char** argv) {
   // --prompt-shots=<prefix> saves <prefix>N.bmp of each question (and the progress every 5 s); exits at the start warp.
   std::string answers_arg, prompt_shots;
   int menu_test = 0;
+  int more_test = -1;
   std::string menu_action;
   int autostart = -1;   // --autostart=N: start game N (list order) at once (tests; logs the focus hand-over)
   for (int i = 1; i < argc; ++i) {
@@ -505,6 +535,7 @@ int main(int argc, char** argv) {
     if (std::string(argv[i]).rfind("--prompt-shots=", 0) == 0) prompt_shots = argv[i] + 15;
     if (std::string(argv[i]) == "--menu") menu_test = 1;       // the settings menu open at start (tests)
     if (std::string(argv[i]) == "--menu=all") menu_test = 2;   // ... with every section open
+    if (std::string(argv[i]).rfind("--more=", 0) == 0) more_test = std::atoi(argv[i] + 7);   // the list open, row N
     // --menu-action=compress|delete: the settings menu's T3K disc item chosen at start (tests, with --answers /
     // --prompt-shots as --press-start)
     if (std::string(argv[i]).rfind("--menu-action=", 0) == 0) menu_action = argv[i] + 14;
@@ -665,6 +696,29 @@ int main(int argc, char** argv) {
   wchar_t self_buf[MAX_PATH] = {};
   GetModuleFileNameW(nullptr, self_buf, MAX_PATH);
   const fs::path self_exe(self_buf);
+  // ---- MORE LLAMASOFT: the list (A on its panel), A on a row opens the page ----
+  bool more_open = false;
+  int more_sel = 0;
+  std::string more_msg;
+  {
+    std::vector<lview::MoreItem> items;
+    for (const MoreGame& m : kMore)
+      items.push_back({m.key, m.title, m.line, m.app ? "OPEN ITS STEAM PAGE" : "OPEN THE PROJECT PAGE (GITHUB)"});
+    lview::SetMore(items, kMoreFirstOurs);
+  }
+  auto more_move = [&](int d) {
+    more_sel = std::clamp(more_sel + d, 0, int(std::size(kMore)) - 1);
+    more_msg.clear();
+  };
+  auto more_link = [&] {   // Steam pages in the Steam client when there is one (on the Deck: always), else the browser
+    const MoreGame& m = kMore[more_sel];
+    std::string url = m.url;
+    if (m.app && (UnderWine() || !SteamRoots().empty())) url = std::string("steam://store/") + m.app;
+    else if (!m.app && UnderWine()) url = "steam://openurl/" + url;   // (gaming mode: Steam's own browser)
+    if (std::getenv("LAUNCHER_DRY_URL")) std::fprintf(stderr, "launcher: would open %s\n", url.c_str());
+    else if (!SDL_OpenURL(url.c_str())) { more_msg = "could not open " + url; return; }
+    more_msg = m.app ? "opening the Steam page..." : "opening the project page...";
+  };
   const fs::path steam_art = fs::exists(base / "steam_art") ? base / "steam_art" : base / ".." / "art" / "steam";
   steamsc::Shortcut shortcut;
   uint64_t steam_confirm_until = 0;   // "press Y again" (Steam is running and has to close)
@@ -811,6 +865,11 @@ int main(int argc, char** argv) {
   auto request_start = [&](int i) {
     if (pending >= 0) return;
     const Game& g = games[i];
+    if (g.kind == Kind::Promo) {
+      more_open = true;
+      more_msg.clear();
+      return;
+    }
     if (g.store || (!g.status.empty() && g.status != "setup needed")) {
       start(i);
       return;
@@ -874,6 +933,10 @@ int main(int argc, char** argv) {
     ask_game = t3k_index();
   };
   if (menu_test) open_menu();
+  if (more_test >= 0) {
+    more_open = true;
+    more_sel = std::min(more_test, int(std::size(kMore)) - 1);
+  }
 
   if (autostart >= 0 && autostart < int(games.size())) start(autostart);
   if (steam_button_arg) {
@@ -978,6 +1041,28 @@ int main(int argc, char** argv) {
       if (e.type == SDL_EVENT_QUIT) running = false;
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED) SDL_OpenGamepad(e.gdevice.which);
       else if (menu::IsOpen()) {   // the menu reads the held state itself (below)
+      } else if (more_open) {   // the MORE LLAMASOFT list: up / down, A opens the page, B / Back / Esc closes
+        if (e.type == SDL_EVENT_KEY_DOWN && live) {
+          switch (e.key.scancode) {
+            case SDL_SCANCODE_UP: more_move(-1); break;
+            case SDL_SCANCODE_DOWN: more_move(1); break;
+            case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: case SDL_SCANCODE_SPACE: more_link(); break;
+            case SDL_SCANCODE_ESCAPE: case SDL_SCANCODE_BACKSPACE: more_open = false; break;
+            default: break;
+          }
+        } else if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && live) {
+          switch (e.gbutton.button) {
+            case SDL_GAMEPAD_BUTTON_DPAD_UP: more_move(-1); break;
+            case SDL_GAMEPAD_BUTTON_DPAD_DOWN: more_move(1); break;
+            case SDL_GAMEPAD_BUTTON_SOUTH: more_link(); break;
+            case SDL_GAMEPAD_BUTTON_EAST: case SDL_GAMEPAD_BUTTON_BACK: more_open = false; break;
+            default: break;
+          }
+        } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTY && live) {
+          const float v = e.gaxis.value / 32767.f;   // one row per push past half way
+          if ((v > 0.5f && stick_y <= 0.5f) || (v < -0.5f && stick_y >= -0.5f)) more_move(v > 0 ? 1 : -1);
+          stick_y = v;
+        }
       } else if (ask != Ask::None) {   // a question: A / Enter yes, B / Esc no
         const bool key = e.type == SDL_EVENT_KEY_DOWN && live, btn = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && live;
         if ((key && (e.key.scancode == SDL_SCANCODE_RETURN || e.key.scancode == SDL_SCANCODE_KP_ENTER)) ||
@@ -1074,6 +1159,7 @@ int main(int argc, char** argv) {
     const double dt = last_frame ? (now_ns - last_frame) / 1e9 : 1.0 / 60;
     last_frame = now_ns;
     lview::Draw(ren, sel, shot.empty() ? dt : 1.0 / 60, message);
+    if (more_open) lview::DrawMore(ren, more_sel, shot.empty() ? dt : 1.0 / 60, more_msg);
     if (ask != Ask::None) {
       char mb[96];
       if (ask == Ask::Compress) {

@@ -21,6 +21,15 @@ struct Entry {
   std::string status;              // "", "setup needed", "not installed" ...
   std::vector<std::string> help;   // what to do, shown under the info while selected
   bool ready = true;
+  std::string action = "START";    // the hint row's "A  <action>"
+};
+
+// A row of the MORE LLAMASOFT list: its wide picture is <art dir>\more_<key>.png (tools/more_art.py).
+struct MoreItem {
+  std::string key;
+  std::string title;   // "GRIDRUNNER REVOLUTION"
+  std::string line;    // "2010 - STEAM"
+  std::string open;    // what A does: "OPEN ITS STEAM PAGE"
 };
 
 // Loads the art (missing files are drawn as placeholders); false only without a renderer.
@@ -45,6 +54,11 @@ void SetExtraHint(const std::string& hint);
 // optional progress bar (progress < 0: none) and the buttons ("A  COMPRESS     B  NO").
 void DrawPrompt(SDL_Renderer* ren, int i, const std::string& title, const std::vector<std::string>& lines,
                 const std::string& buttons, float progress = -1.f);
+
+// The MORE LLAMASOFT list: the rows (first_ours = the first of our own collections: a heading goes above it).
+void SetMore(const std::vector<MoreItem>& items, int first_ours);
+// The list over the picker (after Draw): sel = the selected row (scrolled into view), message = a one-line note.
+void DrawMore(SDL_Renderer* ren, int sel, double dt, const std::string& message);
 
 // The screen under a starting game: its logo and "STARTING ..." on black.
 void DrawStarting(SDL_Renderer* ren, int i, const std::string& text);

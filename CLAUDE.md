@@ -65,6 +65,12 @@ PLAN.md "Tempest Collection" and "Collection status and open items".
 - Launcher settings menu (2026-11-18; PLAN.md item 5): Back / Esc, the shared src/menu.cpp page built in launcher.cpp
   main (sting volume, motion, hide_missing, the T3K disc actions); B still quits. Tests: --menu[=all],
   --menu-action=compress|delete (+ --answers / --prompt-shots).
+- MORE LLAMASOFT (2026-11-18, owner): the last panel (Kind::Promo, id "more", gold, rainbow-band background); A opens a
+  list (lview::DrawMore): Jeff's Steam games by year (kMore in launcher.cpp: Gridrunner Revolution .. I, Robot), then
+  our two collections (GitHub). A on a row: steam://store/<id> when Steam is there (else the https store page);
+  GitHub pages in the browser (under Wine via steam://openurl/). Art: tools/more_art.py [--download] -> art\panels\
+  more.png (cover: a wall of the wide pictures) + more_<key>.png (920 x 430; Steam headers, ours from C:\Gridios\
+  Launcher\assets\steam and C:\LlamatronRecomp\res\steam, copied into art\more_src\). Test: --select=6 --more=N.
 - Launcher Y = Steam (src/steam_shortcut.cpp): adds TempestCollection.exe to the most recent account's shortcuts.vdf
   (binary VDF, current Steam's spelling: appname / exe lower case, StartDir with a trailing \, sortas; Steam closed
   with steam.exe -shutdown and restarted; .bak kept) + grid art (<appid>p.png / .png / _hero / _logo from steam_art\ =

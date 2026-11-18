@@ -45,11 +45,13 @@ Copy-Item (Join-Path $build "COPYING") (Join-Path $dist "libsndfile COPYING.txt"
 $panels = Join-Path $repo "art\panels"
 if (Test-Path $panels) {
     New-Item -ItemType Directory -Force (Join-Path $dist "art") | Out-Null
-    foreach ($id in @("t81", "t2k", "t3k", "sg", "txk", "t4k")) {
+    foreach ($id in @("t81", "t2k", "t3k", "sg", "txk", "t4k", "more")) {
         foreach ($f in @("$id.png", "${id}_logo.png")) {
             if (Test-Path (Join-Path $panels $f)) { Copy-Item (Join-Path $panels $f) (Join-Path $dist "art") }
         }
     }
+    # MORE LLAMASOFT's list pictures (tools/more_art.py)
+    Get-ChildItem $panels -Filter "more_*.png" | Copy-Item -Destination (Join-Path $dist "art")
 } else {
     Write-Warning "no art\panels (run tools\launcher_art.py): the launcher will show placeholders"
 }

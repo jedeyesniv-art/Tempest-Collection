@@ -29,6 +29,7 @@ const Style kStyles[] = {
     {"t81", {90 / 255.f, 200 / 255.f, 1.f}, 0.15f}, {"t2k", {1.f, 200 / 255.f, 40 / 255.f}, 0.55f},
     {"t3k", {1.f, 80 / 255.f, 1.f}, 0.8f},          {"sg", {120 / 255.f, 1.f, 120 / 255.f}, 1.0f},
     {"txk", {80 / 255.f, 200 / 255.f, 1.f}, 0.3f},  {"t4k", {80 / 255.f, 120 / 255.f, 1.f}, 0.45f},
+    {"more", {1.f, 190 / 255.f, 60 / 255.f}, 0.35f},   // MORE LLAMASOFT: llama gold
 };
 const Style& StyleOf(const std::string& id) {
   for (const Style& s : kStyles)
@@ -80,6 +81,12 @@ double g_time = 0.0;
 int g_warp = -1;
 std::string g_extra_hint;
 float g_motion = 1.f;   // SetMotion
+// the MORE LLAMASOFT list
+std::vector<MoreItem> g_more;
+std::vector<SDL_Texture*> g_more_art;
+int g_more_ours = -1;
+float g_more_scroll = 0.f;
+bool g_more_snap = true;   // the first frame jumps to the selection
 double g_warp_t = 0.0;
 int g_w = 0, g_h = 0;
 
@@ -409,6 +416,17 @@ void BgSG(Art& art, float t, float a, float dt) {   // Space Giraffe: beat-pulse
   Fill(0, 0, W(), H(), {80 / 255.f, 1, 120 / 255.f}, 0.06f * pulse * a, SDL_BLENDMODE_ADD);   // the beat flashes
 }
 
+void BgMore(float t, float a) {   // Llamasoft's rainbow: soft colour bands drifting up, slowly cycling
+  Fill(0, 0, W(), H(), {5 / 255.f, 3 / 255.f, 14 / 255.f}, 0.85f * a);
+  const int n = 30;
+  const float bh = H() / n;
+  for (int i = 0; i <= n; ++i) {
+    const float y = std::fmod(i * bh - t * H() * 0.015f + 100 * (H() + bh), H() + bh) - bh;
+    const float al = 0.09f * a * (0.6f + 0.4f * std::sin(t * 0.7f + i * 0.45f));
+    Fill(0, y, W(), bh * 0.5f, Hsl(i * 360.f / n + t * 18, 1, 0.5f), al, SDL_BLENDMODE_ADD);
+  }
+}
+
 void Background(size_t i, float t, float a, float dt) {
   const std::string& id = g_entries[i].id;
   if (id == "t81") BgT81(t, a);
@@ -416,6 +434,7 @@ void Background(size_t i, float t, float a, float dt) {
   else if (id == "t3k") BgT3K(g_art[i], t, a, dt);
   else if (id == "sg") BgSG(g_art[i], t, a, dt);
   else if (id == "txk") BgTxK(t, a);
+  else if (id == "more") BgMore(t, a);
   else BgT4K(t, a);
 }
 
@@ -480,6 +499,9 @@ void Shutdown() {
       if (t) SDL_DestroyTexture(t);
   }
   g_art.clear();
+  for (SDL_Texture* t : g_more_art)
+    if (t) SDL_DestroyTexture(t);
+  g_more_art.clear();
   for (SDL_Texture* t : {g_dot, g_beam, g_vignette, g_radial})
     if (t) SDL_DestroyTexture(t);
   g_dot = g_beam = g_vignette = g_radial = nullptr;
@@ -639,7 +661,8 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
     Fill(w / 2 + (i - (n - 1) / 2.f) * u * 7 - s / 2, h * 0.085f - s / 2, s, s,
          i == sel ? StyleOf(g_entries[i].id).accent : Col{1, 1, 1}, i == sel ? 1.f : 0.25f);
   }
-  std::string hints = e.variant.empty() ? "< >  CHOOSE     A  START" : "< >  CHOOSE     ^ v  FLAVOUR     A  START";
+  std::string hints = e.variant.empty() ? "< >  CHOOSE     A  " + e.action
+                                         : "< >  CHOOSE     ^ v  FLAVOUR     A  " + e.action;
   if (!g_extra_hint.empty()) hints += "     " + g_extra_hint;
   hints += "     BACK  SETTINGS     B  QUIT";
   Text(hints,
@@ -693,6 +716,81 @@ void DrawPrompt(SDL_Renderer* ren, int i, const std::string& title, const std::v
          lw, ac, 1.f, 5);
   }
   Text(buttons, w / 2, y + ph - u * 16, fit(buttons, u * 0.9f), {120 / 255.f, 200 / 255.f, 1}, 1);
+}
+
+void SetMore(const std::vector<MoreItem>& items, int first_ours) {
+  for (SDL_Texture* t : g_more_art)
+    if (t) SDL_DestroyTexture(t);
+  g_more = items;
+  g_more_ours = first_ours;
+  g_more_art.assign(items.size(), nullptr);
+  for (size_t i = 0; i < items.size(); ++i)
+    if (SDL_Surface* s = LoadRGBA(g_dir / ("more_" + items[i].key + ".png"))) {
+      g_more_art[i] = MakeTexture(s, SDL_BLENDMODE_BLEND);
+      SDL_DestroySurface(s);
+    }
+  g_more_snap = true;
+}
+
+void DrawMore(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) {
+  if (g_more.empty()) return;
+  SDL_GetRenderOutputSize(ren, &g_w, &g_h);
+  const float dt = float(std::min(dt_in, 0.05));
+  const float w = W(), h = H(), u = std::max(1.5f, h / 330.f);
+  const Col ac = StyleOf("more").accent, magenta{1, 80 / 255.f, 1}, dim{0.7f, 0.72f, 0.8f};
+  const int n = int(g_more.size());
+  sel = std::clamp(sel, 0, n - 1);
+  Fill(0, 0, w, h, {3 / 255.f, 2 / 255.f, 10 / 255.f}, 0.97f);
+  BgMore(float(g_time) * 0.6f, 0.6f);
+  auto fit = [&](const std::string& s, float size, float width) {
+    return std::min(size, width / std::max(1.f, float(s.size()) * 6.f));
+  };
+  // the heading
+  const std::string h1 = "IF YOU LIKE THIS, YOU SHOULD TRY THESE", h2 = "OTHER EXCELLENT LLAMASOFT GAMES:";
+  const float hu = fit(h1, u * 1.2f, w * 0.94f);
+  Text(h1, w / 2, h * 0.04f, hu, magenta, 1, 0, 1.2f);
+  Text(h2, w / 2, h * 0.04f + hu * 11, hu, magenta, 1, 0, 1.2f);
+  // the rows: the wide picture, then the title, its line and (selected) what A does
+  const float top = h * 0.04f + hu * 24, bottom = h * 0.9f, view = bottom - top;
+  const float rh = std::min(h * 0.17f, view / 3.2f), ah = rh * 0.84f, aw = ah * 920.f / 430.f;
+  const float cw = std::min(w * 0.94f, aw + u * 6 * 36), x0 = (w - cw) / 2, tx = x0 + aw + u * 8, tw = cw - aw - u * 10;
+  const float label_h = u * 18;
+  auto row_y = [&](int i) { return i * rh + (g_more_ours >= 0 && i >= g_more_ours ? label_h : 0.f); };
+  const float total = row_y(n - 1) + rh;
+  const float target = std::clamp(row_y(sel) + rh / 2 - view / 2, 0.f, std::max(0.f, total - view));
+  if (g_more_snap) g_more_scroll = target, g_more_snap = false;
+  g_more_scroll += (target - g_more_scroll) * (1 - std::pow(0.0005f, dt));
+  const SDL_Rect clip{0, int(top), g_w, int(view)};
+  SDL_SetRenderClipRect(ren, &clip);
+  for (int i = 0; i < n; ++i) {
+    const float y = top + row_y(i) - g_more_scroll;
+    if (g_more_ours >= 0 && i == g_more_ours) {
+      const std::string lab = "OUR OTHER REMASTERED COLLECTIONS - FREE";
+      Text(lab, w / 2, y - label_h + u * 5, fit(lab, u * 0.95f, cw), {120 / 255.f, 200 / 255.f, 1}, 1, 0, 0.8f);
+    }
+    if (y > bottom || y + rh < top) continue;
+    const MoreItem& m = g_more[i];
+    const bool on = i == sel;
+    const float ay = y + (rh - ah) / 2;
+    if (on) {   // the selected row: a lit band with glowing edges
+      Fill(x0 - u * 3, y + u, cw + u * 6, rh - u * 2, ac, 0.10f);
+      const float lw = std::max(1.f, h / 600) * 1.5f, y0 = y + u, y1 = y + rh - u;
+      Glow(x0 - u * 3, y0, x0 + cw + u * 3, y0, lw, ac, 0.9f, 6);
+      Glow(x0 - u * 3, y1, x0 + cw + u * 3, y1, lw, ac, 0.9f, 6);
+    }
+    if (g_more_art[i]) Sprite(g_more_art[i], x0, ay, aw, ah, {1, 1, 1}, on ? 1.f : 0.7f);
+    else Fill(x0, ay, aw, ah, {0.15f, 0.15f, 0.2f}, 1);
+    const float tu = fit(m.title, u * 1.3f, tw);
+    float ty = y + rh * 0.24f;
+    Text(m.title, tx, ty, tu, on ? ac : Col{1, 1, 1}, on ? 1.f : 0.8f, -1, on ? 1.2f : 0.5f);
+    ty += tu * 7 + u * 6;
+    Text(m.line, tx, ty, fit(m.line, u * 0.85f, tw), dim, on ? 1.f : 0.7f, -1, 0.3f);
+    ty += u * 0.85f * 7 + u * 6;
+    if (on) Text("A  " + m.open, tx, ty, fit("A  " + m.open, u * 0.85f, tw), {120 / 255.f, 200 / 255.f, 1}, 1, -1, 0.5f);
+  }
+  SDL_SetRenderClipRect(ren, nullptr);
+  if (!message.empty()) Text(message, w / 2, h - h * 0.075f, u * 0.8f, {1, 1, 0.3f}, 1);
+  Text("^ v  CHOOSE     A  OPEN THE PAGE     B  BACK", w / 2, h - h * 0.04f, u * 0.8f, {120 / 255.f, 200 / 255.f, 1}, 0.8f);
 }
 
 void DrawStarting(SDL_Renderer* ren, int i, const std::string& text) {
