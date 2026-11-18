@@ -1859,14 +1859,22 @@ int main(int argc, char** argv) {
       // field), 30 more late than on time. (Until 2026-11-18: over 85% of a field - the Deck's 15-16 ms fields fit the
       // 16.7 but were cut.) Every 600 fields with run-ahead on: the average breakdown in the log (userdata\logs\t3k.log
       // when started from the launcher).
-      if (ra_on && emulated) {
+      // The log (when run-ahead is set, every 300 fields of play and at each lowering - also once it is down to 0, as
+      // the machine's plain cost to compare): the average split and the late fields.
+      const bool in_play = speed.web && !speed.warp;
+      if (ra_set > 0 && in_play && emulated) {
         const uint64_t end = SDL_GetTicksNS(), cost = end - t0;
         const bool late = due && end > due + field_ns;
-        ra_over = late ? ra_over + 1 : std::max(0, ra_over - 1);
+        if (ra_on) ra_over = late ? ra_over + 1 : std::max(0, ra_over - 1);
         static double a_real = 0, a_snap = 0, a_hidden = 0, a_pic = 0, a_all = 0, a_max = 0;
-        static int a_n = 0, a_late = 0;
+        static int a_n = 0, a_late = 0, a_level = -1;
+        if (a_level != ra_level) {   // (a new level: start a new average)
+          a_real = a_snap = a_hidden = a_pic = a_all = a_max = 0;
+          a_n = a_late = 0;
+          a_level = ra_level;
+        }
+        a_real += (ra_t[0] - t0) / 1e6;
         if (ra_t[4]) {
-          a_real += (ra_t[0] - t0) / 1e6;
           a_snap += ((ra_t[1] - ra_t[0]) + (ra_t[4] - ra_t[3])) / 1e6;
           a_hidden += (ra_t[2] - ra_t[1]) / 1e6;
           a_pic += (ra_t[3] - ra_t[2]) / 1e6;
@@ -1874,14 +1882,17 @@ int main(int argc, char** argv) {
         a_all += cost / 1e6;
         a_max = std::max(a_max, cost / 1e6);
         a_late += late;
-        if (++a_n == 600) {
+        ++a_n;
+        const bool cut = ra_on && ra_over >= 30;
+        if (a_n == 300 || cut)
           std::fprintf(stderr, "run-ahead %d: %.2f ms a field (real %.2f, snapshot + load %.2f, hidden %.2f, picture %.2f), "
-                       "max %.2f, %d of 600 late (budget %.2f)\n", ra_level, a_all / a_n, a_real / a_n, a_snap / a_n,
-                       a_hidden / a_n, a_pic / a_n, a_max, a_late, field_ns / 1e6);
+                       "max %.2f, %d of %d late (budget %.2f)\n", ra_level, a_all / a_n, a_real / a_n, a_snap / a_n,
+                       a_hidden / a_n, a_pic / a_n, a_max, a_late, a_n, field_ns / 1e6);
+        if (a_n == 300) {
           a_real = a_snap = a_hidden = a_pic = a_all = a_max = 0;
           a_n = a_late = 0;
         }
-        if (ra_over >= 30) {
+        if (cut) {
           --ra_level;
           ra_over = 0;
           ra_cut = ra_level;
