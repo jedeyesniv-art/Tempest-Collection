@@ -35,6 +35,9 @@ void Draw(SDL_Renderer* ren, int sel, double dt, const std::string& message);
 void StartWarp(int i);
 bool Warping();
 
+// How much the backgrounds and logos move: 1 full, 0.35 reduced, 0 still (the scroll and the warp are unchanged).
+void SetMotion(float k);
+
 // An extra button in the hint row (e.g. "Y  ADD TO STEAM"); empty = none.
 void SetExtraHint(const std::string& hint);
 

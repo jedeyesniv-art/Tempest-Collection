@@ -14,5 +14,6 @@ int Init(const std::filesystem::path& dir, const std::vector<std::string>& ids);
 void Shutdown();
 void Move(const std::string& id);     // the selection moved to this game
 void Launch(const std::string& id);   // this game is starting
+void SetVolume(float v);              // 0 (off) .. 1 (as recorded); later stings play at it
 
 }  // namespace lsound

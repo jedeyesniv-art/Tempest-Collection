@@ -38,7 +38,7 @@ bool Visible(const Item& i) { return !i.when || i.when(); }
 
 bool Open(int section) { return section < 0 || (section < int(g_open_sections.size()) && g_open_sections[section]); }
 bool Shown(const Item& i) {
-  if (i.kind == Kind::Header) return !i.label.empty();
+  if (i.kind == Kind::Header) return !i.label.empty() && Visible(i);
   if (!Visible(i) || !Open(i.section)) return false;
   if (i.kind == Kind::Sub) {   // only while something in it can show
     if (i.label.empty()) return false;
@@ -316,6 +316,7 @@ std::vector<std::string> Wrap(const std::string& text, int cols) {
 // colour (SetAccent) for its edge, title, section names, values and the selection. Sizes in font units u.
 namespace {
 pixfont::Col g_accent{0.35f, 0.6f, 1.f};
+bool g_paused_note = true;   // "game paused" next to the subtitle
 
 pixfont::Col Mix(pixfont::Col a, pixfont::Col b, float t) {
   return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t};
@@ -332,6 +333,7 @@ int Indent(const Item& i) { return i.kind == Kind::Header || i.section < 0 ? 0 :
 }  // namespace
 
 void SetAccent(float r, float g, float b) { g_accent = {r, g, b}; }
+void SetPausedNote(bool on) { g_paused_note = on; }
 
 void Draw(SDL_Renderer* ren, int w, int h) {
   const auto& items = Items();
@@ -369,7 +371,7 @@ void Draw(SDL_Renderer* ren, int w, int h) {
   if (pixfont::TextWidth(name, tu) > pw - 2 * pad) tu = u;
   pixfont::Text(ren, name, x0, pad, tu, g_accent, 1.f, -1, 1.3f);
   const float sub_y = pad + 7 * tu + 3.5f * u;
-  pixfont::Text(ren, sub + "  -  game paused", x0, sub_y, u, dim, 0.9f, -1, 0.f);
+  pixfont::Text(ren, g_paused_note ? sub + "  -  game paused" : sub, x0, sub_y, u, dim, 0.9f, -1, 0.f);
   const float rule_y = sub_y + 7 * u + 5 * u;
   pixfont::Glow(ren, x0, rule_y, ox + pw - pad, rule_y, u * 0.25f, g_accent, 0.55f, 5.f);
 

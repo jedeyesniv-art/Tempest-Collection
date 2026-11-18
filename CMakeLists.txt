@@ -34,7 +34,7 @@ if(WIN32)
 endif()
 
 # Tempest Collection launcher (tempest.exe): picks a game and starts its program (t2k.exe, t3k.exe) or Steam.
-add_executable(tempest WIN32 src/launcher.cpp src/launcher_view.cpp src/pixfont.cpp src/launcher_sound.cpp src/steam_shortcut.cpp src/settings.cpp src/t3k_compress.cpp third_party/NuanceResurrection/src/stb_vorbis.c res/t2k.rc)
+add_executable(tempest WIN32 src/launcher.cpp src/launcher_view.cpp src/pixfont.cpp src/menu.cpp src/controls.cpp src/launcher_sound.cpp src/steam_shortcut.cpp src/settings.cpp src/t3k_compress.cpp third_party/NuanceResurrection/src/stb_vorbis.c res/t2k.rc)
 target_include_directories(tempest PRIVATE third_party/NuanceResurrection/src)   # stb_vorbis.c (the compression's check)
 # libsndfile (LGPL) for the T3K disc compression's Vorbis encoder, loaded at run time: next to the launcher
 add_custom_command(TARGET tempest POST_BUILD

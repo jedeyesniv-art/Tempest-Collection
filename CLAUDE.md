@@ -62,6 +62,9 @@ PLAN.md "Tempest Collection" and "Collection status and open items".
   signed 8-bit, ~16 kHz by cross-correlation with a recording, tools/t2k_samplerate.py), TxK / T4K asset WAVs, SG from
   GRsounds.xwb (73 unnamed sounds, MS ADPCM decoded by the tool; SG_MOVE 21 (beep) / SG_LAUNCH 34 (phone), owner: perfect; all 73
   in art\sounds\sg_bank\). tools/wav_events.py finds onsets in recordings.
+- Launcher settings menu (2026-11-18; PLAN.md item 5): Back / Esc, the shared src/menu.cpp page built in launcher.cpp
+  main (sting volume, motion, hide_missing, the T3K disc actions); B still quits. Tests: --menu[=all],
+  --menu-action=compress|delete (+ --answers / --prompt-shots).
 - Launcher Y = Steam (src/steam_shortcut.cpp): adds TempestCollection.exe to the most recent account's shortcuts.vdf
   (binary VDF, current Steam's spelling: appname / exe lower case, StartDir with a trailing \, sortas; Steam closed
   with steam.exe -shutdown and restarted; .bak kept) + grid art (<appid>p.png / .png / _hero / _logo from steam_art\ =
@@ -161,9 +164,8 @@ classifier (downloaded code) - ask the owner before trying again.
 
 ## Where we are (end of 2026-11-17, evening; start here next time)
 All committed; play folder current (dist\TempestCollection, ~0.67 GB; the owner plays it from Steam on Windows and on
-the Steam Deck). THE TO-DO LIST: PLAN.md "Collection status and open items". NEXT (2026-11-18): item 5, the launcher settings menu
-(Back menu; frame-rate cap, render scale, T3K compression again, master volume with normalised loudness, plus
-candidates e-l for the owner to choose; suggested order there). Also done late 2026-11-17: the launcher's T3K disc
+the Steam Deck). THE TO-DO LIST: PLAN.md "Collection status and open items". NEXT: item 5 step 2 (master volume + normalised loudness);
+step 1 (the launcher's settings menu shell + T3K disc again + launcher options) done 2026-11-18. Also done late 2026-11-17: the launcher's T3K disc
 compression (item 4). Done 2026-11-17 from it: the menus
 (restyle + one layout), T3K disc compression, T81 versions, T3K infinite lives. Left: the PUBLISH version (only when
 the owner decides; its prep notes are under item 4: no AOT, the launcher's T3K compression, no owner saves), maybe a

@@ -21,6 +21,7 @@ std::map<std::string, Clip> g_clips;   // "<id>_move", "<id>_launch"
 constexpr int kVoices = 6;
 SDL_AudioStream* g_voice[kVoices] = {};
 int g_next = 0;
+float g_volume = 1.f;
 
 void Load(const fs::path& file, const std::string& key) {
   SDL_AudioSpec spec{};
@@ -35,7 +36,7 @@ void Load(const fs::path& file, const std::string& key) {
 }
 
 void Play(const std::string& key) {
-  if (!g_dev) return;
+  if (!g_dev || g_volume <= 0.f) return;
   auto it = g_clips.find(key);
   if (it == g_clips.end()) return;
   SDL_AudioStream*& v = g_voice[g_next];
@@ -45,6 +46,7 @@ void Play(const std::string& key) {
   if (v) SDL_DestroyAudioStream(v);   // (a voice still playing is cut: the oldest of six)
   v = SDL_CreateAudioStream(&it->second.spec, &dev);
   if (!v) return;
+  SDL_SetAudioStreamGain(v, g_volume);
   SDL_BindAudioStream(g_dev, v);
   SDL_PutAudioStreamData(v, it->second.data.data(), int(it->second.data.size()));
   SDL_FlushAudioStream(v);
@@ -73,5 +75,6 @@ void Shutdown() {
 
 void Move(const std::string& id) { Play(id + "_move"); }
 void Launch(const std::string& id) { Play(id + "_launch"); }
+void SetVolume(float v) { g_volume = v < 0.f ? 0.f : v > 1.f ? 1.f : v; }
 
 }  // namespace lsound

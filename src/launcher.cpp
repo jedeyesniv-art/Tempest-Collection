@@ -37,6 +37,7 @@
 
 #include "launcher_sound.h"
 #include "launcher_view.h"
+#include "menu.h"
 #include "steam_shortcut.h"
 #include "settings.h"
 #include "t3k_compress.h"
@@ -57,7 +58,14 @@ const char kDefaults[] =
     "# Tempest 3000's disc: 1 = on starting it, offer to compress the .iso (743 MB -> ~196 MB), then to delete the\n"
     "# .iso; answering no sets these to 0 (never asked again; t3k.exe plays the compressed disc when it is there).\n"
     "t3k_offer_compress = 1\n"
-    "t3k_offer_delete = 1\n";
+    "t3k_offer_delete = 1\n"
+    "\n"
+    "# The launcher's own (its settings menu: Back / Esc):\n"
+    "# the stings' volume, 0 (off) .. 1; how much the backgrounds and logos move: full, reduced or still;\n"
+    "# 1 = leave out the games that can't be started here (not installed, program missing).\n"
+    "sting_volume = 1\n"
+    "motion = full\n"
+    "hide_missing = 0\n";
 
 constexpr const char* kSteamAppT4K = "688140";   // Tempest 4000 on Steam (store.steampowered.com/app/688140)
 constexpr const char* kSteamAppSG = "27800";     // Space Giraffe on Steam (store.steampowered.com/app/27800)
@@ -433,6 +441,25 @@ std::vector<lview::Entry> ViewEntries(const std::vector<Game>& games) {
   return out;
 }
 
+// Can't be started here at all (left out with hide_missing): not installed, not made yet, its program missing. A Steam
+// game that is installed but not set up stays (it still starts).
+bool Missing(const Game& g) {
+  return g.store || g.kind == Kind::NotYet || (g.kind == Kind::Program && !g.status.empty());
+}
+
+// The first open pad (the settings menu reads its held buttons).
+SDL_Gamepad* FirstPad() {
+  int n = 0;
+  SDL_JoystickID* ids = SDL_GetGamepads(&n);
+  SDL_Gamepad* pad = nullptr;
+  for (int k = 0; k < n && !pad; ++k) pad = SDL_GetGamepadFromID(ids[k]);
+  SDL_free(ids);
+  return pad;
+}
+
+// The launcher menu's own actions (menu::Update returns them).
+enum LauncherAction : int { kCompressDisc = menu::kGameAction, kDeleteIso, kAskDiscAgain };
+
 // Tempest 3000's disc: the .iso and the .nuz beside it, in the first folder (as t3k.exe searches) that has either.
 struct T3kDisc { fs::path iso, nuz; };
 T3kDisc FindT3kDisc(const fs::path& base) {
@@ -464,6 +491,8 @@ int main(int argc, char** argv) {
   // compression>, and
   // --prompt-shots=<prefix> saves <prefix>N.bmp of each question (and the progress every 5 s); exits at the start warp.
   std::string answers_arg, prompt_shots;
+  int menu_test = 0;
+  std::string menu_action;
   int autostart = -1;   // --autostart=N: start game N (list order) at once (tests; logs the focus hand-over)
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]).rfind("--shot=", 0) == 0) shot = argv[i] + 7;
@@ -474,6 +503,11 @@ int main(int argc, char** argv) {
     if (std::string(argv[i]).rfind("--compress-test=", 0) == 0) compress_test = argv[i] + 16;
     if (std::string(argv[i]).rfind("--answers=", 0) == 0) answers_arg = argv[i] + 10;
     if (std::string(argv[i]).rfind("--prompt-shots=", 0) == 0) prompt_shots = argv[i] + 15;
+    if (std::string(argv[i]) == "--menu") menu_test = 1;       // the settings menu open at start (tests)
+    if (std::string(argv[i]) == "--menu=all") menu_test = 2;   // ... with every section open
+    // --menu-action=compress|delete: the settings menu's T3K disc item chosen at start (tests, with --answers /
+    // --prompt-shots as --press-start)
+    if (std::string(argv[i]).rfind("--menu-action=", 0) == 0) menu_action = argv[i] + 14;
   }
   // --compress-test=<iso>: compress it to <iso>.nuz without the window (tests), print the result, exit
   if (!compress_test.empty()) {
@@ -514,17 +548,30 @@ int main(int argc, char** argv) {
   // the art: art\ next to the program (the play folder), else the repo's art\panels (build\tempest.exe)
   const fs::path art = fs::exists(base / "art") ? base / "art" : base / ".." / "art" / "panels";
   lview::Init(ren, art);
-  std::vector<Game> games = MakeGames(base);
-  lview::SetEntries(ViewEntries(games));
+  std::vector<Game> games;
+  int sel = 0;
+  // The list (again after a game, or when hide_missing changes): the selection stays on the same game if it is there.
+  auto reload_games = [&] {
+    const std::string was = sel < int(games.size()) ? games[sel].id : "t2k";   // (at start: Tempest 2000)
+    std::vector<Game> all = MakeGames(base), shown;
+    if (settings::Num("hide_missing", 0) != 0)
+      for (Game& g : all)
+        if (!Missing(g)) shown.push_back(g);
+    games = shown.empty() ? all : shown;   // (never an empty list)
+    sel = 0;
+    for (int k = 0; k < int(games.size()); ++k)
+      if (was == games[k].id) sel = k;
+    lview::SetEntries(ViewEntries(games));
+  };
+  reload_games();
   // the stings: each game's lane click on selecting it, its death on starting it (sounds\ or the repo's art\sounds)
   {
     const fs::path snd = fs::exists(base / "sounds") ? base / "sounds" : base / ".." / "art" / "sounds";
     std::vector<std::string> ids;
-    for (const Game& g : games) ids.push_back(g.id);
+    for (const Game& g : MakeGames(base)) ids.push_back(g.id);   // (every game: hidden ones may come back)
     const int n = lsound::Init(snd, ids);
     if (!shot.empty()) std::fprintf(stderr, "launcher: %d sound stings from %s\n", n, snd.string().c_str());
   }
-  int sel = 1;   // Tempest 2000: the first one that runs
   if (select_arg >= 0 && select_arg < int(games.size())) sel = select_arg;
   std::string message;
   HANDLE child = nullptr;
@@ -696,20 +743,34 @@ int main(int argc, char** argv) {
     lview::StartWarp(i);
     lsound::Launch(games[i].id);
   };
-  auto disc_question = [&](int i) {   // true: a question is up (the game starts after it)
-    if (std::strcmp(games[i].id, "t3k") != 0) return false;
+  // ask_start: the questions came up on starting Tempest 3000 (it starts after them; "no" = never ask again); false =
+  // from the settings menu (nothing starts; "no" only closes the question).
+  bool ask_start = true;
+  bool disc_iso = false, disc_nuz = false;   // what is there (looked at by the questions and the settings menu)
+  auto look_at_disc = [&] {
     disc = FindT3kDisc(base);
     std::error_code ec;
-    const bool iso = !disc.iso.empty() && fs::exists(disc.iso, ec), nuz = !disc.nuz.empty() && fs::exists(disc.nuz, ec);
-    if (iso) {
+    disc_iso = !disc.iso.empty() && fs::exists(disc.iso, ec);
+    disc_nuz = !disc.nuz.empty() && fs::exists(disc.nuz, ec);
+    if (disc_iso) {
       iso_mb = double(fs::file_size(disc.iso, ec)) / 1e6;
       iso_links = t3kc::LinkCount(disc.iso);
     }
-    if (iso && !nuz && settings::Num("t3k_offer_compress", 1) != 0) ask = Ask::Compress;
-    else if (iso && nuz && settings::Num("t3k_offer_delete", 1) != 0) ask = Ask::Delete;
+  };
+  auto disc_question = [&](int i) {   // true: a question is up (the game starts after it)
+    if (std::strcmp(games[i].id, "t3k") != 0) return false;
+    look_at_disc();
+    if (disc_iso && !disc_nuz && settings::Num("t3k_offer_compress", 1) != 0) ask = Ask::Compress;
+    else if (disc_iso && disc_nuz && settings::Num("t3k_offer_delete", 1) != 0) ask = Ask::Delete;
     else return false;
     ask_game = i;
+    ask_start = true;
     return true;
+  };
+  auto t3k_index = [&] {   // (the questions' colour; -1 when it is hidden)
+    for (int k = 0; k < int(games.size()); ++k)
+      if (std::strcmp(games[k].id, "t3k") == 0) return k;
+    return -1;
   };
   auto answer = [&](bool yes) {   // A = yes, B = no (while compressing: B cancels)
     const int i = ask_game;
@@ -719,9 +780,11 @@ int main(int argc, char** argv) {
         t3kc::Start(job.get(), disc.iso, disc.nuz, base / "libsndfile_x64.dll");
         ask = Ask::Compressing;
       } else {
-        settings::Save("t3k_offer_compress", "0");
         ask = Ask::None;
-        go(i);
+        if (ask_start) {
+          settings::Save("t3k_offer_compress", "0");
+          go(i);
+        }
       }
     } else if (ask == Ask::Compressing) {
       if (!yes && job) job->cancel = true;
@@ -730,11 +793,11 @@ int main(int argc, char** argv) {
         std::error_code ec;
         fs::remove(disc.iso, ec);
         message = ec ? "could not delete the .iso: " + ec.message() : "deleted " + disc.iso.filename().string();
-      } else {
+      } else if (ask_start) {
         settings::Save("t3k_offer_delete", "0");
       }
       ask = Ask::None;
-      go(i);
+      if (ask_start) go(i);
     }
   };
   auto move = [&](int d) {
@@ -764,6 +827,53 @@ int main(int argc, char** argv) {
   };
   stick_y = 0.f;
   float stick_x = 0.f;
+
+  // ---- the settings menu (Back / Esc), the games' shared one in the launcher's colour ----
+  {
+    menu::SetAccent(1.f, 80 / 255.f, 1.f);   // the header's magenta
+    menu::SetPausedNote(false);
+    menu::Page p;
+    p.Button("Resume", menu::kClose, true);
+    p.Header("LAUNCHER");
+    p.Button("Fullscreen", menu::kToggleFullscreen);
+    p.Choice("Sound stings", "sting_volume", {"0", "0.25", "0.5", "0.75", "1"}, {"Off", "25%", "50%", "75%", "Full"})
+        ->def_value = "1";
+    p.Choice("Background motion", "motion", {"full", "reduced", "still"}, {"Full", "Reduced", "Still"});
+    p.Choice("Hide games that can't start here", "hide_missing", {"0", "1"}, {"Off", "On"});
+    p.Header("TEMPEST 3000 DISC");
+    p.items.back().when = [&] { return disc_iso; };   // (nothing to do without the .iso)
+    p.Button("Compress the disc now", kCompressDisc, true)->when = [&] { return disc_iso && !disc_nuz; };
+    p.Button("Delete the original .iso", kDeleteIso, true)->when = [&] { return disc_iso && disc_nuz; };
+    p.Button("Ask about the disc again on start", kAskDiscAgain)->when = [&] {
+      return disc_iso && (settings::Num("t3k_offer_compress", 1) == 0 || settings::Num("t3k_offer_delete", 1) == 0);
+    };
+    p.Header("");
+    p.Button("Quit the collection", menu::kQuit, true);
+    menu::SetPage("TEMPEST COLLECTION - SETTINGS", std::move(p));
+  }
+  std::string hide_was = settings::Str("hide_missing", "0");
+  auto apply_settings = [&] {   // every frame: what the menu may have changed
+    lsound::SetVolume(float(settings::Num("sting_volume", 1)));
+    const std::string m = settings::Str("motion", "full");
+    lview::SetMotion(m == "still" ? 0.f : m == "reduced" ? 0.35f : 1.f);
+    const std::string hide = settings::Str("hide_missing", "0");
+    if (hide != hide_was) {
+      hide_was = hide;
+      reload_games();
+    }
+  };
+  auto open_menu = [&] {
+    look_at_disc();
+    menu::Open(menu_test == 2);
+  };
+  auto ask_from_menu = [&](Ask a) {
+    look_at_disc();
+    if (!disc_iso || (a == Ask::Delete && !disc_nuz)) return;
+    ask = a;
+    ask_start = false;
+    ask_game = t3k_index();
+  };
+  if (menu_test) open_menu();
 
   if (autostart >= 0 && autostart < int(games.size())) start(autostart);
   if (steam_button_arg) {
@@ -801,8 +911,7 @@ int main(int argc, char** argv) {
         CloseHandle(child);
         child = nullptr;
         starting.clear();
-        games = MakeGames(base);
-        lview::SetEntries(ViewEntries(games));
+        reload_games();
         SDL_RaiseWindow(win);
         if (auto* me = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(win),
                                                                 SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr)))
@@ -850,8 +959,7 @@ int main(int argc, char** argv) {
         deck_exe = nullptr;
         bg_ok = true;
         message.clear();
-        games = MakeGames(base);
-        lview::SetEntries(ViewEntries(games));
+        reload_games();
         SDL_RaiseWindow(win);
         if (me) SetForegroundWindow(me);
         ignore_until = SDL_GetTicksNS() + 400000000ull;
@@ -869,7 +977,8 @@ int main(int argc, char** argv) {
       const bool live = SDL_GetTicksNS() >= ignore_until && (e.type == SDL_EVENT_KEY_DOWN ? focused : pad_ours);
       if (e.type == SDL_EVENT_QUIT) running = false;
       else if (e.type == SDL_EVENT_GAMEPAD_ADDED) SDL_OpenGamepad(e.gdevice.which);
-      else if (ask != Ask::None) {   // a question: A / Enter yes, B / Esc no
+      else if (menu::IsOpen()) {   // the menu reads the held state itself (below)
+      } else if (ask != Ask::None) {   // a question: A / Enter yes, B / Esc no
         const bool key = e.type == SDL_EVENT_KEY_DOWN && live, btn = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && live;
         if ((key && (e.key.scancode == SDL_SCANCODE_RETURN || e.key.scancode == SDL_SCANCODE_KP_ENTER)) ||
             (btn && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH))
@@ -885,7 +994,7 @@ int main(int argc, char** argv) {
           case SDL_SCANCODE_DOWN: variant(1); break;
           case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: case SDL_SCANCODE_SPACE: request_start(sel); break;
           case SDL_SCANCODE_S: steam_button(); break;
-          case SDL_SCANCODE_ESCAPE: running = false; break;
+          case SDL_SCANCODE_ESCAPE: if (!e.key.repeat && pending < 0) open_menu(); break;
           case SDL_SCANCODE_F11: {
             const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
             SDL_SetWindowFullscreen(win, on);
@@ -903,6 +1012,7 @@ int main(int argc, char** argv) {
           case SDL_GAMEPAD_BUTTON_SOUTH: case SDL_GAMEPAD_BUTTON_START: request_start(sel); break;
           case SDL_GAMEPAD_BUTTON_NORTH: steam_button(); break;
           case SDL_GAMEPAD_BUTTON_EAST: running = false; break;
+          case SDL_GAMEPAD_BUTTON_BACK: if (pending < 0) open_menu(); break;
           default: break;
         }
       } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTY && live) {
@@ -917,12 +1027,35 @@ int main(int argc, char** argv) {
       }
     }
 
+    if (menu::IsOpen()) {
+      const menu::Nav nav = pad_ours ? menu::ReadNav(FirstPad(), focused ? SDL_GetKeyboardState(nullptr) : nullptr)
+                                     : menu::Nav{};
+      switch (menu::Update(nav, SDL_GetTicksNS())) {
+        case menu::kQuit: running = false; break;
+        case menu::kToggleFullscreen: {
+          const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
+          SDL_SetWindowFullscreen(win, on);
+          settings::Save("fullscreen", on ? "1" : "0");
+          break;
+        }
+        case kCompressDisc: ask_from_menu(Ask::Compress); break;
+        case kDeleteIso: ask_from_menu(Ask::Delete); break;
+        case kAskDiscAgain:
+          settings::Save("t3k_offer_compress", "1");
+          settings::Save("t3k_offer_delete", "1");
+          menu::Toast("Tempest 3000 asks about its disc again", SDL_GetTicksNS());
+          break;
+        default: break;
+      }
+      if (!menu::IsOpen()) ignore_until = SDL_GetTicksNS() + 150000000ull;   // (the closing press is not for us)
+    }
+    apply_settings();
     if (ask == Ask::Compressing && job && job->phase == 3) {   // the compression finished
       job->worker.join();
       const bool ok = job->ok;
       const std::string err = job->error;
       job.reset();
-      if (ok && settings::Num("t3k_offer_delete", 1) != 0) {
+      if (ok && (!ask_start || settings::Num("t3k_offer_delete", 1) != 0)) {
         ask = Ask::Delete;
       } else {
         ask = Ask::None;
@@ -948,7 +1081,7 @@ int main(int argc, char** argv) {
         lview::DrawPrompt(ren, ask_game, "COMPRESS THE TEMPEST 3000 DISC?",
                           {mb, "THE MUSIC BECOMES OGG VORBIS (ABOUT 260 KBPS).",
                            "THE GAME ITSELF IS UNCHANGED. IT TAKES A MINUTE OR TWO."},
-                          "A  COMPRESS          B  NO - DON'T ASK AGAIN");
+                          ask_start ? "A  COMPRESS          B  NO - DON'T ASK AGAIN" : "A  COMPRESS          B  NOT NOW");
       } else if (ask == Ask::Compressing && job) {
         const int ph = job->phase, done = job->tracks_done;
         std::snprintf(mb, sizeof mb, "MUSIC TRACK %d OF %d", std::min(done + 1, int(job->tracks)), int(job->tracks));
@@ -962,12 +1095,19 @@ int main(int argc, char** argv) {
             : std::string(mb);
         lview::DrawPrompt(ren, ask_game, "DELETE THE ORIGINAL DISC IMAGE?",
                           {disc.iso.filename().string(), "THE COMPRESSED DISC IS PLAYED EITHER WAY.", frees},
-                          "A  DELETE          B  KEEP IT - DON'T ASK AGAIN");
+                          ask_start ? "A  DELETE          B  KEEP IT - DON'T ASK AGAIN" : "A  DELETE          B  KEEP IT");
       }
+    }
+    {
+      int ow = 0, oh = 0;
+      SDL_GetRenderOutputSize(ren, &ow, &oh);
+      if (menu::Shown()) menu::Draw(ren, ow, oh);
+      menu::DrawToast(ren, ow, oh, SDL_GetTicksNS());
     }
     ++frames;
     if (press_start && frames == 2) request_start(sel);
-    if (press_start && (!answers_arg.empty() || !prompt_shots.empty()) && frames > 2) {   // (tests)
+    if (!menu_action.empty() && frames == 2) ask_from_menu(menu_action == "delete" ? Ask::Delete : Ask::Compress);
+    if ((press_start || !menu_action.empty()) && (!answers_arg.empty() || !prompt_shots.empty()) && frames > 2) {
       if (ask != test_last) {
         test_last = ask;
         test_frames = 0;

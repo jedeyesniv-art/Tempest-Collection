@@ -41,7 +41,7 @@ struct Item {
   bool closes = false;                  // Button: the menu closes when it is chosen
   bool slot_info = false;               // Button: shows the SetSlotInfo text as its value
   int fn = 0;                           // Bind: controls:: function
-  std::function<bool()> when;           // shown only while this is true (unset: always)
+  std::function<bool()> when;           // shown only while this is true (unset: always; a Header: its title)
   int section = -1;                     // (set by SetPage) the header it belongs to; -1 = none
   int sub = -1;                         // (set by SetPage) the fold inside the section it belongs to; -1 = none
 };
@@ -67,6 +67,8 @@ struct Page {
 void SetPage(const std::string& title, Page page);
 // The game's colour (its launcher accent, 0..1): the panel's edge, title, section names, values, selection.
 void SetAccent(float r, float g, float b);
+// "game paused" next to the subtitle (default on; the launcher has no game to pause).
+void SetPausedNote(bool on);
 
 bool IsOpen();
 // Drawn: open, or still sliding out after closing.

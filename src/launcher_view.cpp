@@ -79,6 +79,7 @@ float g_pos = 0.f;            // eased scroll position
 double g_time = 0.0;
 int g_warp = -1;
 std::string g_extra_hint;
+float g_motion = 1.f;   // SetMotion
 double g_warp_t = 0.0;
 int g_w = 0, g_h = 0;
 
@@ -500,6 +501,7 @@ void SetEntries(const std::vector<Entry>& entries) {
 }
 
 void SetExtraHint(const std::string& hint) { g_extra_hint = hint; }
+void SetMotion(float k) { g_motion = std::clamp(k, 0.f, 1.f); }
 
 void StartWarp(int i) {
   g_warp = i;
@@ -519,7 +521,7 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
     g_fades[sel] = 1.f;
     first = false;
   }
-  g_time += dt;
+  g_time += dt * g_motion;
   // eased scroll
   g_pos += (sel - g_pos) * (1 - std::pow(0.0005f, dt));
   for (int i = 0; i < n; ++i) g_fades[i] += ((i == sel ? 1.f : 0.f) - g_fades[i]) * (1 - std::pow(0.0001f, dt));
@@ -541,7 +543,7 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
       Sprite(g_art[i].blur, (w - 45 * s) / 2, (h - 60 * s) / 2, 45 * s, 60 * s, {1, 1, 1}, a * 0.55f);
     }
     const float m = StyleOf(g_entries[i].id).motion;
-    Background(size_t(i), float(g_time) * (0.25f + m), a * (0.5f + 0.5f * m), dt);
+    Background(size_t(i), float(g_time) * (0.25f + m), a * (0.5f + 0.5f * m), dt * g_motion);
   }
   Sprite(g_vignette, 0, 0, w, h, {1, 1, 1}, 1.f);
 
@@ -639,7 +641,7 @@ void Draw(SDL_Renderer* ren, int sel, double dt_in, const std::string& message) 
   }
   std::string hints = e.variant.empty() ? "< >  CHOOSE     A  START" : "< >  CHOOSE     ^ v  FLAVOUR     A  START";
   if (!g_extra_hint.empty()) hints += "     " + g_extra_hint;
-  hints += "     B  QUIT";
+  hints += "     BACK  SETTINGS     B  QUIT";
   Text(hints,
        w / 2, h - h * 0.04f, u * 0.8f, {120 / 255.f, 200 / 255.f, 1}, 0.8f);
 

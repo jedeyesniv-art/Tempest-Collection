@@ -1246,6 +1246,16 @@ To do, at the end:
    l. About / licences: credits + GPL / LGPL notices (cores, libsndfile) - needed for the publish version anyway.
    Suggested order: (1) menu shell + c + i; (2) d (loudness pass + a gain setting in each program); (3) a + b + h
    (each program's present loop; needs the owner's Deck check); (4) j, k, l.
+   STEP 1 DONE 2026-11-18: the launcher's settings menu (Back / Esc opens it; Esc no longer quits - B and the menu's
+   "Quit the collection" do). LAUNCHER: Fullscreen, Sound stings (sting_volume Off / 25-75% / Full), Background
+   motion (motion full / reduced / still: lview::SetMotion scales the backgrounds' and logos' clock, not the scroll or
+   the warp), Hide games that can't start here (hide_missing: not installed / coming later / program missing; never an
+   empty list; selection kept by id). TEMPEST 3000 DISC (shown only with an .iso): Compress the disc now / Delete the
+   original .iso / Ask about the disc again on start (resets t3k_offer_*). From the menu the questions say "NOT NOW" /
+   "KEEP IT" and change no setting; nothing starts after them. Shared menu: a Header honours `when`;
+   menu::SetPausedNote(false) drops "game paused". Tests: --menu / --menu=all, --menu-action=compress|delete with
+   --answers / --prompt-shots in a throwaway root (hard links); all answer paths checked, start-up questions unchanged.
+   Owner to check with the pad (Windows + Deck). Next: step 2 (d, loudness).
 6. T3K CHEATS (maybe): infinite lives DONE 2026-11-17 (menu CHEATS, setting cheat_inf_lives; $800BAC7C 1 / 2 -> 3, only
    while the web is on screen; idle-claw test: game over by field 5400 without, still playing at 11700 with); god mode not found yet; max level candidates
    untested. See CLAUDE.md "T3K menu cleanup, save states".
