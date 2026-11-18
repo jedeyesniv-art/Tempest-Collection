@@ -371,6 +371,12 @@ int Callback(int mpe, uint32_t flips) {
   while (built.size() > 8) built.erase(built.begin());
   return skip ? 1 : 0;
 }
+// The picture built for this flip, if any, left in place (run-ahead's hidden fields: the real run takes it later).
+std::shared_ptr<t3knative::Picture> Peek(uint32_t flip) {
+  std::lock_guard<std::mutex> lock(mu);
+  auto it = built.find(flip);
+  return it != built.end() ? it->second : nullptr;
+}
 // The picture built for this flip, if any (and everything older dropped).
 std::shared_ptr<t3knative::Picture> Take(uint32_t flip) {
   std::lock_guard<std::mutex> lock(mu);
@@ -1779,10 +1785,11 @@ int main(int argc, char** argv) {
       }
       emulog::AfterFrame(uint64_t(k));
       // The native renderer's input: each new picture's display list, built into its vector layer once.
-      auto take_picture = [](nuon::Capture& c, std::shared_ptr<const t3knative::Vectors>& v) {
+      auto take_picture = [](nuon::Capture& c, std::shared_ptr<const t3knative::Vectors>& v, bool hidden) {
         if (nuon::GetCapture(&c) && (!v || v->flip != c.flip)) {
           // the draw gate: a picture the renderers skipped was built from memory when they would have started it
-          auto live = gate::mode.load() == 2 ? gate::Take(c.flip) : nullptr;
+          // (hidden run-ahead fields only look: the real run takes it when it gets there)
+          auto live = gate::mode.load() == 2 ? (hidden ? gate::Peek(c.flip) : gate::Take(c.flip)) : nullptr;
           if (live) {
             v = live;
           } else {
@@ -1794,7 +1801,7 @@ int main(int argc, char** argv) {
       };
       static nuon::Capture cap;
       static std::shared_ptr<const t3knative::Vectors> vec;
-      take_picture(cap, vec);
+      take_picture(cap, vec, false);
       auto& au = nuon::Audio();
       if (audio && !au.empty()) {
         // The display's clock and the sound card's drift apart slowly: keep the queue short (~100 ms).
@@ -1811,10 +1818,13 @@ int main(int argc, char** argv) {
       // show the last one's picture, go back. The game then answers the pad that many fields sooner. The claw model
       // runs in the hidden fields too (copied and put back); the speed control, score keeper and logs see real fields
       // only, and the hidden fields' sound is dropped. Too slow here (a field's work over 85% of a field for half a
-      // second): one field less for the rest of the session (ra_cut; the menu tells).
+      // second, in play): one field less for the rest of the session (ra_cut; the menu tells).
+      // Only in play (the web on screen, not a warp): where the pad matters, and the boot / menus are heavier fields
+      // (they tripped the lowering at once) that also load code and disc data.
       const int ra_want = std::clamp(int(settings::Num("run_ahead", 0)), 0, 4);
       if (ra_want != ra_set) { ra_set = ra_want; ra_level = ra_want; ra_over = 0; }
-      if (ra_level > 0 && nuon::RaSave()) {
+      const bool ra_on = ra_level > 0 && speed.web && !speed.warp;
+      if (ra_on && nuon::RaSave()) {
         const ClawControl claw_real = claw;
         static nuon::Capture hcap;
         static std::shared_ptr<const t3knative::Vectors> hvec;
@@ -1827,7 +1837,7 @@ int main(int argc, char** argv) {
           CheatsAfterField(speed.web);
           nuon::Audio().clear();
         }
-        take_picture(hcap, hvec);
+        take_picture(hcap, hvec, true);
         pic = nuon::GetRunStats(&rs) ? rs.vid_flips : pic;
         show_vec = hvec;   // (and LastFrame() is the hidden field's picture until the next field runs)
         claw = claw_real;
@@ -1836,7 +1846,7 @@ int main(int argc, char** argv) {
           ra_level = 0;
         }
       }
-      if (ra_level > 0 && emulated) {
+      if (ra_on && emulated) {
         const uint64_t cost = SDL_GetTicksNS() - t0;
         ra_over = cost > field_ns * 85 / 100 ? ra_over + 1 : std::max(0, ra_over - 1);
         if (ra_over >= 30) {
@@ -1849,8 +1859,10 @@ int main(int argc, char** argv) {
       static const bool ra_log = std::getenv("T3K_RA_LOG") != nullptr;   // tests: field, real picture, shown picture
       if (ra_log) {
         nuon::RunStats r2{};
-        std::fprintf(stderr, "ra field %lld real %u shown %u level %d\n", (long long)k,
-                     nuon::GetRunStats(&r2) ? r2.vid_flips : 0u, pic, ra_level);
+        std::fprintf(stderr, "ra field %lld flips %u shown %u level %d | real vec %u%s, shown vec %u%s ops %zu\n",
+                     (long long)k, nuon::GetRunStats(&r2) ? r2.vid_flips : 0u, pic, ra_level, vec ? vec->flip : 0u,
+                     vec && vec->complete ? "" : " incomplete", show_vec ? show_vec->flip : 0u,
+                     show_vec && show_vec->complete ? "" : " incomplete", show_vec ? show_vec->ops.size() : size_t(0));
       }
       {
         std::lock_guard<std::mutex> lock(ring_mutex);

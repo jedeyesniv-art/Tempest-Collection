@@ -201,6 +201,10 @@ framing in play on Tempest Tubes.
   no code flush), host nuon::RaSave / RaLoad, window emulation thread only (headless runs never run ahead). Auto-lowered
   per session when over budget. Tests: T3K_RA_SIM=N[:F0] (headless cost + T3K_RA_SLOW=1 for the file state),
   T3K_RA_LOG=1 (window: shown picture per field). Mind: a headless shot after hidden fields shows the hidden picture.
+  Only in play (web on screen, not a warp). Core state outside the save state must go in the snapshot (capture.cpp
+  CaptureRaState); the rewind clears interpreter caches + MPE3's compiled code. TEST FROM BOOT, IN THE WINDOW, WITH THE
+  GATE (--gate=2 headless): play-state-only tests missed the owner's flicker and boot crash (2026-11-18). Core switches:
+  NUANCE_RA_FLUSH / NUANCE_RA_FULLMEM / NUANCE_RA_STATS. The boot is not exact across any save / load (play is).
 - After building the core, copy build_nuance\nuance_libretro.dll to build\ (t3k's copy step only runs when t3k relinks).
 
 ## T3K stick: step mode, owner's tuning, game-over input (2026-11-17)

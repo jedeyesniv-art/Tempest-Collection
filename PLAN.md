@@ -1299,6 +1299,19 @@ To do, at the end:
    main / system RAM identical (MPE0: 18-42 scratch bytes differ, also with the file state - replay, not the snapshot);
    window T3K_RA_LOG: shown picture == plain run's at field + 3 in 397 / 397 fields. Window cost here: run-ahead 2 9.3 ms
    a field (p99 13.7), 4 13.2 ms (p99 15.7, max 21). Owner to try; Deck: which level holds (auto-lowering tells).
+   OWNER 2026-11-18: with run-ahead on, the picture flickered and the game hung in the intro. Found + fixed (core
+   fcd009d): (1) the capture module's per-picture state (picture being collected, published picture, the draw gate's
+   decision) is outside the save state - hidden fields left the real run a future picture and the gate's skip for its
+   own (blank pictures); now in the snapshot. (2) Boot crash (MPE3 store through a bad pointer, field ~33 in the window,
+   only with the gate on; headless repro --gate=2 from boot): the rewind kept MPE3's compiled code - bisected by
+   flushing each MPE's in turn; now MPE3's code and every interpreter cache are cleared on a rewind (+0.4 ms a field).
+   (3) Run-ahead only in play (web on screen, not a warp): boot / menu fields are heavier (tripped the auto-lowering at
+   once) and load code / disc data. Note: the boot is not exact across ANY save / load (also the file state, also with
+   no hidden fields) - work per field depends on compiled vs interpreted code; play stays exact.
+   Checks: window boot -> play 4000 fields at run-ahead 2: no crash, no picture backwards or empty, in play the shown
+   picture is the plain run's 2 fields on (warps / level starts not ahead, by design); 1800 rewinds, 0 full flushes;
+   play cost mean 8.0 ms, p99 14.0. Headless F vs F+N exact (N 1/2/4, two states); step tests all ok.
+   Lesson: test run-ahead from boot and in the window with the gate, not only headless from play states.
 
 ### Watch list
 - TxK, once on Windows (owner 2026-11-17): no music in a level, then a hang after the bonus round between levels
