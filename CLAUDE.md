@@ -509,3 +509,23 @@ Tooling pitfalls (cost time today)
   test from the copy (--loadstate=1:<file> headless, --state=<file> --winshot=N:<bmp> in the window).
 - Python edit scripts with backslashes: write them with the Write tool (Bash heredocs mangle \n here); cmd won't
   run exes from the current folder (use full paths).
+
+## Defender 2000 renderer (2026-11-18; PLAN.md "Defender 2000")
+- Runs in t2k.exe: build\t2k.exe "Defender 2000 (1996).jag" (FindRom only finds Tempest). d2k::IsDefender (by file
+  name for now) -> src/d2k.cpp instead of t2k / remaster. Own saves: userdata\defender2000.eeprom, states\d2k_slotN.
+- No source exists. Survey: t2k --survey=F0:F1:file (src/jagsurvey.cpp, core hooks vjHostGpuGo / vjHostBlit /
+  vjHostOpObject). The picture is all OP bitmaps (CRY, VMODE $06C1, BGEN, per-line BG = the sky gradient set from GPU
+  objects); the only RMW object is the scanner bar. Game updates at 30 Hz (every 2nd frame) in play.
+- Capture: each bitmap row decoded when the OP reads it (the OP's own written-back DATA / HEIGHT / REMAINDER, live
+  CLUT) - the game redraws the stars / scanner-dot buffer during the frame. Draw order = topological sort of the
+  per-line walk orders. Line buffer -> core picture offset x 16, row 16 (D2K_CALIBRATE=1 re-measures).
+- Oracle: --d2kcheck=F:prefix (software render vs the core's picture; writes images only on a mismatch): 439 / 439 and
+  814 / 815 frames exact over a 6000-frame play sweep (the one: a 2x2 near-black speck).
+- Window: d2k::Draw = atlas (edge-copy padding) + quads, RMW as add / reverse-subtract deltas, positions blended between
+  updates (one update behind). Motion: same image (clipping by DATA / width recognised; same size + moved DATA =
+  another animation frame, not motion), else predicted (still / own last motion / a layer's) within 10 px, else a
+  layer sibling's. Lead-ins + ghosts fill the left edge while blending. Settings d2k_native (F8), d2k_interpolate (F7),
+  d2k_filter sharp (SDL PIXELART) / smooth / nearest. Tests: D2K_FORCE_A=<0..1> (window), D2K_MOTION_LOG=1,
+  D2K_WHO=x,y (with --d2kcheck). Cost ~0.4 ms a present at 1920x1440.
+- Not smooth yet: whatever the game draws INTO the 8-bit 384x238 playfield bitmap (stars, shots, particles?) moves at
+  30 Hz with that bitmap.

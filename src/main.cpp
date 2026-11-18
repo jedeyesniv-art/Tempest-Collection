@@ -175,14 +175,15 @@ host::Input ReadPad(SDL_Gamepad* pad, uint32_t held, const bool* keys, t2k::Pad*
 
 const char* kViewNames[] = {"standard", "whole web", "close-up"};
 
-// The cartridge EEPROM (high scores, keys, options) lives in userdata\tempest2000.eeprom. Written when it
+// The cartridge EEPROM (high scores, keys, options) lives in userdata\tempest2000.eeprom (Defender 2000:
+// defender2000.eeprom). Written when it
 // changes (checked every second) and at exit; the previous file is kept as .bak.
 struct Eeprom {
   fs::path path;
   std::vector<uint8_t> last;
 
   void Load(const fs::path& dir) {
-    path = dir / "tempest2000.eeprom";
+    path = dir / (d2k::Active() ? "defender2000.eeprom" : "tempest2000.eeprom");
     size_t n = 0;
     uint8_t* mem = host::SaveRam(&n);
     // No file yet: keep the core's all-zero buffer. Not 0xFF like a factory-blank chip: the game's eepromsave
@@ -215,7 +216,8 @@ struct Eeprom {
 };
 
 fs::path StatePath(const fs::path& dir) {
-  return dir / "states" / ("slot" + std::to_string(int(settings::Num("state_slot", 1))) + ".state");
+  return dir / "states" /
+         ((d2k::Active() ? "d2k_slot" : "slot") + std::to_string(int(settings::Num("state_slot", 1))) + ".state");
 }
 
 std::string SlotInfo(const fs::path& dir) {
@@ -409,7 +411,7 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "t2k: %s (stick controls off)\n", err.c_str());
   }
   const fs::path udir = fs::absolute(userdata);
-  if (!remaster::Install()) std::fprintf(stderr, "remaster: install failed\n");
+  if (!d2k::Active() && !remaster::Install()) std::fprintf(stderr, "remaster: install failed\n");
   remaster::SetEnabled(settings::Num("remaster", 1) != 0);
   if (!start_state.empty()) {   // --state=<file>: start from a save state (tests)
     std::ifstream sf(start_state, std::ios::binary);

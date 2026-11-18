@@ -1391,3 +1391,6 @@ Open, roughly in order:
   = one 128x229 bitmap), an 8-bit 384x264 layer, the scanner (256x32). OP lists double-buffered at $C000 / $E000.
 - The game updates at exactly 30 Hz in play (1199 of 1200 updates last 2 frames); at speed the layers jump 22-29 px
   per update. Objects are already placed past the right edge (x up to ~640).
+- 2026-11-18 later: native renderer + interpolation done (CLAUDE.md "Defender 2000 renderer"). Next candidates: what is
+  drawn into the 8-bit playfield bitmap (30 Hz still), widescreen (the game culls at the edges: needs the world's
+  objects past them), the owner's look at it in the window, then stick controls and the Classic / Plus modes.
