@@ -30,6 +30,8 @@ void Install(bool from_launcher) {
   menu::Page p;
   p.Button("Resume", menu::kClose, true);
   p.Header("GAME");
+  p.Choice("Volume", "volume", {"0", "0.25", "0.5", "0.75", "1", "1.25", "1.5"},
+           {"Off", "25%", "50%", "75%", "100%", "125%", "150%"})->def_value = "1";
   p.Button("Restart the game", kRestart, true);
   p.Header("CONTROLS");
   p.Binds();

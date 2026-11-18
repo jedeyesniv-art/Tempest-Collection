@@ -1256,6 +1256,17 @@ To do, at the end:
    menu::SetPausedNote(false) drops "game paused". Tests: --menu / --menu=all, --menu-action=compress|delete with
    --answers / --prompt-shots in a throwaway root (hard links); all answer paths checked, start-up questions unchanged.
    Owner to check with the pad (Windows + Deck). Next: step 2 (d, loudness).
+   STEP 2 (our four games) DONE 2026-11-18: tools/loudness.py (ITU BS.1770-4: K-weighting for any rate, 400 ms blocks,
+   -70 / -10 LU gates; checked: the standard's 48 kHz coefficients, a 0 dBFS 997 Hz tone = -3.01 LUFS). Headless --wav
+   recordings in logs/loud/ (routes: T2K b 400/600/800/1000/1500; T3K a 900..2500; T81 select 600 + start 700; TxK
+   b 1900..2700, in play from ~2400). In play: TxK -10.96 LUFS (peak 0), T81 -19.18 (-8), T3K -21.54 (-7.5), T2K
+   -27.59 (-12): 16.6 dB apart. src/volume.cpp: target -16 LUFS (near the modern games, which SG / T4K are too), gain =
+   master_volume x (even_loudness ? measured : 1) x the game's own "volume" (menu GAME "Volume" 0-150%), applied where
+   the window queues sound (volume::Put: ramped per buffer + a tanh soft limiter above -3 dBFS); --wav stays raw.
+   Replica check on the recordings: all four -16.00 LUFS in play, limiter on < 0.005% of samples. Launcher menu SOUND:
+   Master volume (every game), Even out the games' loudness, Launcher sounds (stings x master).
+   NOT done: Space Giraffe / Tempest 4000 (Windows-only per-app session volume from the launcher; their loudness would
+   need a loopback recording while they run - ask the owner). Owner to listen: is -16 right, T2K's raise (x3.8) clean?
 6. T3K CHEATS (maybe): infinite lives DONE 2026-11-17 (menu CHEATS, setting cheat_inf_lives; $800BAC7C 1 / 2 -> 3, only
    while the web is on screen; idle-claw test: game over by field 5400 without, still playing at 11700 with); god mode not found yet; max level candidates
    untested. See CLAUDE.md "T3K menu cleanup, save states".

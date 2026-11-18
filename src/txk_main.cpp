@@ -49,6 +49,7 @@
 #include "menu.h"
 #include "runlog.h"
 #include "settings.h"
+#include "volume.h"
 #include "txk_menu.h"
 #include "lr_host.h"
 
@@ -436,6 +437,7 @@ int main(int argc, char** argv) {
   if (from_launcher) runlog::Start(udir, "txk");   // no console: userdata\logs\txk.log
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "txk_settings.txt").string());
+  volume::Init(udir, "txk");
   txk_menu::Install(from_launcher);
   game = FindGame(game);
   if (game.empty()) {
@@ -678,7 +680,7 @@ int main(int argc, char** argv) {
       }
       if (audio && !au.empty()) {
         if (SDL_GetAudioStreamQueued(audio) > int(lr::SampleRate()) * 4 / 10) SDL_ClearAudioStream(audio);
-        SDL_PutAudioStreamData(audio, au.data(), int(au.size() * 2));
+        volume::Put(audio, au.data(), au.size());
       }
       au.clear();
       for (auto& s : shots)

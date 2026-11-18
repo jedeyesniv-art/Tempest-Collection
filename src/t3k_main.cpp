@@ -66,6 +66,7 @@
 #include "nuon_host.h"
 #include "runlog.h"
 #include "settings.h"
+#include "volume.h"
 #include "t3k_menu.h"
 #include "crt.h"
 #include "t3k_native.h"
@@ -1095,6 +1096,7 @@ int main(int argc, char** argv) {
   if (from_launcher) runlog::Start(udir, "t3k");   // no console: userdata\logs\t3k.log
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "t3k_settings.txt").string());   // (build/userdata is shared with t2k.exe)
+  volume::Init(udir, "t3k");
   t3k_menu::Install(from_launcher);
   t3kscores::Init((udir / "t3k_highscores.txt").string(), settings::Num("keep_high_scores", 1) != 0);
   disc = FindDisc(disc);
@@ -1728,7 +1730,7 @@ int main(int argc, char** argv) {
       if (audio && !au.empty()) {
         // The display's clock and the sound card's drift apart slowly: keep the queue short (~100 ms).
         if (SDL_GetAudioStreamQueued(audio) > int(nuon::SampleRate()) * 4 / 10) SDL_ClearAudioStream(audio);
-        SDL_PutAudioStreamData(audio, au.data(), int(au.size() * 2));
+        volume::Put(audio, au.data(), au.size());
       }
       au.clear();
       {

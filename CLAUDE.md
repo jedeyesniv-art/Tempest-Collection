@@ -65,6 +65,11 @@ PLAN.md "Tempest Collection" and "Collection status and open items".
 - Launcher settings menu (2026-11-18; PLAN.md item 5): Back / Esc, the shared src/menu.cpp page built in launcher.cpp
   main (sting volume, motion, hide_missing, the T3K disc actions); B still quits. Tests: --menu[=all],
   --menu-action=compress|delete (+ --answers / --prompt-shots).
+- Loudness (2026-11-18; PLAN.md item 5 step 2): src/volume.cpp in t2k / t3k / t81 / txk - every game at -16 LUFS
+  (measured gains: tools/loudness.py on logs/loud/*.wav), x the launcher's master_volume / even_loudness (read from
+  userdata\launcher_settings.txt at start), x the game's own "volume" setting; volume::Put replaces
+  SDL_PutAudioStreamData (soft limiter). Prints "volume: ..." at start. Re-measure a game: record with --wav, run
+  tools/loudness.py --frames file.wav:F0-F1 --target -16, update kMeasured.
 - MORE LLAMASOFT (2026-11-18, owner): the last panel (Kind::Promo, id "more", gold, rainbow-band background); A opens a
   list (lview::DrawMore): Jeff's Steam games by year (kMore in launcher.cpp: Gridrunner Revolution .. I, Robot), then
   our two collections (GitHub). A on a row: steam://store/<id> when Steam is there (else the https store page);

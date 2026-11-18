@@ -45,6 +45,7 @@ extern "C" uint32_t vjOPSkipLo, vjOPSkipHi, vjOPSkip2Lo, vjOPSkip2Hi;   // core 
 #include "t2k_menu.h"
 #include "runlog.h"
 #include "settings.h"
+#include "volume.h"
 #include "t2k.h"
 
 namespace fs = std::filesystem;
@@ -383,6 +384,7 @@ int main(int argc, char** argv) {
   }
   fs::create_directories(userdata);
   settings::Load((fs::path(userdata) / "settings.txt").string());
+  volume::Init(fs::absolute(userdata), "t2k");
   for (auto& [k, v] : sets) settings::Set(k, v);
   t2k_menu::Install(from_launcher);
   for (auto& [k, v] : opts) host::SetOption(k, v);
@@ -714,7 +716,7 @@ int main(int argc, char** argv) {
       if (audio && !a.empty()) {
         // Keep the queue short: drop audio if more than ~100 ms is waiting.
         if (SDL_GetAudioStreamQueued(audio) < int(host::SampleRate() * 4 / 10))
-          SDL_PutAudioStreamData(audio, a.data(), int(a.size() * 2));
+          volume::Put(audio, a.data(), a.size());
       }
       a.clear();
     }

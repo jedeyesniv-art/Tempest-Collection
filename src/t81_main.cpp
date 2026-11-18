@@ -45,6 +45,7 @@
 #include "menu.h"
 #include "runlog.h"
 #include "settings.h"
+#include "volume.h"
 #include "t81_menu.h"
 #include "t81_vectors.h"
 
@@ -342,6 +343,7 @@ int main(int argc, char** argv) {
   settings::SetDefaultText(kDefaults);
   settings::Load((udir / "t81_settings.txt").string());
   for (auto& [k, v] : sets) settings::Set(k, v);
+  volume::Init(udir, "t81");
   t81_menu::Install(from_launcher);
   menu::SetSlotInfo([&] { return SlotInfo(udir); });
   // a clone's own file named on the command line (temptube.zip): that set, no version setting; tempest.zip: as found
@@ -582,7 +584,7 @@ int main(int argc, char** argv) {
       auto& au = lr::Audio();
       if (audio && !au.empty()) {
         if (SDL_GetAudioStreamQueued(audio) > int(lr::SampleRate()) * 4 / 10) SDL_ClearAudioStream(audio);
-        SDL_PutAudioStreamData(audio, au.data(), int(au.size() * 2));
+        volume::Put(audio, au.data(), au.size());
       }
       au.clear();
       for (auto& s : shots)
