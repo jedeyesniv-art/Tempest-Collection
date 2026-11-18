@@ -151,6 +151,10 @@ native_skip = 1
 # Remaster: 1 = smooth motion - things move between the game's pictures and the feedback effects advance every
 # refresh (F6), 0 = it steps with the pictures.
 native_interpolate = 1
+# The part of each picture's time its blend from the previous picture takes (0.2-1; also picture_blend's): 1 = the
+# smoothest, the newest picture complete only as the next arrives (up to one picture more lag: 42 ms at 24 a second);
+# 0.5 = complete half way (half that lag).
+smooth_blend = 1
 # Sharp vectors (native pictures): text, claw, enemies and HUD drawn as a thin core (sharp_core x the original line
 # width) with a glow at the original width (sharp_glow x its strength); vector shapes bigger than sharp_max_size game
 # pixels across (the web, the screen-wide streaks) keep the original look. 0 = the original 240p lines.
@@ -1975,6 +1979,11 @@ int main(int argc, char** argv) {
   gate::mode = (native_view == 1 && native_skip) ? 2 : 0;   // the draw gate follows the native view
   std::shared_ptr<const t3knative::Vectors> shown_vec, prev_vec;   // the shown picture's layer and the one before
   bool native_interp = settings::Num("native_interpolate", 1) != 0;
+  // smooth_blend: the part of a picture's time on screen its blend from the previous one takes (1 = all of it, the
+  // smoothest; 0.5 = half: the newest picture is complete half a picture sooner - at 24 pictures/s ~21 ms less lag).
+  // The native motion blend, the zoom-feedback step and the emulated picture blend all finish in it.
+  auto blend_frac = [] { return std::clamp(settings::Num("smooth_blend", 1.0), 0.2, 1.0); };
+  double smooth_blend = blend_frac();
   std::vector<t3knative::Seg> native_segs;
   t3knative::Renderer native;
   uint64_t native_last_ns = 0;
@@ -2055,6 +2064,7 @@ int main(int argc, char** argv) {
         picture_blend = settings::Num("picture_blend", 1) != 0;
         show_rates = settings::Num("show_rates", 0) != 0;
         native_interp = settings::Num("native_interpolate", 1) != 0;
+        smooth_blend = blend_frac();
         if (const int nv = int(settings::Num("native_view", 1)); nv != native_view) {
           native_view = nv;
           gate::mode = (native_view == 1 && native_skip) ? 2 : 0;
@@ -2186,8 +2196,9 @@ int main(int argc, char** argv) {
       // moving things between the previous picture and this one over its time slot (as picture_blend), and the zoom
       // feedback advanced by the time since the last present.
       const uint64_t now_ns = SDL_GetTicksNS();
+      const double blend_ns = double(picture_ns) * smooth_blend;   // (smooth_blend: the blend's part of the slot)
       const double native_t = (native_interp && prev_vec && picture_ns)
-          ? std::clamp(double(int64_t(now_ns + refresh_ns / 2 - blend_from)) / double(picture_ns), 0.0, 1.0) : 1.0;
+          ? std::clamp(double(int64_t(now_ns + refresh_ns / 2 - blend_from)) / blend_ns, 0.0, 1.0) : 1.0;
       auto native_segments = [&]() -> const std::vector<t3knative::Seg>& {
         if (native_t >= 1.0 || !prev_vec) return shown_vec->segs;
         t3knative::Interpolate(*prev_vec, *shown_vec, float(native_t), &native_segs);
@@ -2214,7 +2225,7 @@ int main(int argc, char** argv) {
             carry = native_last_pic ? native_step_left : 0.f;
             native_step_left = 1.f;
           }
-          const float due = float(std::clamp(double(now_ns - native_last_ns) / double(picture_ns), 0.0, 1.0));
+          const float due = float(std::clamp(double(now_ns - native_last_ns) / blend_ns, 0.0, 1.0));
           const float take = std::min(native_step_left, due);
           native_step_left -= take;
           // the fade rounds once per game picture: on the present that completes its step (or finishes the last one's)
@@ -2230,7 +2241,7 @@ int main(int argc, char** argv) {
       } else if (native_view == 3) {
         // the native vector layer alone (on black)
       } else if (picture_blend && picture_ns && tex_prev) {
-        const double t = std::clamp(double(int64_t(SDL_GetTicksNS() + refresh_ns / 2 - blend_from)) / double(picture_ns),
+        const double t = std::clamp(double(int64_t(SDL_GetTicksNS() + refresh_ns / 2 - blend_from)) / blend_ns,
                                     0.0, 1.0);
         SDL_SetTextureBlendMode(tex_prev, SDL_BLENDMODE_NONE);
         SDL_RenderTexture(ren, tex_prev, nullptr, &dst);

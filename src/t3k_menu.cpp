@@ -85,6 +85,12 @@ void Install(bool from_launcher) {
   p.Choice("Renderer", "native_view", {"1", "0"}, {"Remaster", "Emulation (original)"});
   p.Choice("  Wide screens", "widescreen", {"1", "0"}, {"Fill the width", "4:3 with bars"})->when = rem;
   p.Choice("  Smooth motion", "native_interpolate", {"1", "0"}, {"On", "Off"})->when = rem;
+  // how long each picture's blend from the previous one takes: shorter = the newest picture complete sooner (less
+  // lag), a little less smooth (also the Emulation renderer's picture blend)
+  p.Choice("    Smooth motion lag", "smooth_blend", {"1", "0.75", "0.5", "0.35"},
+           {"1 picture (smoothest)", "3/4 picture", "1/2 picture", "1/3 picture"})->when = [rem, emu] {
+    return (rem() && settings::Num("native_interpolate", 1) != 0) || (emu() && settings::Num("picture_blend", 1) != 0);
+  };
   p.Choice("  Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp", "Original"})->when = rem;
   p.Number("    Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;
   p.Number("    Glow", "sharp_glow", 0, 1, 0.05, "%.2f", 0.4)->when = sharp;
