@@ -597,6 +597,14 @@ int main(int argc, char** argv) {
         crt::LoadSettings();
         menu::Toast(!crt::Available() ? "CRT unavailable (needs the GPU renderer)"
                     : m == 2 ? "CRT++" : m == 1 ? "CRT+" : "CRT off", now);
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F8 && d2k::Active()) {
+        const bool on = settings::Num("d2k_native", 1) == 0;
+        settings::Save("d2k_native", on ? "1" : "0");
+        menu::Toast(on ? "Native picture" : "Emulated picture", now);
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F7 && d2k::Active()) {
+        const bool on = settings::Num("d2k_interpolate", 1) == 0;
+        settings::Save("d2k_interpolate", on ? "1" : "0");
+        menu::Toast(on ? "Smooth motion on" : "Smooth motion off", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F8) {
         remaster::SetEnabled(!remaster::Enabled());
         settings::Save("remaster", remaster::Enabled() ? "1" : "0");
@@ -900,7 +908,7 @@ int main(int argc, char** argv) {
       }
       perf::Add("picture upload", perf::Now() - perf_pic);
       const uint64_t perf_rm = perf::Now();
-      if (remaster::Enabled()) {
+      if (remaster::Enabled() && !d2k::Active()) {
         remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
         remaster::SetEffects(float(settings::Num("remaster_bolt_width", 2.0)), settings::Num("remaster_bolt_glow", 1) != 0,
                              float(settings::Num("remaster_particle_size", 1.5)),
@@ -963,8 +971,14 @@ int main(int argc, char** argv) {
       }
       perf::Add("remaster (all)", perf::Now() - perf_rm);
       const uint64_t perf_ov = perf::Now();
-      // The emulated picture over ours (text, not-yet-ours), then the HUD layer.
-      blit(pic_sharp, tex, nullptr, &dst);
+      // The emulated picture over ours (text, not-yet-ours), then the HUD layer. Defender 2000: our picture
+      // instead (setting d2k_native; F8 toggles), positions interpolated between the game's updates.
+      if (d2k::Active() && !native && settings::Num("d2k_native", 1) != 0) {
+        const double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(SDL_GetTicksNS())) / frame_ns;
+        d2k::Draw(ren, dst, float(std::clamp(t, 0.0, 1.0)));
+      } else {
+        blit(pic_sharp, tex, nullptr, &dst);
+      }
       if (hud_layer && hudtex) {
         const float sx = dst.w / float(fr.width), sy = dst.h / float(fr.height);
         // The strip's content in clusters (columns with pixels, gaps of 16+ empty columns between them), each to
