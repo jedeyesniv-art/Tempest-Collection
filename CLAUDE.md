@@ -193,6 +193,16 @@ framing in play on Tempest Tubes.
   in place, ROMs checked by CRC first), CRT+ / CRT++ (GPU renderer). All: the menus, the run logs.
 - Tools from the session: tools/iso_list.py, t3k_datmap.py, t3k_musicrate.py, wav_compare.py.
 
+## T3K run-ahead + Step nudge fix (2026-11-18; PLAN.md item 8)
+- Lag: d-pad -> picture 5 fields inside the game. Step mode had 2 more + lost / half nudges (stuck check counted from the
+  first picture, per field): fixed; tools/t3k_steptest.py [--state --f0 --phase] checks nudges / three / wiggle / sweep.
+  T3K_STEP_LOG=1 logs the model.
+- Run-ahead: setting run_ahead 0-4 (menu CONTROLS, default Off); core nuance_ra_save / nuance_ra_load (fast snapshot,
+  no code flush), host nuon::RaSave / RaLoad, window emulation thread only (headless runs never run ahead). Auto-lowered
+  per session when over budget. Tests: T3K_RA_SIM=N[:F0] (headless cost + T3K_RA_SLOW=1 for the file state),
+  T3K_RA_LOG=1 (window: shown picture per field). Mind: a headless shot after hidden fields shows the hidden picture.
+- After building the core, copy build_nuance\nuance_libretro.dll to build\ (t3k's copy step only runs when t3k relinks).
+
 ## T3K stick: step mode, owner's tuning, game-over input (2026-11-17)
 - stick_mode step (default; menu STICK): a push past sp_deadzone (0.20, 30% hysteresis) = exactly one lane (rapid
   nudges add up); held sp_repeat_delay it sweeps (from sp_ramp_start of sp_top_speed over sp_ramp_time); release
