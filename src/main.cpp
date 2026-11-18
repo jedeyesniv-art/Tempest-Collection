@@ -30,6 +30,7 @@
 
 #include "controls.h"
 #include "gpulog.h"
+#include "jagsurvey.h"
 #include "host.h"
 #include "remaster.h"
 #include "xbr.h"
@@ -271,7 +272,7 @@ int main(int argc, char** argv) {
   std::vector<std::pair<std::string, std::string>> sets;
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
   std::vector<int> menuback_at;   // --menuback=F[,F..]: B (back) in the game's menus at these frames
-  std::string save_file, load_file, gpulog_spec, start_state, winshot_file;
+  std::string save_file, load_file, gpulog_spec, survey_spec, start_state, winshot_file;
   int winshot_at = -1;
   struct Poke { int frame; uint32_t addr, value; };
   std::vector<Poke> pokes;   // --poke=F:hexaddr:hexword: write a RAM word before frame F (tests)
@@ -351,6 +352,8 @@ int main(int argc, char** argv) {
       auto v = val("--winshot="); auto c = v.find(':');
       winshot_at = std::atoi(v.substr(0, c).c_str());
       winshot_file = v.substr(c + 1);
+    } else if (a.rfind("--survey=", 0) == 0) {
+      survey_spec = val("--survey=");
     } else if (a.rfind("--gpulog=", 0) == 0) {
       gpulog_spec = val("--gpulog=");
     } else if (a.rfind("--title=", 0) == 0) {
@@ -405,6 +408,12 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "state %s: %s\n", start_state.c_str(), host::LoadState(st) ? "loaded" : "FAILED");
   }
   remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
+  if (!survey_spec.empty()) {
+    auto c1 = survey_spec.find(':'), c2 = survey_spec.find(':', c1 + 1);
+    if (!jagsurvey::Install(std::atoi(survey_spec.substr(0, c1).c_str()),
+                            std::atoi(survey_spec.substr(c1 + 1, c2 - c1 - 1).c_str()), survey_spec.substr(c2 + 1).c_str()))
+      std::fprintf(stderr, "survey: can't write %s\n", survey_spec.substr(c2 + 1).c_str());
+  }
   if (!gpulog_spec.empty()) {
     auto c1 = gpulog_spec.find(':'), c2 = gpulog_spec.find(':', c1 + 1);
     if (!gpulog::Install(std::atoi(gpulog_spec.substr(0, c1).c_str()),
@@ -439,6 +448,7 @@ int main(int argc, char** argv) {
       t2k::SetPauseLine(pause_line);
       if (f == title_at) t2k::ReturnToTitle();
       gpulog::SetFrame(f);
+      jagsurvey::SetFrame(f);
       if (f == load_at) {
         std::ifstream lf(load_file, std::ios::binary);
         std::vector<uint8_t> st((std::istreambuf_iterator<char>(lf)), {});
