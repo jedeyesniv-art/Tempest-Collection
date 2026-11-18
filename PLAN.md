@@ -1381,3 +1381,13 @@ Open, roughly in order:
 7. Launcher: still the placeholder look (SDL debug font); the Minotaur Project launcher (C:\Gridios\Launcher) is the
    model for behaviour and features (settings screen, Steam shortcut).
 8. Then (owner's order): Neon Mode, Defender 2000.
+
+## Defender 2000 (started 2026-11-18)
+- No public source (mwenge has T2K and VLM only); no byte-identical code shared with T2K. Work from the ROM.
+- Runs in t2k.exe as is (the T2K hooks refuse it). Route: b at 300 / 600 / 900 / 1200 -> D2K mode play by ~1300.
+- Survey tool: t2k --survey=F0:F1:file (src/jagsurvey.cpp; core hooks vjHostGpuGo / vjHostBlit / vjHostOpObject).
+- First findings: one resident GPU program (10 GPU starts in 3700 frames); the 68K blits code overlays into GPU RAM
+  ($F031C0) ~8x a frame. The play picture is OP bitmaps: 16-bit pre-rendered sprites, parallax rock layers (the pillar
+  = one 128x229 bitmap), an 8-bit 384x264 layer, the scanner (256x32). OP lists double-buffered at $C000 / $E000.
+- The game updates at exactly 30 Hz in play (1199 of 1200 updates last 2 frames); at speed the layers jump 22-29 px
+  per update. Objects are already placed past the right edge (x up to ~640).
