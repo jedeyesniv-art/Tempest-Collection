@@ -1273,6 +1273,22 @@ To do, at the end:
    while the web is on screen; idle-claw test: game over by field 5400 without, still playing at 11700 with); god mode not found yet; max level candidates
    untested. See CLAUDE.md "T3K menu cleanup, save states".
 7. NEON MODE (big maybe, much later): plan below ("Neon Mode plan").
+8. T3K RUN-AHEAD (owner 2026-11-18: "see if viable"; optional, off for low-powered devices). MEASURED (desktop, headless
+   --gate=2 from play_f2900, test switch T3K_RA_SIM=N[:F0] in t3k_main.cpp; N = -1 real fields only):
+   - Lag to remove: d-pad press -> first changed picture 5 fields (83 ms) inside the game; the Step stick mode 7 fields
+     (our step model adds 2 - host side, cheap to look at on its own).
+   - Deterministic: save / load / hidden field every field -> the picture 350 fields on byte-identical to a plain run.
+   - Cost now: real field 1.95 ms; save 22 ms (StateWalk grows a vector, copies, zero-fills the rest), load 2.5 ms,
+     and every field after a load ~3 ms slower (the load flushes all compiled code: JIT + AOT re-validate).
+     N=1: 35 ms a field, N=2: 39 ms - not usable as is.
+   - The 62 MB state is mostly empty address space: 4 x 8 MB MPE local arrays (dtrom; real local RAM is KBs) + main RAM's
+     16 MB allocation (8 MB real) + 8 MB system RAM.
+   Plan if pursued: (a) a run-ahead snapshot in the core apart from the file format: only live memory (~17 MB), into a
+   kept buffer (~1 ms each way desktop); (b) no code flush on rewind when instruction RAM is unchanged (else what an
+   overlay load does); (c) host: run-ahead on the emulation thread, the picture from the last hidden field, sound from
+   the real one, SpeedControl / ClawControl / score keeper / cheats state rewound or kept to real fields; menu
+   Run-ahead Off / 1 / 2 / 3 / 4 fields. Estimate after (a)+(b): ~(N+1) x 1.95 + 2 ms a field desktop (N=4 ~12 ms);
+   the Deck maybe 2.5x slower -> 1, perhaps 2 fields there (needs the owner's measurement).
 
 ### Watch list
 - TxK, once on Windows (owner 2026-11-17): no music in a level, then a hang after the bonus round between levels

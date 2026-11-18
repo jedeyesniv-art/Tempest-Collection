@@ -1264,6 +1264,35 @@ int main(int argc, char** argv) {
       const uint64_t t0 = SDL_GetTicksNS();
       nuon::RunFrame();
       const uint64_t t1 = SDL_GetTicksNS();
+      // Tests: T3K_RA_SIM=N[:F0] - the cost of run-ahead from field F0 on: after each real field, save the state, run N
+      // hidden fields, load it back (the hidden fields' sound and pictures are not kept apart: timing only).
+      static const char* ra_env = std::getenv("T3K_RA_SIM");
+      if (ra_env) {
+        static const int ra_n = std::atoi(ra_env);
+        static const int ra_f0 = std::strchr(ra_env, ':') ? std::atoi(std::strchr(ra_env, ':') + 1) : 0;
+        static std::vector<uint8_t> ra_buf;
+        static double s_real = 0, s_save = 0, s_run = 0, s_load = 0, s_max = 0;
+        static int s_n = 0;
+        if (f >= ra_f0) {
+          const uint64_t a = SDL_GetTicksNS();
+          const bool ok_s = ra_n < 0 || nuon::SaveStateMem(&ra_buf);   // (N = -1: real fields only, the baseline)
+          const uint64_t b = SDL_GetTicksNS();
+          for (int k = 0; k < ra_n; ++k) nuon::RunFrame();
+          const uint64_t c = SDL_GetTicksNS();
+          const bool ok_l = ra_n < 0 || nuon::LoadStateMem(ra_buf);
+          const uint64_t d = SDL_GetTicksNS();
+          if (!ok_s || !ok_l) std::fprintf(stderr, "ra sim field %d: save %d load %d FAILED\n", f, ok_s, ok_l);
+          s_real += (t1 - t0) / 1e6; s_save += (b - a) / 1e6; s_run += (c - b) / 1e6; s_load += (d - c) / 1e6;
+          s_max = std::max(s_max, (d - t0) / 1e6);
+          if (++s_n == 60) {
+            std::fprintf(stderr, "ra sim %d fields to %d: real %.2f, save %.2f, %d hidden %.2f, load %.2f -> %.2f ms a field "
+                         "(max %.2f), state %.1f MB\n", s_n, f, s_real / s_n, s_save / s_n, ra_n, s_run / s_n,
+                         s_load / s_n, (s_real + s_save + s_run + s_load) / s_n, s_max, ra_buf.size() / 1e6);
+            s_real = s_save = s_run = s_load = s_max = 0;
+            s_n = 0;
+          }
+        }
+      }
       {
         size_t n = 0;
         uint8_t* m = nuon::Memory(0, &n);
