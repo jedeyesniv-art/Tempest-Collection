@@ -86,8 +86,8 @@ PLAN.md "Tempest Collection" and "Collection status and open items".
 ## Build / test
 Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
 -> dist\TempestCollection\ (TempestCollection.exe launcher, t2k / t3k / txk / t81 + cores + C++ runtime, system\ with the
-installed Vita firmware, game\ = the four games hard-linked (T3K as the .nuz), userdata\ = the owner's, all fullscreen, TxK
-at 1x resolution for the Deck; ~0.67 GB, never publish). The Nuance core is built WITHOUT AOT (tools\build_nuance.bat;
+installed Vita firmware, game\ = the four games hard-linked (T3K as the .nuz), userdata\ = the play folder's own, KEPT across
+packaging (2026-11-18: only files it lacks come from build\userdata - those start fullscreen, TxK at 1x for the Deck); ~0.67 GB, never publish). The Nuance core is built WITHOUT AOT (tools\build_nuance.bat;
 "aot" argument -> build_nuance_aot\ for experiments): the AOT modules are translations of the game's code.
 Test build: powershell -ExecutionPolicy Bypass -File tools\package.ps1 -> dist\Tempest2000\ (Tempest2000.exe, the
 owner's .jag, userdata\settings.txt fullscreen = 1, README with Steam Deck steps) + dist\Tempest2000-test.zip. dist\ is not in git (the ROM is in it: never publish). Icon: tools/make_icon.py (an original claw ship) -> res/t2k.ico

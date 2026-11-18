@@ -33,6 +33,14 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { Write-Error "Space Giraffe helper build failed: see $build\sg_helper_build.log" }
 }
 
+# The play folder's own userdata (settings and saves made while playing it) is kept: set aside here, put back below.
+# If a run stopped between the two, the set-aside copy is still in build\ and is used (the play folder has none then).
+$kept = Join-Path $build "userdata_play_kept"
+$distUd = Join-Path $dist "userdata"
+if (Test-Path $distUd) {
+    if (Test-Path $kept) { Remove-Item -Recurse -Force $kept }
+    Move-Item $distUd $kept
+}
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 foreach ($d in @("", "game", "system", "userdata")) { New-Item -ItemType Directory -Force (Join-Path $dist $d) | Out-Null }
 
@@ -173,11 +181,29 @@ Properties > General > Launch options:
 UNINSTALL: delete d3d9.dll and sg_helper.txt from the game's folder (and the launch option).
 "@ | Set-Content -Encoding ascii (Join-Path $sg "README.txt")
 
-# The owner's userdata (settings, T2K EEPROM, save states, TxK saves), every program set to start fullscreen.
-# Not emulated\ (T3K's log of pictures the native renderer couldn't draw: debug states + shots, ~180 MB).
-Get-ChildItem (Join-Path $build "userdata") | Where-Object { $_.Name -notlike "*.bak" -and $_.Name -ne "emulated" } |
-    ForEach-Object { Copy-Item -Recurse $_.FullName (Join-Path $dist "userdata\$($_.Name)") }
-Get-ChildItem (Join-Path $dist "userdata") -Filter "*settings.txt" | ForEach-Object {
+# userdata: the play folder's own (kept above) when there was one; then any file it lacks comes from build\userdata
+# (settings, T2K EEPROM, save states, TxK saves). Not *.bak, not emulated\ (T3K's log of pictures the native renderer
+# couldn't draw: debug states + shots, ~180 MB). Settings files copied from build\ start fullscreen; the play
+# folder's own settings are left as the owner set them.
+if (Test-Path $kept) {
+    Remove-Item -Recurse -Force $distUd
+    Move-Item $kept $distUd
+    Write-Host "userdata: the play folder's own kept (files it lacks added from build\userdata)"
+}
+$srcUd = (Resolve-Path (Join-Path $build "userdata")).Path
+$added = @()
+Get-ChildItem $srcUd -Recurse -File | Where-Object {
+    $rel = $_.FullName.Substring($srcUd.Length + 1)
+    $_.Name -notlike "*.bak" -and -not ($rel -like "emulated\*")
+} | ForEach-Object {
+    $dst = Join-Path $distUd $_.FullName.Substring($srcUd.Length + 1)
+    if (-not (Test-Path $dst)) {
+        New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
+        Copy-Item $_.FullName $dst
+        $added += Get-Item $dst
+    }
+}
+$added | Where-Object { $_.Name -like "*settings.txt" } | ForEach-Object {
     $t = Get-Content $_.FullName
     $t = $t -replace '^fullscreen\s*=.*$', 'fullscreen = 1'
     # TxK at the Vita's own 960x544 for the Deck (the owner's PC copy may be 4x).
