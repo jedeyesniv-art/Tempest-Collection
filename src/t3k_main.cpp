@@ -1824,7 +1824,10 @@ int main(int argc, char** argv) {
       const int ra_want = std::clamp(int(settings::Num("run_ahead", 0)), 0, 4);
       if (ra_want != ra_set) { ra_set = ra_want; ra_level = ra_want; ra_over = 0; }
       const bool ra_on = ra_level > 0 && speed.web && !speed.warp;
+      uint64_t ra_t[5] = {};   // (the breakdown: before the snapshot, after it, after the hidden fields, picture, load)
+      ra_t[0] = SDL_GetTicksNS();
       if (ra_on && nuon::RaSave()) {
+        ra_t[1] = SDL_GetTicksNS();
         const ClawControl claw_real = claw;
         static nuon::Capture hcap;
         static std::shared_ptr<const t3knative::Vectors> hvec;
@@ -1837,7 +1840,12 @@ int main(int argc, char** argv) {
           CheatsAfterField(speed.web);
           nuon::Audio().clear();
         }
+        // tests: T3K_RA_DELAY_MS=x - each field's hidden work x ms longer (a slower machine)
+        static const double ra_delay = std::getenv("T3K_RA_DELAY_MS") ? std::atof(std::getenv("T3K_RA_DELAY_MS")) : 0.0;
+        if (ra_delay > 0) SDL_DelayPrecise(uint64_t(ra_delay * 1e6));
+        ra_t[2] = SDL_GetTicksNS();
         take_picture(hcap, hvec, true);
+        ra_t[3] = SDL_GetTicksNS();
         pic = nuon::GetRunStats(&rs) ? rs.vid_flips : pic;
         show_vec = hvec;   // (and LastFrame() is the hidden field's picture until the next field runs)
         claw = claw_real;
@@ -1845,15 +1853,40 @@ int main(int argc, char** argv) {
           std::fprintf(stderr, "run-ahead: load failed - off\n");
           ra_level = 0;
         }
+        ra_t[4] = SDL_GetTicksNS();
       }
+      // Too slow = the emulation falls behind its schedule: a field that ends after the time it is shown (its due + one
+      // field), 30 more late than on time. (Until 2026-11-18: over 85% of a field - the Deck's 15-16 ms fields fit the
+      // 16.7 but were cut.) Every 600 fields with run-ahead on: the average breakdown in the log (userdata\logs\t3k.log
+      // when started from the launcher).
       if (ra_on && emulated) {
-        const uint64_t cost = SDL_GetTicksNS() - t0;
-        ra_over = cost > field_ns * 85 / 100 ? ra_over + 1 : std::max(0, ra_over - 1);
+        const uint64_t end = SDL_GetTicksNS(), cost = end - t0;
+        const bool late = due && end > due + field_ns;
+        ra_over = late ? ra_over + 1 : std::max(0, ra_over - 1);
+        static double a_real = 0, a_snap = 0, a_hidden = 0, a_pic = 0, a_all = 0, a_max = 0;
+        static int a_n = 0, a_late = 0;
+        if (ra_t[4]) {
+          a_real += (ra_t[0] - t0) / 1e6;
+          a_snap += ((ra_t[1] - ra_t[0]) + (ra_t[4] - ra_t[3])) / 1e6;
+          a_hidden += (ra_t[2] - ra_t[1]) / 1e6;
+          a_pic += (ra_t[3] - ra_t[2]) / 1e6;
+        }
+        a_all += cost / 1e6;
+        a_max = std::max(a_max, cost / 1e6);
+        a_late += late;
+        if (++a_n == 600) {
+          std::fprintf(stderr, "run-ahead %d: %.2f ms a field (real %.2f, snapshot + load %.2f, hidden %.2f, picture %.2f), "
+                       "max %.2f, %d of 600 late (budget %.2f)\n", ra_level, a_all / a_n, a_real / a_n, a_snap / a_n,
+                       a_hidden / a_n, a_pic / a_n, a_max, a_late, field_ns / 1e6);
+          a_real = a_snap = a_hidden = a_pic = a_all = a_max = 0;
+          a_n = a_late = 0;
+        }
         if (ra_over >= 30) {
           --ra_level;
           ra_over = 0;
           ra_cut = ra_level;
-          std::fprintf(stderr, "run-ahead: too slow here (%.1f ms a field), now %d\n", cost / 1e6, ra_level);
+          std::fprintf(stderr, "run-ahead: falling behind here (%.1f ms a field, budget %.1f), now %d\n", cost / 1e6,
+                       field_ns / 1e6, ra_level);
         }
       }
       static const bool ra_log = std::getenv("T3K_RA_LOG") != nullptr;   // tests: field, real picture, shown picture
