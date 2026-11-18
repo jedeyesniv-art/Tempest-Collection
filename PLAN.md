@@ -1317,6 +1317,14 @@ To do, at the end:
    for now. If the Deck is wanted later: the t3k.log "run-ahead: too slow here (X ms a field)" lines say how far off;
    costs per field on the PC at 1 field: snapshot ~1.6 ms (19 MB each way - memory bandwidth), hidden field ~2.2,
    MPE3 flush ~0.4. Ideas: dirty-page snapshots (track writes; big), cheaper hidden fields, a looser budget test.
+   Deck measured 2026-11-18 (owner's logs, the new breakdown): plain field in play 6.9-8.2 ms (PC 2.2: ~3x); at the
+   level select with run-ahead 1: real 5.6 + snapshot/load 4.2 + hidden 5.1 = 15.0 ms, 43 of 272 late, spikes to 98 ms
+   -> lowered. In play it would be ~19 ms; even a free snapshot ~15 + spikes. VERDICT: run-ahead is PC only; the Deck
+   lowering itself is right. Lowering rule since e7c02c5: fields ending after their show time (not 85%); log since
+   4129ca9: breakdown every 300 play fields and at each lowering.
+   Cheaper lag on every device (not done, owner to choose): smooth motion (native_interpolate) blends from the previous
+   picture over the current one's slot = up to one picture (42 ms at 24 pictures/s) more lag (the code says so). Options:
+   off on the Deck (choppier), or a quicker blend (e.g. over half the slot: half the added lag).
 
 ### Watch list
 - TxK, once on Windows (owner 2026-11-17): no music in a level, then a hang after the bonus round between levels
