@@ -1325,6 +1325,9 @@ To do, at the end:
    Cheaper lag on every device (not done, owner to choose): smooth motion (native_interpolate) blends from the previous
    picture over the current one's slot = up to one picture (42 ms at 24 pictures/s) more lag (the code says so). Options:
    off on the Deck (choppier), or a quicker blend (e.g. over half the slot: half the added lag).
+   TRIED + REVERTED 2026-11-18 (9eab985, reverted 04c9791): a quicker-blend setting (smooth_blend). Owner on the PC:
+   lag difference "only very marginal", and flicker on full-frame effects - likely the zoom-feedback step finishing
+   early then holding still. Not worth it; the stick fix was the big win. Leave the T3K performance work there.
 
 ### Watch list
 - TxK, once on Windows (owner 2026-11-17): no music in a level, then a hang after the bonus round between levels
