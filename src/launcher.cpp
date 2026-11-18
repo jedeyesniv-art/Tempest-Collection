@@ -60,7 +60,8 @@ const char kDefaults[] =
     "t3k_offer_compress = 1\n"
     "t3k_offer_delete = 1\n"
     "\n"
-    "# Sound (the settings menu: Back / Esc): every game's volume, 0 .. 1 (read by the games when they start);\n"
+    "# Sound (the settings menu: Back / Esc): every game's volume, 0 .. 1.5, 1 = the collection's normal level (read\n"
+    "# by the games when they start);\n"
     "# 1 = every game at the same loudness (each one's gain measured once; 0 = as each game made it);\n"
     "# the launcher's own sounds, 0 (off) .. 1.\n"
     "master_volume = 1\n"
@@ -900,8 +901,9 @@ int main(int argc, char** argv) {
     p.Button("Resume", menu::kClose, true);
     p.Header("SOUND");
     p.Choice("Master volume (every game)", "master_volume",
-             {"0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1"},
-             {"Off", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"})->def_value = "1";
+             {"0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1", "1.1", "1.2", "1.3", "1.4", "1.5"},
+             {"Off", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%", "130%",
+              "140%", "150%"})->def_value = "1";
     p.Choice("Even out the games' loudness", "even_loudness", {"1", "0"}, {"On", "Off"});
     p.Choice("Launcher sounds", "sting_volume", {"0", "0.25", "0.5", "0.75", "1"}, {"Off", "25%", "50%", "75%", "Full"})
         ->def_value = "1";

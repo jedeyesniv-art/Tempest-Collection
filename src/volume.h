@@ -12,7 +12,7 @@
 
 namespace volume {
 
-// game: t2k t3k t81 txk. Reads <udir>\launcher_settings.txt (master_volume 0..1, even_loudness 0 / 1) once; the
+// game: t2k t3k t81 txk. Reads <udir>\launcher_settings.txt (master_volume 0..1.5, even_loudness 0 / 1) once; the
 // launcher can only change them while no game runs.
 void Init(const std::filesystem::path& udir, const char* game);
 

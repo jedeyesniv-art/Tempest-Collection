@@ -18,6 +18,7 @@ namespace {
 // a minute of play with the music on, logs/loud/, 2026-11-18). The gain brings it to kTarget (at most kMaxGainDb).
 // Measured spread: TxK -11.0, T81 -19.2, T3K -21.5, T2K -27.6 (16.6 dB). -16 is near the modern games (TxK; Space
 // Giraffe and Tempest 4000 can't be changed on the Deck), so the old ones are raised more than TxK is lowered.
+// (Now -20.44: T2K x2.28, T3K x1.14, T81 x0.87, TxK x0.34.)
 struct Measured {
   const char* game;
   float lufs;
@@ -28,7 +29,9 @@ const Measured kMeasured[] = {
     {"t81", -19.18f},   // frames 720-5400 (MAME, from the first credit), peak -8.0
     {"txk", -10.96f},   // frames 2800-5400 (level 1), peak 0.0
 };
-constexpr float kTarget = -16.f;     // LUFS
+// The owner found -16 a little hot and chose 60% master as normal (2026-11-18): -16 + 20 log10(0.6) = -20.44, so
+// master 100% is that level now and the master volume goes up to 150% from there.
+constexpr float kTarget = -20.44f;   // LUFS
 constexpr float kMaxGainDb = 14.f;
 
 float g_master = 1.f;
@@ -68,7 +71,7 @@ void Init(const std::filesystem::path& udir, const char* game) {
     const size_t eq = line.find('=');
     if (eq == std::string::npos) continue;
     const std::string key = Trim(line.substr(0, eq)), val = Trim(line.substr(eq + 1));
-    if (key == "master_volume") g_master = std::fmax(0.f, std::fmin(1.f, std::strtof(val.c_str(), nullptr)));
+    if (key == "master_volume") g_master = std::fmax(0.f, std::fmin(1.5f, std::strtof(val.c_str(), nullptr)));
     if (key == "even_loudness") g_even = std::atoi(val.c_str()) != 0;
   }
   g_game = Normalise(game);

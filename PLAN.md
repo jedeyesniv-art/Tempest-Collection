@@ -1266,7 +1266,9 @@ To do, at the end:
    Replica check on the recordings: all four -16.00 LUFS in play, limiter on < 0.005% of samples. Launcher menu SOUND:
    Master volume (every game), Even out the games' loudness, Launcher sounds (stings x master).
    NOT done: Space Giraffe / Tempest 4000 (Windows-only per-app session volume from the launcher; their loudness would
-   need a loopback recording while they run - ask the owner). Owner to listen: is -16 right, T2K's raise (x3.8) clean?
+   need a loopback recording while they run - ask the owner).
+   Owner listened 2026-11-18: "really good", a little hot - 60% master as normal -> target now -20.44 LUFS (= -16 at
+   60%), master 0..150% (100% = that level); the play folder's master_volume reset 0.6 -> 1.
 6. T3K CHEATS (maybe): infinite lives DONE 2026-11-17 (menu CHEATS, setting cheat_inf_lives; $800BAC7C 1 / 2 -> 3, only
    while the web is on screen; idle-claw test: game over by field 5400 without, still playing at 11700 with); god mode not found yet; max level candidates
    untested. See CLAUDE.md "T3K menu cleanup, save states".
