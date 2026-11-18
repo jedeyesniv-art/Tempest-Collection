@@ -46,6 +46,8 @@ void Install(bool from_launcher) {
   p.Header("CONTROLS");
   p.Choice("Stick mode", "stick_mode", {"step", "stiff", "lr"},
            {"Step (nudge = a lane)", "Stiff (T2K feel)", "Left / right"});
+  p.Choice("Run-ahead (less input lag, more CPU)", "run_ahead", {"0", "1", "2", "3", "4"},
+           {"Off", "1 field", "2 fields", "3 fields", "4 fields"});
   p.Sub("Fine-tune stick");
   // the owner's tuning (2026-11-17) is each slider's default and its middle
   p.Choice("On release after a sweep", "sp_release", {"off", "back", "nearest", "ahead"},

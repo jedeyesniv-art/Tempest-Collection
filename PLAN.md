@@ -1289,6 +1289,16 @@ To do, at the end:
    the real one, SpeedControl / ClawControl / score keeper / cheats state rewound or kept to real fields; menu
    Run-ahead Off / 1 / 2 / 3 / 4 fields. Estimate after (a)+(b): ~(N+1) x 1.95 + 2 ms a field desktop (N=4 ~12 ms);
    the Deck maybe 2.5x slower -> 1, perhaps 2 fields there (needs the owner's measurement).
+   DONE 2026-11-18. Stick first: the Step mode's 2 extra fields were a bug (the open-web stuck check cancelled every
+   fresh nudge - half a lane or nothing depending on the picture phase); fixed, tools/t3k_steptest.py (eb380c4).
+   Core (776bc9b on llamasoft-nuon): nuance_ra_save / nuance_ra_load - 19.4 MB, 0.7 ms each way, no code flush (a field
+   after a load 2.4 ms vs 1.95). Host: setting run_ahead 0-4 (menu CONTROLS "Run-ahead", default Off), window
+   emulation thread: real field (sound, speed control, scores, cheats) -> snapshot -> N hidden fields (claw model copied
+   and restored, sound dropped) -> their picture published -> rewind; lowered for the session after 30 fields over 85%
+   of a field (toast). Checks: headless T3K_RA_SIM picture at F == plain at F+N (N 1/2/4, 350 fields, two states),
+   main / system RAM identical (MPE0: 18-42 scratch bytes differ, also with the file state - replay, not the snapshot);
+   window T3K_RA_LOG: shown picture == plain run's at field + 3 in 397 / 397 fields. Window cost here: run-ahead 2 9.3 ms
+   a field (p99 13.7), 4 13.2 ms (p99 15.7, max 21). Owner to try; Deck: which level holds (auto-lowering tells).
 
 ### Watch list
 - TxK, once on Windows (owner 2026-11-17): no music in a level, then a hang after the bonus round between levels

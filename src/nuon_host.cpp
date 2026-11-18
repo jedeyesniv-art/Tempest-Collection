@@ -317,6 +317,16 @@ bool LoadStateMem(const std::vector<uint8_t>& in) {
   return g_core.unserialize && !in.empty() && g_core.unserialize(const_cast<uint8_t*>(in.data()), in.size());
 }
 
+size_t RaSave() {
+  static auto f = reinterpret_cast<size_t (*)()>(::GetProcAddress(g_core.dll, "nuance_ra_save"));
+  return f ? f() : 0;
+}
+
+bool RaLoad() {
+  static auto f = reinterpret_cast<int (*)()>(::GetProcAddress(g_core.dll, "nuance_ra_load"));
+  return f && f() != 0;
+}
+
 void ReleaseContext() { SDL_GL_MakeCurrent(g_glwin, nullptr); }
 void MakeContextCurrent() { SDL_GL_MakeCurrent(g_glwin, g_gl); }
 

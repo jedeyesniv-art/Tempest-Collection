@@ -184,6 +184,10 @@ keep_high_scores = 1
 # step = a push is one lane at once, held it sweeps, released it settles (sp_release); stiff = Tempest 2000's lr handling (speed follows the stick, slow start then quick, stops on a lane);
 # lr = push left / right: speed follows how far the stick is pushed, per picture. (Any other value counts as step.)
 stick_mode = step
+# Run-ahead, fields (0 = off, up to 4): the game answers the pad that many fields sooner (it emulates them ahead and
+# goes back each field). Costs CPU: each field is emulated 1 + this many times. Lowered by itself for the session when
+# this machine can't keep up. (The game's own lag: the picture changes 5 fields after a d-pad press.)
+run_ahead = 0
 lr_deadzone = 0.20
 # Top speed at full deflection, in lanes per picture (the game's own d-pad top speed is 0.94).
 lr_max_speed = 0.94
@@ -1297,11 +1301,18 @@ int main(int argc, char** argv) {
         static int s_n = 0;
         if (f >= ra_f0) {
           const uint64_t a = SDL_GetTicksNS();
-          const bool ok_s = ra_n < 0 || nuon::SaveStateMem(&ra_buf);   // (N = -1: real fields only, the baseline)
+          // (N = -1: real fields only, the baseline; T3K_RA_SLOW=1: the file save state instead of the snapshot)
+          static const bool slow = std::getenv("T3K_RA_SLOW") != nullptr;
+          static size_t ra_size = 0;
+          bool ok_s = true;
+          if (ra_n >= 0) {
+            if (slow) ok_s = nuon::SaveStateMem(&ra_buf), ra_size = ra_buf.size();
+            else ok_s = (ra_size = nuon::RaSave()) != 0;
+          }
           const uint64_t b = SDL_GetTicksNS();
           for (int k = 0; k < ra_n; ++k) nuon::RunFrame();
           const uint64_t c = SDL_GetTicksNS();
-          const bool ok_l = ra_n < 0 || nuon::LoadStateMem(ra_buf);
+          const bool ok_l = ra_n < 0 || (slow ? nuon::LoadStateMem(ra_buf) : nuon::RaLoad());
           const uint64_t d = SDL_GetTicksNS();
           if (!ok_s || !ok_l) std::fprintf(stderr, "ra sim field %d: save %d load %d FAILED\n", f, ok_s, ok_l);
           s_real += (t1 - t0) / 1e6; s_save += (b - a) / 1e6; s_run += (c - b) / 1e6; s_load += (d - c) / 1e6;
@@ -1309,7 +1320,7 @@ int main(int argc, char** argv) {
           if (++s_n == 60) {
             std::fprintf(stderr, "ra sim %d fields to %d: real %.2f, save %.2f, %d hidden %.2f, load %.2f -> %.2f ms a field "
                          "(max %.2f), state %.1f MB\n", s_n, f, s_real / s_n, s_save / s_n, ra_n, s_run / s_n,
-                         s_load / s_n, (s_real + s_save + s_run + s_load) / s_n, s_max, ra_buf.size() / 1e6);
+                         s_load / s_n, (s_real + s_save + s_run + s_load) / s_n, s_max, ra_size / 1e6);
             s_real = s_save = s_run = s_load = s_max = 0;
             s_n = 0;
           }
@@ -1676,6 +1687,10 @@ int main(int argc, char** argv) {
   std::atomic<uint16_t> pad_buttons{0};
   std::atomic<float> stick_x{0.f};
   ClawControl claw;
+  // run-ahead (the emulation thread): the setting last seen, the fields run ahead now, fields in a row over budget;
+  // ra_cut = the level it was lowered to (the main thread tells, then sets -1)
+  int ra_set = -1, ra_level = 0, ra_over = 0;
+  std::atomic<int> ra_cut{-1};
   std::atomic<bool> emu_quit{false};
   // The settings menu pauses the emulation: emu_pause asks, emu_parked answers once the thread is waiting (from then
   // on the main thread may change settings the thread reads).
@@ -1764,19 +1779,22 @@ int main(int argc, char** argv) {
       }
       emulog::AfterFrame(uint64_t(k));
       // The native renderer's input: each new picture's display list, built into its vector layer once.
+      auto take_picture = [](nuon::Capture& c, std::shared_ptr<const t3knative::Vectors>& v) {
+        if (nuon::GetCapture(&c) && (!v || v->flip != c.flip)) {
+          // the draw gate: a picture the renderers skipped was built from memory when they would have started it
+          auto live = gate::mode.load() == 2 ? gate::Take(c.flip) : nullptr;
+          if (live) {
+            v = live;
+          } else {
+            auto nv = std::make_shared<t3knative::Vectors>();
+            t3knative::BuildVectors(c, nv.get());
+            v = nv;
+          }
+        }
+      };
       static nuon::Capture cap;
       static std::shared_ptr<const t3knative::Vectors> vec;
-      if (nuon::GetCapture(&cap) && (!vec || vec->flip != cap.flip)) {
-        // the draw gate: a picture the renderers skipped was built from memory when they would have started it
-        auto live = gate::mode.load() == 2 ? gate::Take(cap.flip) : nullptr;
-        if (live) {
-          vec = live;
-        } else {
-          auto v = std::make_shared<t3knative::Vectors>();
-          t3knative::BuildVectors(cap, v.get());
-          vec = v;
-        }
-      }
+      take_picture(cap, vec);
       auto& au = nuon::Audio();
       if (audio && !au.empty()) {
         // The display's clock and the sound card's drift apart slowly: keep the queue short (~100 ms).
@@ -1784,17 +1802,64 @@ int main(int argc, char** argv) {
         volume::Put(audio, au.data(), au.size());
       }
       au.clear();
+      speed.Field(nullptr, vec.get());   // (real fields only: the speed control and cheats follow the game itself)
+      CheatsAfterField(speed.web);
+      nuon::RunStats rs{};
+      uint32_t pic = nuon::GetRunStats(&rs) ? rs.vid_flips : uint32_t(k);
+      std::shared_ptr<const t3knative::Vectors> show_vec = vec;
+      // Run-ahead (setting run_ahead, fields): from a snapshot of this field, run that many more with the same input,
+      // show the last one's picture, go back. The game then answers the pad that many fields sooner. The claw model
+      // runs in the hidden fields too (copied and put back); the speed control, score keeper and logs see real fields
+      // only, and the hidden fields' sound is dropped. Too slow here (a field's work over 85% of a field for half a
+      // second): one field less for the rest of the session (ra_cut; the menu tells).
+      const int ra_want = std::clamp(int(settings::Num("run_ahead", 0)), 0, 4);
+      if (ra_want != ra_set) { ra_set = ra_want; ra_level = ra_want; ra_over = 0; }
+      if (ra_level > 0 && nuon::RaSave()) {
+        const ClawControl claw_real = claw;
+        static nuon::Capture hcap;
+        static std::shared_ptr<const t3knative::Vectors> hvec;
+        hvec = vec;
+        const uint16_t b = pad_buttons.load() | scripted(uint64_t(k));
+        const uint16_t lr = uint16_t((1u << nuon::LEFT) | (1u << nuon::RIGHT));
+        for (int h = 0; h < ra_level; ++h) {
+          nuon::SetButtons(b | claw.Update(stick_x.load(), b & lr, speed.web));
+          nuon::RunFrame();
+          CheatsAfterField(speed.web);
+          nuon::Audio().clear();
+        }
+        take_picture(hcap, hvec);
+        pic = nuon::GetRunStats(&rs) ? rs.vid_flips : pic;
+        show_vec = hvec;   // (and LastFrame() is the hidden field's picture until the next field runs)
+        claw = claw_real;
+        if (!nuon::RaLoad()) {
+          std::fprintf(stderr, "run-ahead: load failed - off\n");
+          ra_level = 0;
+        }
+      }
+      if (ra_level > 0 && emulated) {
+        const uint64_t cost = SDL_GetTicksNS() - t0;
+        ra_over = cost > field_ns * 85 / 100 ? ra_over + 1 : std::max(0, ra_over - 1);
+        if (ra_over >= 30) {
+          --ra_level;
+          ra_over = 0;
+          ra_cut = ra_level;
+          std::fprintf(stderr, "run-ahead: too slow here (%.1f ms a field), now %d\n", cost / 1e6, ra_level);
+        }
+      }
+      static const bool ra_log = std::getenv("T3K_RA_LOG") != nullptr;   // tests: field, real picture, shown picture
+      if (ra_log) {
+        nuon::RunStats r2{};
+        std::fprintf(stderr, "ra field %lld real %u shown %u level %d\n", (long long)k,
+                     nuon::GetRunStats(&r2) ? r2.vid_flips : 0u, pic, ra_level);
+      }
       {
         std::lock_guard<std::mutex> lock(ring_mutex);
         Slot& sl = ring[k & 7];
         sl.field = k;
         sl.due = due ? due : SDL_GetTicksNS();
-        nuon::RunStats rs{};
-        sl.pic = nuon::GetRunStats(&rs) ? rs.vid_flips : uint32_t(k);
+        sl.pic = pic;
         sl.frame = nuon::LastFrame();
-        sl.vec = vec;
-        speed.Field(nullptr, vec.get());
-        CheatsAfterField(speed.web);
+        sl.vec = show_vec;
         sl.interval = speed.interval;
       }
       perf.Frame(uint64_t(k), t0, t1, SDL_GetTicksNS());
@@ -1947,6 +2012,9 @@ int main(int argc, char** argv) {
                                      : (ok ? "State loaded (" + SlotInfo(udir) + ")" : "No state in this slot"), now);
       }
     }
+    if (const int c = ra_cut.exchange(-1); c >= 0)
+      menu::Toast(c > 0 ? "Run-ahead lowered to " + std::to_string(c) + " (too slow here)" : "Run-ahead off (too slow here)",
+                  SDL_GetTicksNS());
     pad_buttons = ReadPad(pad, SDL_GetKeyboardState(nullptr));
     {
       float x = pad ? SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.f : 0.f;

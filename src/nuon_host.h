@@ -97,5 +97,9 @@ bool LoadState(const std::string& path);
 // The same in memory (the restart's power-on snapshot).
 bool SaveStateMem(std::vector<uint8_t>* out);
 bool LoadStateMem(const std::vector<uint8_t>& in);
+// Run-ahead (core nuance_ra_save / nuance_ra_load): a fast snapshot kept inside the core (live memory only, ~17 MB),
+// loaded back without flushing the compiled code. RaSave returns its size (0: failed / no core support).
+size_t RaSave();
+bool RaLoad();
 
 }  // namespace nuon
