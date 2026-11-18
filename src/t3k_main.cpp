@@ -469,6 +469,8 @@ struct ClawControl {
   int mo_fields = 3;            // fields per picture, last interval
   int mo_since = 0;             // fields since the last picture
   int mo_stuck = 0;             // pictures in a row asked to move that didn't (the end of an open web)
+  int mo_asked = 0;             // pictures in a row with a move asked (the game answers two pictures late)
+  double mo_pic_moved = 0;      // how far the game claw moved since the last picture began (it moves mid-picture)
   int mo_absent = 0;            // fields in a row without the claw signature (it blinks for a field at a wrap)
 
   int last_dir = 0;            // -1 / +1 while pushing, 0 not
@@ -669,6 +671,8 @@ struct ClawControl {
       mo_prev = pos;
       mo_v = mo_err = mo_req = 0;
       mo_stuck = 0;
+      mo_asked = 0;
+      mo_pic_moved = 0;
       st_dir = 0;
       st_held = 0;
       st_release = 1e9;
@@ -687,14 +691,23 @@ struct ClawControl {
       // Round a closed web the game wraps the position; a jump bigger than any move = a wrap: count what was asked.
       if (std::fabs(moved) > 3.0) moved = mo_req;
       mo_err -= moved;
-      // Asked to move but didn't: the end of an open web (the game clamps). Stop there.
-      if (std::fabs(mo_req) > 0.05 && moved == 0) {
+      // Asked to move but didn't: the end of an open web (the game clamps). Stop there. Only once the asking has lasted
+      // longer than the game's own delay (it reads the d-pad a picture late and moves the picture after): counting
+      // from the first picture cancelled every fresh nudge at its second picture - the claw then only moved when the
+      // hold became a sweep, 2-3 fields late, and a quick tap could be lost (2026-11-18).
+      // (Moved = during the whole picture just ended: the game moves the field after a picture begins, so the last
+      // field alone was 0 and a nudge in progress read as stuck - it stopped short at ~0.8 lane.)
+      const double pic_moved = mo_pic_moved + std::fabs(moved);
+      mo_pic_moved = 0;
+      mo_asked = std::fabs(mo_req) > 0.05 ? mo_asked + 1 : 0;
+      if (mo_asked > 2 && pic_moved == 0) {
         if (++mo_stuck >= 2) { mo_v = 0; mo_err = 0; sp_rem = 0; }
       } else {
         mo_stuck = 0;
       }
     } else if (moved != 0) {
       mo_err -= std::fabs(moved) > 3.0 ? mo_req : moved;
+      mo_pic_moved += std::fabs(moved);
     }
     ++mo_since;
 
@@ -715,10 +728,19 @@ struct ClawControl {
       if (mo_req * st_v0 < 0) mo_req = 0;   // never a click against the push (from between lanes: hold till ahead)
     }
     const int input = int(Get(m, 0x801133D8));
+    static const bool step_log = std::getenv("T3K_STEP_LOG") != nullptr;   // tests: the model, each field
+    if (step_log)
+      std::fprintf(stderr, "step: pos %.4f moved %+.4f newpic %d | model v %+.3f err %+.4f rem %+.4f req %+.4f asked %d "
+                   "stuck %d dir %d sweep %d input %d vel %.4f\n", pos, moved, int(new_picture), mo_v, mo_err, sp_rem,
+                   mo_req, mo_asked, mo_stuck, sp_dir, int(sp_sweeping), input,
+                   int32_t(Get(m, claw_at + 4)) / 65536.0);
     if (std::fabs(mo_req) < 1e-4) {
       mo_req = 0;
-      // Not pressing; while the game still applies its late input, hold that picture to nothing.
-      Put(m, claw_at + 8, input != 0 ? 0u : 0x10000u);
+      // Not pressing; while the game still applies its late input, hold that picture to nothing - the input word OR
+      // the velocity it already made from it (the input clears a picture before the velocity is used: a released
+      // nudge took one more full step, 2026-11-18).
+      const bool late = input != 0 || Get(m, claw_at + 4) != 0;
+      Put(m, claw_at + 8, late ? 0u : 0x10000u);
       return 0;
     }
     const int press = mo_req > 0 ? 1 : -1;
