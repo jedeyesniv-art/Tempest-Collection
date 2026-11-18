@@ -1312,6 +1312,11 @@ To do, at the end:
    picture is the plain run's 2 fields on (warps / level starts not ahead, by design); 1800 rewinds, 0 full flushes;
    play cost mean 8.0 ms, p99 14.0. Headless F vs F+N exact (N 1/2/4, two states); step tests all ok.
    Lesson: test run-ahead from boot and in the window with the gate, not only headless from play states.
+   OWNER 2026-11-18 (after the fixes): PC - no flicker, starts fine, run-ahead "feels REALLY good, a large improvement".
+   Deck - it lowers itself to off (CPU stays ~40%); the Step stick fix alone feels better there. Run-ahead = PC only
+   for now. If the Deck is wanted later: the t3k.log "run-ahead: too slow here (X ms a field)" lines say how far off;
+   costs per field on the PC at 1 field: snapshot ~1.6 ms (19 MB each way - memory bandwidth), hidden field ~2.2,
+   MPE3 flush ~0.4. Ideas: dirty-page snapshots (track writes; big), cheaper hidden fields, a looser budget test.
 
 ### Watch list
 - TxK, once on Windows (owner 2026-11-17): no music in a level, then a hang after the bonus round between levels
