@@ -511,7 +511,8 @@ Tooling pitfalls (cost time today)
   run exes from the current folder (use full paths).
 
 ## Defender 2000 renderer (2026-11-18; PLAN.md "Defender 2000")
-- Runs in t2k.exe: build\t2k.exe "Defender 2000 (1996).jag" (FindRom only finds Tempest). d2k::IsDefender (by file
+- Runs in t2k.exe: "Defender 2000.bat" (repo root) = build\t2k.exe "Defender 2000 (1996).jag"
+  --userdata=build\userdata_d2k (FindRom only finds Tempest). d2k::IsDefender (by file
   name for now) -> src/d2k.cpp instead of t2k / remaster. Own saves: userdata\defender2000.eeprom, states\d2k_slotN.
 - No source exists. Survey: t2k --survey=F0:F1:file (src/jagsurvey.cpp, core hooks vjHostGpuGo / vjHostBlit /
   vjHostOpObject). The picture is all OP bitmaps (CRY, VMODE $06C1, BGEN, per-line BG = the sky gradient set from GPU
