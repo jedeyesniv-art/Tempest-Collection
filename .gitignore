@@ -34,3 +34,4 @@ build_mame/
 *.zip
 art/
 third_party/libsndfile/
+third_party/realesrgan/
