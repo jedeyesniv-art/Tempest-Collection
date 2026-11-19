@@ -1401,3 +1401,7 @@ Open, roughly in order:
   stick controls, Classic / Plus modes.
 - 2026-11-19 later: standalone build\d2k.exe (owner: not in the collection for now) with its own menu page, arcade
   Thrust / Reverse buttons, loudness levelled. Next: the owner's play test (feel of Reverse / Thrust, wide, motion).
+- 2026-11-19 later: high-res art - art dump + census (434 pictures, ~0.95 Mpx), Real-ESRGAN 4x pack (build\d2k_art),
+  loader in d2k.cpp (setting d2k_hires, F4). Next: the owner's look in play; then maybe the edge fringe on small
+  sprites (black baked into their edges), the 28 recoloured pictures (per-colouring replacements), Classic's pixel art
+  (a pixel-art scaler?), text / HUD redrawn by us.

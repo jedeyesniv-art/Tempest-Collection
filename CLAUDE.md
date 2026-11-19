@@ -570,6 +570,20 @@ Tooling pitfalls (cost time today)
   tools/d2k_art_route.py <m2000|classic|plus> (16000 frames). First census (attract + 3 modes): 434
   pictures, ~0.95 Mpx (25 big: title pictures, logos, backdrops); 2000 / Plus art is pre-rendered CGI (16-bit),
   Classic is tiny arcade pixel art; 28 seen in several colourings.
+- High-res art (2026-11-19; setting d2k_hires default 1, F4, menu PICTURE "High-res art"): pack build\d2k_art (never
+  in git / published: made from the cartridge) = pack.txt (each picture's memory place: depth, DWIDTH, OP pitch, row /
+  column = pixel address // and % the line pitch in pixels) + src\<n>.png (1x original) + hi\<n>.png (4x). Built by
+  tools/d2k_art_pack.py <census>_pics (Real-ESRGAN realesrgan-x4plus via tools/d2k_upscale.py: colours spread into
+  see-through pixels, mask upscaled as grey and cut at 50%, 8 px border; ~15 s for 388 pictures on the GPU; the
+  anime model posterises). Real-ESRGAN ncnn-vulkan 20220424 in third_party\realesrgan (owner approved the download).
+  Left out: drawing buffers and Classic-only pictures (arcade pixel art, kept blocky). d2k.cpp HiFor: a sprite whose
+  memory rectangle lies in a picture and whose pixels equal the original there (1% slack) is drawn from the 4x texture
+  (linear); scaled objects (the title is one, HSCALE 33) map drawn -> source by 32 / HSCALE, 32 / VSCALE and are
+  checked from memory (every 3rd pixel); lead-ins, ghosts and wide-screen mirrored strips use it too; anything else
+  (colour changes, unknown art) draws as before. Coverage from play states: 2000 / Plus every art sprite; left: the
+  playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
+  Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
+  timing: use a state (logs/d2k/hires/title500.state = the title).
 - Survey tools: D2K_GPULOG=F0:F1:file (GPU loads / stores outside its RAM + blits; core hook vjHostGpuMem),
   D2K_M68KLOG=F0:F1:lo:hi:file (writes into a range by the 68K with its pc, or by another unit as $FF0000xx | who;
   core hook vjHostM68kWrite), D2K_RAMDUMP=F:file (2 MB), D2K_WIDESHOT=F:margin:file (software picture, wider),

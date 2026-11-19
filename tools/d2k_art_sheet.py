@@ -122,7 +122,8 @@ def join(recs):
             img[y:y + r['h'], x:x + r['w']][free] = r['rgba'][free]
             done[y:y + r['h'], x:x + r['w']] = True
         first = min(rs, key=lambda r: (r['dir'], r['frame']))
-        pics.append(dict(img=img, w=w, h=h, rects=len(rs), uses=sum(r['uses'] for r in rs),
+        pics.append(dict(img=img, w=w, h=h, row0=r0, col0=c0, group=first['group'],
+                         dirs=sorted({r['dir'] for r in rs}), rects=len(rs), uses=sum(r['uses'] for r in rs),
                          colours=max(r['colours'] for r in rs), first=first['frame'], dir=first['dir'],
                          depth=first['depth'], data=min(r['data'] for r in rs), dwidth=first['dwidth'],
                          scaled=any(r['type'] == 1 for r in rs), buffer=any(r['buffer'] for r in rs), cover=float(done.mean())))
@@ -188,6 +189,14 @@ def main():
     for i, p in enumerate(pics):
         p['n'] = i + 1
         Image.fromarray(p['img'], 'RGBA').save(os.path.join(a.out + '_pics', f'{i + 1}.png'))
+    # The pack's index (tools/d2k_art_pack.py, d2k.cpp hires art): where each picture is in memory.
+    with open(os.path.join(a.out + '_pics', 'pack.txt'), 'w') as f:
+        f.write('# n depth dwidth pitch row col w h buffer dirs  (row / col: pixel address // and % the line pitch '
+                'in pixels)\n')
+        for p in pics:
+            depth, dwidth, pitch = p['group']
+            f.write(f"{p['n']} {depth} {dwidth} {pitch} {p['row0']} {p['col0']} {p['w']} {p['h']} {int(p['buffer'])} "
+                    f"{','.join(os.path.basename(d) for d in p['dirs'])}\n")
     font = ImageFont.load_default()
     is_big = lambda p: p['w'] >= 160 or p['h'] >= 120
     art = [p for p in pics if not p['buffer']]

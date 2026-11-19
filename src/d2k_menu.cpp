@@ -38,6 +38,7 @@ void Install(bool from_launcher) {
   auto native = [] { return settings::Num("d2k_native", 1) != 0; };
   p.Choice("Renderer", "d2k_native", {"1", "0"}, {"Native", "Emulation (original)"});
   p.Choice("  Smooth motion", "d2k_interpolate", {"1", "0"}, {"On", "Off"})->when = native;
+  p.Choice("  High-res art", "d2k_hires", {"1", "0"}, {"On", "Off (original)"})->when = native;
   p.Choice("  Wide screen", "d2k_widescreen", {"1", "0"}, {"On", "Off (4:3)"})->when = native;
   p.Choice("  Pixels", "d2k_filter", {"sharp", "smooth", "nearest"}, {"Sharp", "Soft (bilinear)", "Blocky"})->when =
       native;

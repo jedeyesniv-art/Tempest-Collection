@@ -63,7 +63,7 @@ struct Sprite {
   std::vector<uint16_t> raw;     // w * h
   std::vector<uint8_t> opaque;   // w * h
   std::vector<uint8_t> idx;      // w * h colour indices (depth <= 8), only filled for the art dump
-  int hs = 0;                    // scaled objects: HSCALE (3.5)
+  int hs = 0, vs = 0;            // scaled objects: HSCALE, VSCALE (3.5: drawn pixels per source pixel)
   int skip = 0, src_w = 0, src_h = 0, pitch = 1, index = 0;   // the source: first pixel, pixels a row, rows (HEIGHT)
   // GPU only: columns left of the first drawn one that the game clipped off this update but showed the update
   // before (a tile scrolling out at the left edge); drawn while the motion is between the two.
@@ -176,7 +176,7 @@ void OnOp(uint32_t addr, uint64_t p0, int halfline) {
     sp.flags = flags;
     sp.data = data;
     sp.dwidth = uint32_t((p1 >> 18) & 0x3FF);
-    if (type == 1) sp.hs = int(p2 & 0xFF);
+    if (type == 1) sp.hs = int(p2 & 0xFF), sp.vs = int((p2 >> 8) & 0xFF);
     sp.skip = skip, sp.src_w = src_w, sp.src_h = height, sp.pitch = pitch ? pitch : 1, sp.index = index;
     it = g_index.emplace(addr, g_objs.size()).first;
     g_objs.push_back(std::move(sp));
@@ -1311,7 +1311,141 @@ struct Gpu {
   std::vector<std::pair<AtlasRect, AtlasRect>> rmw_at;   // per RMW delta: pos, neg
   std::vector<RmwDelta> deltas;
   std::string filter;
+  struct Src { SDL_Texture* tex = nullptr; float u0 = 0, v0 = 0, du = 0, dv = 0; };
+  std::vector<Src> hi, hi_ghost;   // per sprite / ghost: its high-res art (tex null = none)
 } g_gpu;
+
+// ---- high-res art -------------------------------------------------------------------------------------------------
+// A pack (tools/d2k_art_pack.py) in <exe dir>/d2k_art: pack.txt = each picture's place in memory (depth, DWIDTH, OP
+// pitch, row / column of the grid pixel address // and % the line pitch in pixels, size), src/<n>.png the original,
+// hi/<n>.png the replacement (any whole-number scale). A sprite (unscaled, not RMW, consecutive rows) is drawn from a
+// replacement when its memory rectangle lies inside the picture and its pixels equal the original's there (the art
+// at an address changes between levels; colour changes): else as before. Setting d2k_hires (default 1), F4.
+struct HiPic {
+  int depth = 0, dwidth = 0, pitch = 0, w = 0, h = 0;
+  int64_t row = 0, col = 0;
+  std::vector<uint32_t> src;   // ARGB, 0 = see-through
+  SDL_Texture* tex = nullptr;
+};
+struct HiArt {
+  bool tried = false;
+  std::vector<HiPic> pics;
+  std::map<uint64_t, std::vector<int>> by_place;   // depth / DWIDTH / pitch -> pictures
+  int matched = 0, missed = 0;                       // sprites this frame (Stats)
+} g_hi;
+
+uint64_t HiPlace(int depth, int dwidth, int pitch) { return uint64_t(depth) << 40 | uint64_t(dwidth) << 8 | uint64_t(pitch); }
+
+SDL_Surface* LoadArgb(const std::string& path) {
+  SDL_Surface* s = SDL_LoadPNG(path.c_str());
+  if (!s) return nullptr;
+  SDL_Surface* c = SDL_ConvertSurface(s, SDL_PIXELFORMAT_ARGB8888);
+  SDL_DestroySurface(s);
+  return c;
+}
+
+void HiLoad(SDL_Renderer* ren) {
+  g_hi.tried = true;
+  const char* base = SDL_GetBasePath();
+  const std::string dir = std::string(base ? base : "") + "d2k_art/";
+  std::ifstream f(dir + "pack.txt");
+  if (!f) return;
+  std::string line;
+  int loaded = 0;
+  while (std::getline(f, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    int n = 0, depth = 0, dwidth = 0, pitch = 0, w = 0, h = 0, buffer = 0;
+    long long row = 0, col = 0;
+    if (std::sscanf(line.c_str(), "%d %d %d %d %lld %lld %d %d %d", &n, &depth, &dwidth, &pitch, &row, &col, &w, &h,
+                    &buffer) != 9 || buffer)
+      continue;
+    SDL_Surface* src = LoadArgb(dir + "src/" + std::to_string(n) + ".png");
+    SDL_Surface* hi = LoadArgb(dir + "hi/" + std::to_string(n) + ".png");
+    if (src && hi && src->w == w && src->h == h && hi->w % w == 0 && hi->h % h == 0) {
+      HiPic p;
+      p.depth = depth, p.dwidth = dwidth, p.pitch = pitch, p.row = row, p.col = col, p.w = w, p.h = h;
+      p.src.resize(size_t(w) * h);
+      for (int j = 0; j < h; ++j) {
+        const uint32_t* r = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(src->pixels) + size_t(j) * src->pitch);
+        for (int i = 0; i < w; ++i) p.src[size_t(j) * w + i] = (r[i] >> 24) ? (r[i] | 0xFF000000u) : 0u;
+      }
+      for (int j = 0; j < hi->h; ++j) {   // premultiplied (the mask is 0 / 255)
+        uint32_t* r = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(hi->pixels) + size_t(j) * hi->pitch);
+        for (int i = 0; i < hi->w; ++i)
+          if ((r[i] >> 24) < 128) r[i] = 0;
+          else r[i] |= 0xFF000000u;
+      }
+      p.tex = SDL_CreateTextureFromSurface(ren, hi);
+      if (p.tex) {
+        SDL_SetTextureScaleMode(p.tex, SDL_SCALEMODE_LINEAR);
+        g_hi.by_place[HiPlace(depth, dwidth, pitch)].push_back(int(g_hi.pics.size()));
+        g_hi.pics.push_back(std::move(p));
+        ++loaded;
+      }
+    }
+    if (src) SDL_DestroySurface(src);
+    if (hi) SDL_DestroySurface(hi);
+  }
+  std::fprintf(stderr, "d2k: high-res art: %d pictures from %s\n", loaded, dir.c_str());
+}
+
+// The replacement for a sprite as drawn (its atlas columns: [lead][drawn] unreflected, [drawn][lead] reflected).
+// Scaled objects: the drawn pixels sample the source (32 / HSCALE source columns a drawn one, 32 / VSCALE rows a drawn
+// row), so the match reads the source from memory (every 3rd pixel) and the texture steps by the scale.
+Gpu::Src HiFor(const Sprite& sp, uint16_t vmode) {
+  static const int kBpp[5] = {1, 2, 4, 8, 16};
+  if (sp.type > 1 || (sp.flags & 2) || sp.depth > 4 || sp.h <= 0 || sp.w <= 0 ||
+      sp.row_y.back() - sp.row_y.front() + 1 != sp.h)
+    return {};
+  if (sp.type == 1 && (sp.hs <= 0 || sp.vs <= 0)) return {};
+  const auto it = g_hi.by_place.find(HiPlace(sp.depth, int(sp.dwidth), sp.pitch));
+  if (it == g_hi.by_place.end()) return {};
+  const int bpp = kBpp[sp.depth];
+  const int64_t pitch_px = int64_t(sp.dwidth) * 64 / bpp;
+  if (pitch_px <= 0) return {};
+  const int64_t at = int64_t(sp.data) * 8 / bpp + sp.skip, row = at / pitch_px, col = at % pitch_px;
+  const int64_t c0 = (sp.flags & 1) ? col : col - sp.lead;
+  const int wtot = sp.w + sp.lead;
+  if (sp.type == 1) {
+    const float sx = 32.f / float(sp.hs), sy = 32.f / float(sp.vs);
+    const int sw = std::min(sp.src_w - sp.skip, int(std::ceil(float(sp.w) * sx))),
+              sh = std::min(sp.src_h, int(std::ceil(float(sp.h) * sy)));
+    if (sw <= 0 || sh <= 0) return {};
+    for (int pi : it->second) {
+      const HiPic& p = g_hi.pics[size_t(pi)];
+      if (row < p.row || row + sh > p.row + p.h || col < p.col || col + sw > p.col + p.w) continue;
+      int bad = 0, n = 0;
+      for (int j = 0; j < sh && bad * 100 <= n + 100; j += 3)
+        for (int k = 0; k < sw; k += 3) {
+          bool zero = false;
+          const uint16_t v = Pixel(sp.data + uint32_t(j) * sp.dwidth * 8u, sp.skip + k, bpp, sp.pitch, sp.index, &zero);
+          const uint32_t want = ((sp.flags & 4) && zero) ? 0u : (ToRgb(v, vmode) | 0xFF000000u);
+          ++n;
+          bad += want != p.src[size_t(row - p.row + j) * p.w + size_t(col - p.col + k)];
+        }
+      if (bad * 100 > n) continue;
+      return {p.tex, float(col - p.col) / float(p.w), float(row - p.row) / float(p.h), sx / float(p.w), sy / float(p.h)};
+    }
+    return {};
+  }
+  for (int pi : it->second) {
+    const HiPic& p = g_hi.pics[size_t(pi)];
+    if (row < p.row || row + sp.h > p.row + p.h || c0 < p.col || c0 + wtot > p.col + p.w) continue;
+    int bad = 0;
+    const int limit = sp.w * sp.h / 100;
+    for (int j = 0; j < sp.h && bad <= limit; ++j) {
+      const uint32_t* s = &p.src[size_t(row - p.row + j) * p.w + size_t(col - p.col)];
+      for (int o = 0; o < sp.w; ++o) {
+        const size_t k = size_t(j) * sp.w + o;
+        const uint32_t want = sp.opaque[k] ? (ToRgb(sp.raw[k], vmode) | 0xFF000000u) : 0u;
+        if (want != s[o] && ++bad > limit) break;
+      }
+    }
+    if (bad > limit) continue;
+    return {p.tex, float(c0 - p.col) / float(p.w), float(row - p.row) / float(p.h), 1.f / float(p.w), 1.f / float(p.h)};
+  }
+  return {};
+}
 
 // Shelf packing with a kPad-pixel gap around each image, filled with copies of its edge pixels (filtering at an
 // edge then reads the edge itself: no seams between tiles that meet, no neighbour bleeding in).
@@ -1440,6 +1574,32 @@ void BuildAtlas(SDL_Renderer* ren) {
   for (size_t k = 0; k < g_dead.size(); ++k) pad(g_gpu.dead_at[k], g_prev_items[g_dead[k]].w, g_prev_items[g_dead[k]].h);
   SDL_UpdateTexture(g_gpu.tex, nullptr, g_gpu.px.data(), size * 4);
   g_gpu.built_frame = g_frames;
+  // High-res art: which sprites (and ghosts) have a replacement this frame.
+  g_gpu.hi.assign(n, {});
+  g_gpu.hi_ghost.assign(g_ghosts.size(), {});
+  g_hi.matched = g_hi.missed = 0;
+  if (settings::Num("d2k_hires", 1) != 0) {
+    if (!g_hi.tried) HiLoad(ren);
+    if (!g_hi.pics.empty()) {
+      for (size_t i = 0; i < n; ++i) {
+        g_gpu.hi[i] = HiFor(g_cur.sprites[i], g_cur.vmode);
+        if (int(i) != g_layer && !(g_cur.sprites[i].flags & 2)) ++(g_gpu.hi[i].tex ? g_hi.matched : g_hi.missed);
+      }
+      static const bool log = std::getenv("D2K_HI_LOG") != nullptr;   // test: the sprites without high-res art
+      if (log && (g_upd_frame == g_frames || g_frames % 60 == 0)) {
+        std::fprintf(stderr, "hires %d: %d matched, %d not:", g_frames, g_hi.matched, g_hi.missed);
+        for (size_t i = 0; i < n; ++i) {
+          const Sprite& sp = g_cur.sprites[i];
+          if (int(i) != g_layer && !(sp.flags & 2))
+            std::fprintf(stderr, " [%s%06X d%d dw%u t%d %dx%d L%d @%d,%d]", g_gpu.hi[i].tex ? "HI " : "", sp.data, sp.depth, sp.dwidth, sp.type, sp.w,
+                         sp.h, sp.lead, sp.x, sp.row);
+        }
+        std::fprintf(stderr, "\n");
+      }
+      for (size_t gi = 0; gi < g_ghosts.size(); ++gi)
+        g_gpu.hi_ghost[gi] = HiFor(g_prev_scene.sprites[g_ghosts[gi].prev], g_prev_scene.vmode);
+    }
+  }
 }
 
 }  // namespace
@@ -1489,21 +1649,28 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
   const float inv = 1.f / float(g_gpu.size);
   const SDL_FColor white{1, 1, 1, 1};
   SDL_BlendMode mode = SDL_BLENDMODE_BLEND_PREMULTIPLIED;
+  SDL_Texture* tex = g_gpu.tex;   // the batch's texture: the atlas or a high-res picture
   auto flush = [&]() {
     if (v.empty()) return;
-    SDL_SetTextureBlendMode(g_gpu.tex, mode);
-    SDL_RenderGeometry(ren, g_gpu.tex, v.data(), int(v.size()), idx.data(), int(idx.size()));
+    SDL_SetTextureBlendMode(tex, mode);
+    SDL_RenderGeometry(ren, tex, v.data(), int(v.size()), idx.data(), int(idx.size()));
     v.clear();
     idx.clear();
   };
-  // A sprite's rows (in runs of consecutive rows) from an atlas rectangle, shifted by (ox, oy) line-buffer pixels.
-  auto draw_rows = [&](const Sprite& sp, AtlasRect r, float ox, float oy) {
+  auto use = [&](SDL_Texture* t) {
+    if (t != tex) flush(), tex = t;
+  };
+  using Src = Gpu::Src;
+  auto atlas = [&](AtlasRect r) { return Src{g_gpu.tex, float(r.x) * inv, float(r.y) * inv, inv, inv}; };
+  // A sprite's rows (in runs of consecutive rows) from its pixels in a texture, shifted by (ox, oy) line-buffer pixels.
+  auto draw_rows = [&](const Sprite& sp, Src r, float ox, float oy) {
+    use(r.tex);
     int j0 = 0;
     while (j0 < sp.h) {
       int j1 = j0 + 1;
       while (j1 < sp.h && sp.row_y[j1] == sp.row_y[j1 - 1] + 1) ++j1;
       const float y0 = wy(float(sp.row_y[j0]) + oy), y1 = wy(float(sp.row_y[j1 - 1] + 1) + oy);
-      float x0, x1, u0 = float(r.x) * inv, u1 = float(r.x + sp.lead + sp.w) * inv;
+      float x0, x1, u0 = r.u0, u1 = r.u0 + float(sp.lead + sp.w) * r.du;
       if (sp.flags & 1) {   // reflected: pixel o at x - o
         x0 = wx(float(sp.x - sp.w - sp.lead + 1) + ox);
         x1 = wx(float(sp.x + 1) + ox);
@@ -1512,7 +1679,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
         x0 = wx(float(sp.x - sp.lead) + ox);
         x1 = wx(float(sp.x + sp.w) + ox);
       }
-      quad(x0, y0, x1, y1, u0, float(r.y + j0) * inv, u1, float(r.y + j1) * inv, white);
+      quad(x0, y0, x1, y1, u0, r.v0 + float(j0) * r.dv, u1, r.v0 + float(j1) * r.dv, white);
       j0 = j1;
     }
   };
@@ -1552,11 +1719,12 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
     }
   }
   // Mirrored copies of sprite i's drawn pixels from its end towards the view's edge.
-  auto draw_pads = [&](size_t i, const Sprite& sp, AtlasRect r, float ox, float oy) {
+  auto draw_pads = [&](size_t i, const Sprite& sp, Src r, float ox, float oy) {
     if (i >= pad_side.size() || !pad_side[i]) return;
+    use(r.tex);
     const bool refl = sp.flags & 1;
     const float l = float(refl ? sp.x - sp.w + 1 : sp.x) + ox, w = float(sp.w);
-    const float u_a = float(r.x + (refl ? 0 : sp.lead)) * inv, u_b = float(r.x + (refl ? 0 : sp.lead) + sp.w) * inv;
+    const float u_a = r.u0 + float(refl ? 0 : sp.lead) * r.du, u_b = u_a + float(sp.w) * r.du;
     for (int k = 1; k < 8; ++k) {
       const bool left = pad_side[i] & 1;
       const float x0 = left ? l - float(k) * w : l + float(k) * w;
@@ -1568,7 +1736,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
         int j1 = j0 + 1;
         while (j1 < sp.h && sp.row_y[j1] == sp.row_y[j1 - 1] + 1) ++j1;
         quad(wx(x0), wy(float(sp.row_y[j0]) + oy), wx(x0 + w), wy(float(sp.row_y[j1 - 1] + 1) + oy), flip ? u_b : u_a,
-             float(r.y + j0) * inv, flip ? u_a : u_b, float(r.y + j1) * inv, white);
+             r.v0 + float(j0) * r.dv, flip ? u_a : u_b, r.v0 + float(j1) * r.dv, white);
         j0 = j1;
       }
     }
@@ -1579,8 +1747,9 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
     if (a < 1.f)
       for (size_t gi = 0; gi < g_ghosts.size() && gi < g_gpu.ghost_at.size(); ++gi)
         if (g_ghosts[gi].before == i)
-          draw_rows(g_prev_scene.sprites[g_ghosts[gi].prev], g_gpu.ghost_at[gi], a * g_ghosts[gi].dx,
-                    a * g_ghosts[gi].dy);
+          draw_rows(g_prev_scene.sprites[g_ghosts[gi].prev],
+                    gi < g_gpu.hi_ghost.size() && g_gpu.hi_ghost[gi].tex ? g_gpu.hi_ghost[gi] : atlas(g_gpu.ghost_at[gi]),
+                    a * g_ghosts[gi].dx, a * g_ghosts[gi].dy);
     float ox = 0, oy = 0;
     if (i < g_motion.size() && g_motion[i].matched) {
       ox = -(1.f - a) * g_motion[i].dx;
@@ -1590,17 +1759,18 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
       flush();
       mode = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_ADD,
                                         SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_ADD);
-      draw_rows(sp, g_gpu.rmw_at[next_rmw].first, ox, oy);
+      draw_rows(sp, atlas(g_gpu.rmw_at[next_rmw].first), ox, oy);
       flush();
       mode = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_REV_SUBTRACT,
                                         SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_ADD);
-      draw_rows(sp, g_gpu.rmw_at[next_rmw].second, ox, oy);
+      draw_rows(sp, atlas(g_gpu.rmw_at[next_rmw].second), ox, oy);
       flush();
       mode = SDL_BLENDMODE_BLEND_PREMULTIPLIED;
       ++next_rmw;
       continue;
     }
     if (int(i) == g_layer && g_gpu.item_at.size() == g_items.size()) {
+      use(g_gpu.tex);
       // The layer's items: blended like sprites (beams by their ends); vanished ones for the first half.
       // New items fade in and vanished ones out over the first half of the update (premultiplied: all four).
       auto item_quad = [&](const Item& it, AtlasRect r, float x0, float x1, float y0, float f = 1.f) {
@@ -1626,8 +1796,9 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
         }
       continue;
     }
-    draw_rows(sp, g_gpu.at[i], ox, oy);
-    draw_pads(i, sp, g_gpu.at[i], ox, oy);
+    const Src src = i < g_gpu.hi.size() && g_gpu.hi[i].tex ? g_gpu.hi[i] : atlas(g_gpu.at[i]);
+    draw_rows(sp, src, ox, oy);
+    draw_pads(i, sp, src, ox, oy);
   }
   flush();
   SDL_SetRenderClipRect(ren, nullptr);
@@ -1637,6 +1808,8 @@ std::string Stats() {
   std::string s = "layer items " + std::to_string(g_items_matched) + " of " + std::to_string(g_items_total) +
                   " matched; matched " + std::to_string(g_matched_data) + " by image, " + std::to_string(g_matched_near) +
                   " by size, " + std::to_string(g_unmatched) + " not; ";
+  if (!g_hi.pics.empty())
+    s += "high-res art: " + std::to_string(g_hi.matched) + " sprites, " + std::to_string(g_hi.missed) + " without; ";
   for (auto& [k, v] : g_unhandled) s += k + " x" + std::to_string(v) + "; ";
   return s;
 }

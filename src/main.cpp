@@ -683,6 +683,10 @@ int main(int argc, char** argv) {
         const bool on = settings::Num("d2k_widescreen", 1) == 0;
         settings::Save("d2k_widescreen", on ? "1" : "0");
         menu::Toast(on ? "Wide screen on" : "Wide screen off (4:3)", now);
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F4 && d2k::Active()) {
+        const bool on = settings::Num("d2k_hires", 1) == 0;
+        settings::Save("d2k_hires", on ? "1" : "0");
+        menu::Toast(on ? "High-res art on" : "High-res art off (original)", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F8) {
         remaster::SetEnabled(!remaster::Enabled());
         settings::Save("remaster", remaster::Enabled() ? "1" : "0");
