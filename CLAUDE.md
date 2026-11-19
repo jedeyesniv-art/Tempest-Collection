@@ -561,6 +561,15 @@ Tooling pitfalls (cost time today)
   in mirrored copies where its record runs short (21:9). HUD stays in the 4:3 place; the playfield layer (stars,
   shots) only covers line-buffer 0..383. The 4:3 core picture is unchanged (sweep 94 / 94 exact with the patches).
   Side effect: the sprite overlay steps animations only for kept objects, now a wider window (no game logic seen).
+- Art dump (2026-11-19, for an offline-upscaled replacement pack: the owner's choice): D2K_ART_DUMP=<dir> writes the
+  source rectangle of every object drawn (DATA, DWIDTH, first pixel, w x h; stored values + RGBA) once per content to
+  <dir>/rects.bin + index.txt; places whose content keeps changing (any shared pixel differs, 6 times in 300 frames)
+  are drawing buffers (buffers.txt: Classic playfield, radar, HUD, menu text). tools/d2k_art_sheet.py <dirs> --out X
+  joins rectangles overlapping in memory with the same values (backdrop strips -> whole panoramas; animation frames
+  stay apart) -> X_pics/<n>.png + contact sheets X_N / X_big_N / X_buffers_N.png + X.txt. Routes:
+  tools/d2k_art_route.py <m2000|classic|plus> (16000 frames). First census (attract + 3 modes): 434
+  pictures, ~0.95 Mpx (25 big: title pictures, logos, backdrops); 2000 / Plus art is pre-rendered CGI (16-bit),
+  Classic is tiny arcade pixel art; 28 seen in several colourings.
 - Survey tools: D2K_GPULOG=F0:F1:file (GPU loads / stores outside its RAM + blits; core hook vjHostGpuMem),
   D2K_M68KLOG=F0:F1:lo:hi:file (writes into a range by the 68K with its pc, or by another unit as $FF0000xx | who;
   core hook vjHostM68kWrite), D2K_RAMDUMP=F:file (2 MB), D2K_WIDESHOT=F:margin:file (software picture, wider),

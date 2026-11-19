@@ -19,6 +19,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <set>
 #include <unordered_map>
 
 #include "host.h"
@@ -61,6 +62,9 @@ struct Sprite {
   std::vector<int> row_y;        // line-buffer row of each drawn row
   std::vector<uint16_t> raw;     // w * h
   std::vector<uint8_t> opaque;   // w * h
+  std::vector<uint8_t> idx;      // w * h colour indices (depth <= 8), only filled for the art dump
+  int hs = 0;                    // scaled objects: HSCALE (3.5)
+  int skip = 0, src_w = 0, src_h = 0, pitch = 1, index = 0;   // the source: first pixel, pixels a row, rows (HEIGHT)
   // GPU only: columns left of the first drawn one that the game clipped off this update but showed the update
   // before (a tile scrolling out at the left edge); drawn while the motion is between the two.
   int lead = 0;
@@ -93,7 +97,7 @@ uint16_t Raw16(uint32_t a) { return uint16_t(jagMemSpace[a & 0xFFFFFF] << 8 | ja
 uint16_t Clut(int i) { return uint16_t(tomRam8[0x400 + 2 * i] << 8 | tomRam8[0x401 + 2 * i]); }
 
 // Pixel k of a bitmap line (in source order) as a raw word; *zero for pixels TRANS makes see-through.
-uint16_t Pixel(uint32_t line, int k, int bpp, int pitch, int index, bool* zero) {
+uint16_t Pixel(uint32_t line, int k, int bpp, int pitch, int index, bool* zero, int* ci_out = nullptr) {
   const int ppp = 64 / bpp;
   const uint32_t phrase = line + uint32_t(k / ppp) * uint32_t(pitch) * 8u;
   const int bit = (k % ppp) * bpp;   // from the phrase's top
@@ -108,10 +112,14 @@ uint16_t Pixel(uint32_t line, int k, int bpp, int pitch, int index, bool* zero) 
   if (bpp == 1) ci = (index & 0xFE) | v;
   else if (bpp == 2) ci = (index & 0xFC) | v;
   else if (bpp == 4) ci = (index & 0xF0) | v;
+  if (ci_out) *ci_out = ci;
   const uint16_t c = Clut(ci);
   *zero = c == 0;   // (the core tests the CLUT entry, not the index)
   return c;
 }
+
+// Test: D2K_ART_DUMP=<dir> - every distinct image the OP draws (see ArtDump).
+const char* g_art_dir = std::getenv("D2K_ART_DUMP");
 
 void OnOp(uint32_t addr, uint64_t p0, int halfline) {
   if (g_chain) g_chain(addr, p0, halfline);
@@ -168,6 +176,8 @@ void OnOp(uint32_t addr, uint64_t p0, int halfline) {
     sp.flags = flags;
     sp.data = data;
     sp.dwidth = uint32_t((p1 >> 18) & 0x3FF);
+    if (type == 1) sp.hs = int(p2 & 0xFF);
+    sp.skip = skip, sp.src_w = src_w, sp.src_h = height, sp.pitch = pitch ? pitch : 1, sp.index = index;
     it = g_index.emplace(addr, g_objs.size()).first;
     g_objs.push_back(std::move(sp));
   }
@@ -179,10 +189,14 @@ void OnOp(uint32_t addr, uint64_t p0, int halfline) {
   const size_t at = sp.raw.size();
   sp.raw.resize(at + size_t(sp.w), 0);
   sp.opaque.resize(at + size_t(sp.w), 0);
+  const bool want_idx = g_art_dir && bpp <= 8;
+  if (want_idx) sp.idx.resize(at + size_t(sp.w), 0);
   const int n = std::min(sp.w, int(cols.size()));
   for (int i = 0; i < n; ++i) {
     bool zero = false;
-    const uint16_t v = Pixel(data, cols[i], bpp, pitch ? pitch : 1, index, &zero);
+    int ci = 0;
+    const uint16_t v = Pixel(data, cols[i], bpp, pitch ? pitch : 1, index, &zero, want_idx ? &ci : nullptr);
+    if (want_idx) sp.idx[at + i] = uint8_t(ci);
     sp.raw[at + i] = v;
     sp.opaque[at + i] = !((flags & 4) && zero);
   }
@@ -906,6 +920,150 @@ void ApplyWide(bool on) {
   g_wide_on = on;
 }
 
+// ---- art dump -----------------------------------------------------------------------------------------------------
+// D2K_ART_DUMP=<dir>: the source rectangle of every object drawn (not the playfield layer), once per distinct content:
+// where the OP read it in memory (DATA, line pitch DWIDTH, first pixel, pixels x rows) and its pixels as the game
+// stores them (colour indices for <= 8 bits, raw words for 16) + their colours. A background strip is a window into
+// a bigger picture, so tools/d2k_art_sheet.py joins rectangles that overlap in memory with the same content into one
+// picture (a sprite's animation frames don't overlap: they stay apart).
+// <dir>/rects.bin: per new rectangle a header of 12 int32 ('D2KR', DATA, DWIDTH, depth, first pixel, w, h, type,
+// flags, frame, pitch, indexed) + w * h uint16 stored values + w * h uint32 RGBA (bytes R G B A; A 0 = see-through).
+// <dir>/index.txt (rewritten every 300 frames and at exit): one line per rectangle with its uses and colourings.
+struct ArtInfo {
+  int n = 0, first = 0, last = 0, count = 0;
+  uint32_t data = 0, dwidth = 0;
+  int depth = 0, type = 0, flags = 0, skip = 0, w = 0, h = 0;
+  std::set<uint64_t> colours;
+};
+std::map<uint64_t, ArtInfo> g_art;
+FILE* g_art_bin = nullptr;
+// Per memory place (DATA, DWIDTH, depth, first pixel): the content last seen there. A new content whose shared
+// pixels differ at all is a conflict; a level loading new art makes one, a clipped sprite (fewer rows) none, a buffer
+// the game draws into (the Classic playfield, the radar) one every update. kArtConflicts conflicts within
+// kArtWindow frames make the place a buffer: left out from then on, listed in buffers.txt (the sheet tool drops the
+// rectangles dumped there before).
+constexpr int kArtConflicts = 6, kArtWindow = 300;
+struct ArtPlace {
+  int w = 0, h = 0;
+  std::vector<uint16_t> val;
+  std::vector<uint32_t> rgba;
+  std::vector<int> conflicts;   // frames
+  bool buffer = false;
+};
+std::map<uint64_t, ArtPlace> g_art_place;
+
+void ArtWriteIndex() {
+  FILE* f = std::fopen((std::string(g_art_dir) + "/index.txt").c_str(), "w");
+  if (!f) return;
+  std::fprintf(f, "# n key data dwidth depth skip w h type flags first last uses colourings\n");
+  std::vector<const std::pair<const uint64_t, ArtInfo>*> v;
+  for (const auto& e : g_art) v.push_back(&e);
+  std::sort(v.begin(), v.end(), [](auto* a, auto* b) { return a->second.n < b->second.n; });
+  for (auto* e : v) {
+    const ArtInfo& a = e->second;
+    std::fprintf(f, "%d %016llx %06X %u %d %d %d %d %d %d %d %d %d %zu\n", a.n, (unsigned long long)e->first, a.data,
+                 a.dwidth, a.depth, a.skip, a.w, a.h, a.type, a.flags, a.first, a.last, a.count, a.colours.size());
+  }
+  std::fclose(f);
+}
+struct ArtAtExit {
+  ~ArtAtExit() {
+    if (g_art_dir && !g_art.empty()) ArtWriteIndex();
+    if (g_art_bin) std::fclose(g_art_bin);
+  }
+} g_art_at_exit;
+
+void ArtDump(const Scene& sc) {
+  static const int kBpp[5] = {1, 2, 4, 8, 16};
+  std::vector<uint16_t> val;
+  std::vector<uint32_t> rgba;
+  for (const Sprite& sp : sc.sprites) {
+    if (IsLayer(sp) || sp.w <= 0 || sp.h <= 0 || sp.depth > 4) continue;
+    const int bpp = kBpp[sp.depth];
+    const bool indexed = bpp <= 8;
+    int w = 0, h = 0;
+    val.clear();
+    rgba.clear();
+    auto put = [&](uint16_t v, int ci, bool opaque) {
+      val.push_back(indexed ? uint16_t(ci) : v);
+      const uint32_t c = ToRgb(v, sc.vmode);
+      rgba.push_back(opaque ? ((c >> 16 & 0xFF) | (c & 0xFF00) | (c & 0xFF) << 16 | 0xFF000000u) : 0u);
+    };
+    if (sp.type == 0 && sp.pitch == 1 && sp.row_y.back() - sp.row_y.front() + 1 == sp.h &&
+        sp.idx.size() == (indexed ? sp.raw.size() : 0)) {
+      w = sp.w, h = sp.h;   // as the OP read it
+      for (size_t k = 0; k < sp.raw.size(); ++k) put(sp.raw[k], indexed ? sp.idx[k] : 0, sp.opaque[k]);
+    } else {   // scaled (or gated rows): the source rows from memory
+      w = sp.src_w - sp.skip, h = std::min(sp.src_h, 1023);
+      if (w <= 0 || w > 2048 || h <= 0) continue;
+      for (int j = 0; j < h; ++j)
+        for (int k = 0; k < w; ++k) {
+          bool zero = false;
+          int ci = 0;
+          const uint16_t v =
+              Pixel(sp.data + uint32_t(j) * sp.dwidth * 8u, sp.skip + k, bpp, sp.pitch, sp.index, &zero, &ci);
+          put(v, ci, !((sp.flags & 4) && zero));
+        }
+    }
+    const uint64_t place_key = uint64_t(sp.data) << 32 | uint64_t(sp.dwidth) << 16 | uint64_t(sp.skip) << 4 |
+                               uint64_t(sp.depth);
+    ArtPlace& pl = g_art_place[place_key];
+    if (pl.buffer) continue;
+    if (pl.w) {
+      int diff = 0, shared = 0;
+      for (int j = 0; j < std::min(h, pl.h); ++j)
+        for (int k = 0; k < std::min(w, pl.w); ++k) {
+          const size_t a = size_t(j) * w + k, b = size_t(j) * pl.w + k;
+          if (!rgba[a] && !pl.rgba[b]) continue;
+          ++shared;
+          diff += !rgba[a] != !pl.rgba[b] || val[a] != pl.val[b];
+        }
+      if (diff > 0) {   // (a scrolled or clipped picture agrees on every shared pixel)
+        pl.conflicts.push_back(g_frames);
+        while (pl.conflicts.front() < g_frames - kArtWindow) pl.conflicts.erase(pl.conflicts.begin());
+        if (int(pl.conflicts.size()) >= kArtConflicts) {
+          pl.buffer = true;
+          if (FILE* f = std::fopen((std::string(g_art_dir) + "/buffers.txt").c_str(), "a")) {
+            std::fprintf(f, "%06X %u %d %d %dx%d frame %d\n", sp.data, sp.dwidth, sp.depth, sp.skip, w, h, g_frames);
+            std::fclose(f);
+          }
+          continue;
+        }
+      }
+    }
+    pl.w = w, pl.h = h, pl.val = val, pl.rgba = rgba;
+    uint64_t key = 1469598103934665603ull, col = key;
+    auto mix = [](uint64_t& hh, uint64_t v) { hh = (hh ^ v) * 1099511628211ull; };
+    mix(key, uint64_t(sp.data) << 32 | sp.dwidth);
+    mix(key, uint64_t(sp.depth) << 48 | uint64_t(sp.skip) << 40 | uint64_t(sp.pitch) << 36 | uint32_t(w) << 16 |
+                 uint32_t(h));
+    for (size_t k = 0; k < val.size(); ++k) {
+      mix(key, rgba[k] ? val[k] + 1u : 0u);
+      mix(col, rgba[k]);
+    }
+    ArtInfo& a = g_art[key];
+    if (a.count == 0) {
+      a.n = int(g_art.size()), a.first = g_frames, a.data = sp.data, a.dwidth = sp.dwidth, a.depth = sp.depth;
+      a.type = sp.type, a.flags = sp.flags, a.skip = sp.skip, a.w = w, a.h = h;
+      if (!g_art_bin) g_art_bin = std::fopen((std::string(g_art_dir) + "/rects.bin").c_str(), "wb");
+      if (g_art_bin) {
+        const int32_t hd[12] = {0x524B3244, int32_t(sp.data), int32_t(sp.dwidth), sp.depth, sp.skip, w, h,
+                                sp.type, sp.flags, g_frames, sp.pitch, indexed};
+        std::fwrite(hd, 4, 12, g_art_bin);
+        std::fwrite(val.data(), 2, val.size(), g_art_bin);
+        std::fwrite(rgba.data(), 4, rgba.size(), g_art_bin);
+      }
+    }
+    a.last = g_frames;
+    ++a.count;
+    if (a.colours.size() < 64) a.colours.insert(col);
+  }
+  if (g_frames % 300 == 0) {
+    ArtWriteIndex();
+    if (g_art_bin) std::fflush(g_art_bin);
+  }
+}
+
 void BeforeFrame() {
   if (!g_active) return;
   ApplyWide(settings::Num("d2k_widescreen", 1) != 0 && settings::Num("d2k_native", 1) != 0);
@@ -920,6 +1078,7 @@ void AfterFrame() {
   std::swap(g_prev_frame, g_cur);
   BuildScene(g_cur);
   ++g_frames;
+  if (g_art_dir) ArtDump(g_cur);
   if (g_glog && g_frames >= g_glog_f0 && g_frames <= g_glog_f1) std::fprintf(g_glog, "F %d\n", g_frames);
   if (const char* ws = std::getenv("D2K_WIDESHOT")) {   // test: D2K_WIDESHOT=F:margin:file - software picture, wider
     char file[512] = {};
