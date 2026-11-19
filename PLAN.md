@@ -1399,3 +1399,5 @@ Open, roughly in order:
   Next candidates: the owner's look in the window (motion, wide), a D2K menu page (own settings: native, smooth
   motion, wide, filter), HUD to the corners on wide windows, stars / shots past line-buffer 0..383 on wide windows,
   stick controls, Classic / Plus modes.
+- 2026-11-19 later: standalone build\d2k.exe (owner: not in the collection for now) with its own menu page, arcade
+  Thrust / Reverse buttons, loudness levelled. Next: the owner's play test (feel of Reverse / Thrust, wide, motion).

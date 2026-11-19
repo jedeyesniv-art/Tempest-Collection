@@ -1,10 +1,13 @@
 @echo off
-rem Defender 2000 with the native renderer (build\t2k.exe hosts it for now).
-rem Settings / saves / states: build\userdata_d2k\ (separate from Tempest 2000's).
-rem Keys: F11 fullscreen, F8 native / emulated picture, F7 smooth motion on / off, F6 wide screen on / off, Esc or pad Back = menu.
+rem Defender 2000 standalone: build\d2k.exe (the same program as t2k.exe, renamed by the build; by its name it
+rem plays Defender 2000 with its own settings menu, controls and saves: build\userdata\d2k_settings.txt,
+rem defender2000.eeprom, states\d2k_slotN.state).
+rem Keys: Esc or pad Back = settings menu, F11 fullscreen, F8 native / emulated picture, F7 smooth motion,
+rem F6 wide screen. Pad: A fire, B / RB smart bomb, X lightning laser (Plus), RT thrust, LB / LT reverse, Y Option,
+rem Start pause (remap in the menu).
 cd /d "%~dp0"
-if not exist "build\t2k.exe" (
-  echo build\t2k.exe is missing - run build.bat first.
+if not exist "build\d2k.exe" (
+  echo build\d2k.exe is missing - run build.bat first.
   pause
   exit /b 1
 )
@@ -13,4 +16,4 @@ if not exist "Defender 2000 (1996).jag" (
   pause
   exit /b 1
 )
-start "" "%~dp0build\t2k.exe" "%~dp0Defender 2000 (1996).jag" --userdata="%~dp0build\userdata_d2k"
+start "" "%~dp0build\d2k.exe" "%~dp0Defender 2000 (1996).jag"

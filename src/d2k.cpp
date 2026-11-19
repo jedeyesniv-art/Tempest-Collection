@@ -859,6 +859,24 @@ bool Install() {
 
 bool Active() { return g_active; }
 
+// Arcade controls. The ship's facing is the word at $190630 (+1 right, -1 left; every mode, from boot on); the game
+// turns the ship when the d-pad points the other way (read on its updates: 2 frames always did it) and thrusts while
+// it points the way the ship faces.
+int Arcade(bool thrust, bool reverse) {
+  static bool rev_prev = false;
+  static int rev_target = 0, rev_frames = 0;
+  const int16_t facing = int16_t(jagMemSpace[0x190630] << 8 | jagMemSpace[0x190631]);
+  const bool pressed = reverse && !rev_prev;
+  rev_prev = reverse;
+  if (facing != 1 && facing != -1) return 0;
+  if (pressed) rev_target = -facing, rev_frames = 0;
+  if (rev_target) {
+    if (facing == rev_target || rev_frames >= 6) rev_target = 0;
+    else return ++rev_frames, rev_target;
+  }
+  return thrust ? facing : 0;
+}
+
 // ---- wide screens ----------------------------------------------------------------------------------------------
 // The object list is built each frame by GPU overlays the 68K copies into $F031C0 from RAM:
 // - layers ($0B2B50): walks the parallax / playfield records, cuts each into strips, drops strips outside line-buffer
@@ -890,7 +908,7 @@ void ApplyWide(bool on) {
 
 void BeforeFrame() {
   if (!g_active) return;
-  ApplyWide(settings::Num("d2k_widescreen", 1) != 0);
+  ApplyWide(settings::Num("d2k_widescreen", 1) != 0 && settings::Num("d2k_native", 1) != 0);
   g_objs.clear();
   g_index.clear();
   for (auto& l : g_line) l = LineState{};

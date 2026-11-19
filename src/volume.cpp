@@ -28,6 +28,7 @@ const Measured kMeasured[] = {
     {"t3k", -21.54f},   // fields 3000-7000, peak -7.5
     {"t81", -19.18f},   // frames 720-5400 (MAME, from the first credit), peak -8.0
     {"txk", -10.96f},   // frames 2800-5400 (level 1), peak 0.0
+    {"d2k", -24.05f},   // frames 1400-6000 (Defender 2000 mode, firing), peak -8.8
 };
 // The owner found -16 a little hot and chose 60% master as normal (2026-11-18): -16 + 20 log10(0.6) = -20.44, so
 // master 100% is that level now and the master volume goes up to 150% from there.

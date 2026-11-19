@@ -15,6 +15,10 @@ bool IsDefender(const std::string& rom_path);   // by the cartridge's contents
 bool Install();                                   // hooks the OP; call after host::Load
 bool Active();
 
+// Arcade controls (Thrust held, Reverse held): the d-pad direction to add this frame (-1 left, +1 right, 0 none).
+// Call once per emulated frame.
+int Arcade(bool thrust, bool reverse);
+
 void BeforeFrame();   // before each emulated frame (clears the capture)
 void AfterFrame();    // after it: builds the frame's scene, tracks game updates
 

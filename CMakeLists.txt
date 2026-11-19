@@ -26,12 +26,16 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang")
   target_compile_options(vj_libchdr PRIVATE -w)
 endif()
 
-add_executable(t2k WIN32 src/main.cpp src/host.cpp src/settings.cpp src/volume.cpp src/runlog.cpp src/t2k.cpp src/menu.cpp src/pixfont.cpp src/t2k_menu.cpp src/controls.cpp src/traps.cpp src/gpulog.cpp src/jagsurvey.cpp src/d2k.cpp src/remaster.cpp src/perf.cpp src/xbr.cpp src/crt.cpp src/crt_menu.cpp res/t2k.rc)
+add_executable(t2k WIN32 src/main.cpp src/host.cpp src/settings.cpp src/volume.cpp src/runlog.cpp src/t2k.cpp src/menu.cpp src/pixfont.cpp src/t2k_menu.cpp src/d2k_menu.cpp src/controls.cpp src/traps.cpp src/gpulog.cpp src/jagsurvey.cpp src/d2k.cpp src/remaster.cpp src/perf.cpp src/xbr.cpp src/crt.cpp src/crt_menu.cpp res/t2k.rc)
 target_link_libraries(t2k PRIVATE vj_core SDL3::SDL3-static)
 target_compile_definitions(t2k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)
   target_link_libraries(t2k PRIVATE ws2_32 iphlpapi winmm)
 endif()
+# Defender 2000 standalone: the same program as d2k.exe (by its name it looks for the Defender 2000 cartridge and
+# keeps its own settings / menu / controls; src/main.cpp g_defender).
+add_custom_command(TARGET t2k POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:t2k> $<TARGET_FILE_DIR:t2k>/d2k.exe)
 
 # Tempest Collection launcher (tempest.exe): picks a game and starts its program (t2k.exe, t3k.exe) or Steam.
 add_executable(tempest WIN32 src/launcher.cpp src/launcher_view.cpp src/pixfont.cpp src/menu.cpp src/controls.cpp src/launcher_sound.cpp src/steam_shortcut.cpp src/settings.cpp src/t3k_compress.cpp third_party/NuanceResurrection/src/stb_vorbis.c res/t2k.rc)

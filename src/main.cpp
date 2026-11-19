@@ -45,6 +45,7 @@ extern "C" uint32_t vjOPSkipLo, vjOPSkipHi, vjOPSkip2Lo, vjOPSkip2Hi;   // core 
 #include "menu.h"
 #include "perf.h"
 #include "t2k_menu.h"
+#include "d2k_menu.h"
 #include "runlog.h"
 #include "settings.h"
 #include "volume.h"
@@ -68,6 +69,8 @@ int KeypadByName(const std::string& n) {
 
 int BtnByName(const std::string& n) {
   if (int k = KeypadByName(n); k >= 0) return k;
+  if (n == "thrust") return 200;    // Defender 2000's arcade buttons (d2k::Arcade)
+  if (n == "reverse") return 201;
   static const char* names[] = {"b", "y", "select", "start", "up", "down", "left", "right",
                                 "a", "x", "l", "r", "l2", "r2", "l3", "r3"};
   for (int i = 0; i < 16; ++i)
@@ -102,9 +105,13 @@ bool WriteWav(const std::string& path, const std::vector<int16_t>& s, uint32_t r
   return true;
 }
 
-std::string FindRom(const std::string& given) {
+// Defender 2000: this program named d2k.exe (or anything with "defender" in it) looks for that cartridge instead and
+// keeps its own settings / log; or any name started with the Defender 2000 image.
+bool g_defender = false;
+
+std::string FindRom(const std::string& given, const char* title_word) {
   if (!given.empty()) return given;
-  // Next to the exe, then the working folder: the first Tempest 2000 image found.
+  // Next to the exe, then the working folder: the first image of the game found.
   // (Also the folder above the exe's: the repo root for build\t2k.exe started from the launcher.)
   std::vector<fs::path> dirs = {fs::path(SDL_GetBasePath()), fs::path(SDL_GetBasePath()) / "game",
                                 fs::current_path(), fs::path(SDL_GetBasePath()).parent_path().parent_path()};
@@ -113,7 +120,7 @@ std::string FindRom(const std::string& given) {
     for (auto& e : fs::directory_iterator(d, ec)) {
       auto name = e.path().filename().string();
       auto ext = e.path().extension().string();
-      if ((ext == ".jag" || ext == ".j64" || ext == ".rom") && name.find("Tempest") != std::string::npos)
+      if ((ext == ".jag" || ext == ".j64" || ext == ".rom") && name.find(title_word) != std::string::npos)
         return e.path().string();
     }
   }
@@ -125,9 +132,58 @@ std::string FindRom(const std::string& given) {
 // maps RetroPad B -> Jag B, A -> Jag A, Y -> Jag C, SELECT -> Pause, START -> Option, X -> keypad 0.
 // Fixed: d-pad / left stick move, Back = settings menu. Keyboard: Z fire, X jump, C Superzapper, O Option,
 // P / Enter Pause, arrows move, Esc menu.
-host::Input ReadPad(SDL_Gamepad* pad, uint32_t held, const bool* keys, t2k::Pad* tp) {
+// Defender 2000's buttons (d2k_menu): Jaguar B fire, C smart bomb, A lightning laser (Plus); Thrust / Reverse are
+// the arcade's, done on the d-pad (d2k::Arcade). Setting d2k_stick_lr off: the stick moves up / down only (arcade);
+// the d-pad keeps the game's own turn-and-thrust and works its menus. Keyboard: Z fire, C smart bomb, X laser,
+// Space thrust, Shift reverse, O Option, P / Enter Pause, arrows.
+host::Input ReadPadD2K(SDL_Gamepad* pad, uint32_t held, const bool* keys) {
   host::Input in;
+  auto set = [&](int b, bool on) { if (on) in.buttons |= uint16_t(1u << b); };
+  set(host::B, controls::FnHeld(held, d2k_menu::kFire));
+  set(host::Y, controls::FnHeld(held, d2k_menu::kBomb));
+  set(host::A, controls::FnHeld(held, d2k_menu::kLaser));
+  set(host::START, controls::FnHeld(held, d2k_menu::kOption));
+  set(host::SELECT, controls::FnHeld(held, d2k_menu::kPause));
+  bool thrust = controls::FnHeld(held, d2k_menu::kThrust), reverse = controls::FnHeld(held, d2k_menu::kReverse);
+  const bool stick_lr = settings::Str("d2k_stick_lr", "game") != "off";
+  if (pad) {
+    auto btn = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(pad, b); };
+    set(host::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP));
+    set(host::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN));
+    set(host::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT));
+    set(host::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT));
+    const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+    if (stick_lr) {
+      set(host::LEFT, lx < -16000);
+      set(host::RIGHT, lx > 16000);
+    }
+    set(host::UP, ly < -16000);
+    set(host::DOWN, ly > 16000);
+  }
+  if (keys) {
+    set(host::UP, keys[SDL_SCANCODE_UP]);
+    set(host::DOWN, keys[SDL_SCANCODE_DOWN]);
+    set(host::LEFT, keys[SDL_SCANCODE_LEFT]);
+    set(host::RIGHT, keys[SDL_SCANCODE_RIGHT]);
+    set(host::B, keys[SDL_SCANCODE_Z]);
+    set(host::Y, keys[SDL_SCANCODE_C]);
+    set(host::A, keys[SDL_SCANCODE_X]);
+    set(host::START, keys[SDL_SCANCODE_O]);
+    set(host::SELECT, keys[SDL_SCANCODE_P] || keys[SDL_SCANCODE_RETURN]);
+    thrust = thrust || keys[SDL_SCANCODE_SPACE];
+    reverse = reverse || keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
+  }
+  const int dir = d2k::Arcade(thrust, reverse);
+  set(host::LEFT, dir < 0);
+  set(host::RIGHT, dir > 0);
+  if (dir) in.buttons &= uint16_t(~(1u << (dir < 0 ? host::RIGHT : host::LEFT)));   // (the arcade button wins)
+  return in;
+}
+
+host::Input ReadPad(SDL_Gamepad* pad, uint32_t held, const bool* keys, t2k::Pad* tp) {
   *tp = {};
+  if (g_defender) return ReadPadD2K(pad, held, keys);
+  host::Input in;
   auto set = [&](int b, bool on) { if (on) in.buttons |= uint16_t(1u << b); };
   set(host::B, controls::FnHeld(held, t2k_menu::kFire));
   set(host::A, controls::FnHeld(held, t2k_menu::kJump));
@@ -385,18 +441,29 @@ int main(int argc, char** argv) {
   }
   // Saves / settings next to the program unless given (Steam and shortcuts start it from other folders).
   if (!userdata_given) userdata = (fs::path(SDL_GetBasePath()) / "userdata").string();
-  if (from_launcher) runlog::Start(fs::absolute(userdata), "t2k");   // no console: userdata\logs\t2k.log
-  rom = FindRom(rom);
-  if (rom.empty()) {
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 2000",
-                             "Put your Tempest 2000 cartridge image (.jag) next to the program.", nullptr);
-    return 1;
+  {
+    std::string exe = fs::path(argv[0]).stem().string();
+    for (auto& c : exe) c = char(std::tolower(static_cast<unsigned char>(c)));
+    const bool d2k_app = exe.find("d2k") != std::string::npos || exe.find("defender") != std::string::npos;
+    rom = FindRom(rom, d2k_app ? "Defender" : "Tempest");
+    g_defender = !rom.empty() && d2k::IsDefender(rom);
+    if (rom.empty()) {
+      const char* game = d2k_app ? "Defender 2000" : "Tempest 2000";
+      SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, game,
+                               (std::string("Put your ") + game + " cartridge image (.jag) next to the program.").c_str(),
+                               nullptr);
+      return 1;
+    }
   }
+  const char* app = g_defender ? "d2k" : "t2k";
+  if (from_launcher) runlog::Start(fs::absolute(userdata), app);   // no console: userdata\logs\<app>.log
   fs::create_directories(userdata);
-  settings::Load((fs::path(userdata) / "settings.txt").string());
-  volume::Init(fs::absolute(userdata), "t2k");
+  // Defender 2000 keeps its own settings next to Tempest 2000's (the EEPROM and save states are separate too).
+  settings::Load((fs::path(userdata) / (g_defender ? "d2k_settings.txt" : "settings.txt")).string());
+  volume::Init(fs::absolute(userdata), app);
   for (auto& [k, v] : sets) settings::Set(k, v);
-  t2k_menu::Install(from_launcher);
+  if (g_defender) d2k_menu::Install(from_launcher);
+  else t2k_menu::Install(from_launcher);
   for (auto& [k, v] : opts) host::SetOption(k, v);
   std::string err;
   if (!host::Load(rom, fs::absolute(userdata).string(), &err)) {
@@ -441,11 +508,16 @@ int main(int argc, char** argv) {
     auto t0 = std::chrono::steady_clock::now();
     for (int f = 0; f < frames; ++f) {
       host::Input in;
+      bool thrust = false, reverse = false;
       for (auto& p : presses)
         if (p.btn >= 0 && f >= p.frame && f < p.frame + p.len) {
-          if (p.btn >= 100) in.keypad |= uint16_t(1u << (p.btn - 100));
+          if (p.btn == 200) thrust = true;
+          else if (p.btn == 201) reverse = true;
+          else if (p.btn >= 100) in.keypad |= uint16_t(1u << (p.btn - 100));
           else in.buttons |= uint16_t(1u << p.btn);
         }
+      if (g_defender)
+        if (const int dir = d2k::Arcade(thrust, reverse)) in.buttons |= uint16_t(1u << (dir < 0 ? host::LEFT : host::RIGHT));
       t2k::Pad tp;
       for (auto& s : sticks)
         if (f >= s.frame && f < s.frame + s.len) { tp.lx = s.x; tp.ly = s.y; }
@@ -521,7 +593,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  SDL_Window* win = SDL_CreateWindow("Tempest 2000", win_w, win_h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+  SDL_Window* win = SDL_CreateWindow(g_defender ? "Defender 2000" : "Tempest 2000", win_w, win_h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
   if (win) {   // the claw-ship icon (the exe carries it too: res/t2k.rc)
     if (SDL_Surface* icon = SDL_CreateSurfaceFrom(64, 64, SDL_PIXELFORMAT_ABGR8888, (void*)k_icon_rgba, 64 * 4)) {
       SDL_SetWindowIcon(win, icon);
@@ -590,7 +662,7 @@ int main(int argc, char** argv) {
       else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F5) {
         settings::Reload();
         menu::Toast("Settings reloaded", now);
-      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F2) {
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F2 && !g_defender) {
         settings::Save("stick_mode", settings::Str("stick_mode", "lr") == "aim" ? "lr" : "aim");
         menu::Toast(settings::Str("stick_mode", "lr") == "aim" ? "Stick: aim" : "Stick: left / right", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F9) {
@@ -677,13 +749,13 @@ int main(int argc, char** argv) {
       const bool bksp = keys[SDL_SCANCODE_BACKSPACE];
       if (((pressed >> 1) & 1 || (bksp && !prev_bksp)) && t2k::MenuScreen()) t2k::MenuBack();
       prev_bksp = bksp;
-      if (fn_pressed(t2k_menu::kCamera)) {
+      if (!g_defender && fn_pressed(t2k_menu::kCamera)) {
         int v = (int(settings::Num("camera_view", 0)) + 1) % 3;
         settings::Save("camera_view", std::to_string(v));
         menu::Toast(std::string("Camera: ") + kViewNames[v], now);
       }
       // On the game's pause screen the Option button quits to the title.
-      if (t2k::Paused() && fn_pressed(t2k_menu::kOption)) {
+      if (!g_defender && t2k::Paused() && fn_pressed(t2k_menu::kOption)) {
         t2k::ReturnToTitle();
         quiet_frames = 180;
       }
@@ -691,7 +763,7 @@ int main(int argc, char** argv) {
     prev_back = back;
 
     // The pause screen's extra line names the first button bound to Option.
-    {
+    if (!g_defender) {
       std::string b = controls::ButtonsFor(t2k_menu::kOption);
       b = b.substr(0, b.find(','));
       for (auto& c : b) c = char(std::tolower(static_cast<unsigned char>(c)));

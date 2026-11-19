@@ -511,9 +511,22 @@ Tooling pitfalls (cost time today)
   run exes from the current folder (use full paths).
 
 ## Defender 2000 renderer (2026-11-18; PLAN.md "Defender 2000")
-- Runs in t2k.exe: "Defender 2000.bat" (repo root) = build\t2k.exe "Defender 2000 (1996).jag"
-  --userdata=build\userdata_d2k (FindRom only finds Tempest). d2k::IsDefender (by file
-  name for now) -> src/d2k.cpp instead of t2k / remaster. Own saves: userdata\defender2000.eeprom, states\d2k_slotN.
+- Standalone d2k.exe (2026-11-19, owner: not in the collection for now): the build copies t2k.exe to build\d2k.exe;
+  main.cpp g_defender = the exe's name has "d2k" / "defender" (FindRom then looks for "Defender") or the cartridge is
+  Defender 2000 (d2k::IsDefender, by file name). Then: userdata\d2k_settings.txt, defender2000.eeprom,
+  states\d2k_slotN.state, log d2k, volume key d2k (-24.05 LUFS measured), window title, src/d2k_menu.cpp page
+  (volume, save states, controls, picture: renderer / smooth motion / wide / pixels, CRT), ReadPadD2K; the T2K-only
+  keys and hooks (F2, camera, pause line, quit to title) are off. "Defender 2000.bat" starts build\d2k.exe.
+- Controls (manual + tests): d-pad left / right = the game's turn-and-thrust (push the way you face to thrust, the
+  other way turns and thrusts), up / down move; Jaguar B fire, C smart bomb, A lightning laser (Plus only; nothing in
+  2000 mode). No hyperspace button in any mode. The game's "Six Buttons" joypad option is Classic's Pro Controller
+  arcade layout (A fire, B thrust, C bomb, left shoulder reverse); not used: our arcade buttons work in every mode.
+  Arcade buttons (d2k::Arcade): the ship's facing is the word at $190630 (+1 / -1, every mode, set from boot on);
+  Thrust holds the d-pad that way, Reverse holds the other way until the word flips (<= 6 frames; 2 always did it,
+  the ship keeps most of its speed). Defaults: A fire, B / RB bomb, X laser, RT thrust, LB / LT reverse, Y Option,
+  Start pause; setting d2k_stick_lr off = the stick moves up / down only (the d-pad still turns, for the game's
+  menus: no reliable "in play" flag found - $0B4BE6 / $180FEA stay 1 after a game over). Keyboard: Z fire, C bomb,
+  X laser, Space thrust, Shift reverse. Headless: --press=F:thrust / reverse.
 - No source exists. Survey: t2k --survey=F0:F1:file (src/jagsurvey.cpp, core hooks vjHostGpuGo / vjHostBlit /
   vjHostOpObject). The picture is all OP bitmaps (CRY, VMODE $06C1, BGEN, per-line BG = the sky gradient set from GPU
   objects); the only RMW object is the scanner bar. Game updates at 30 Hz (every 2nd frame) in play.
