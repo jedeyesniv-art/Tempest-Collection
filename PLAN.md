@@ -1405,3 +1405,6 @@ Open, roughly in order:
   loader in d2k.cpp (setting d2k_hires, F4). Next: the owner's look in play; then maybe the edge fringe on small
   sprites (black baked into their edges), the 28 recoloured pictures (per-colouring replacements), Classic's pixel art
   (a pixel-art scaler?), text / HUD redrawn by us.
+- 2026-11-19 later: no pop-in at wide edges (the layer builder covers a tile past each edge), the ground carries on to
+  the window's edges, smoothed mountain ridges. Found: Plus mode's nebula clouds + radar landscape line are missing
+  from our renderer (GPU-drawn? to investigate); Classic differs a little too.

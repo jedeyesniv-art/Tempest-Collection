@@ -69,6 +69,8 @@ struct Sprite {
   // before (a tile scrolling out at the left edge); drawn while the motion is between the two.
   int lead = 0;
   std::vector<uint32_t> lead_rgb;   // lead * h, premultiplied XRGB (0 = see-through)
+  int tail = 0;                     // unreflected only: columns drawn after the last (wide screens: the ground)
+  std::vector<uint32_t> tail_rgb;   // tail * h, as lead_rgb
 };
 struct Scene {
   std::vector<Sprite> sprites;
@@ -502,7 +504,7 @@ int g_layer = -1;                          // the layer's index in g_cur.sprites
 int g_items_matched = 0, g_items_total = 0;
 
 bool IsLayer(const Sprite& sp) {
-  return sp.type == 0 && sp.depth == 3 && sp.w >= 300 && !(sp.flags & 3) && sp.h > 0 &&
+  return sp.type == 0 && sp.depth == 3 && sp.w >= 300 && !(sp.flags & 3) && sp.h >= 200 &&
          sp.row_y.back() - sp.row_y.front() + 1 == sp.h;
 }
 
@@ -899,7 +901,7 @@ int Arcade(bool thrust, bool reverse) {
 //   left one clipped the same way.
 // Patched (in their RAM sources, so every copy carries it) to keep things from far left to 511, unclipped (the OP
 // draws a negative XPOS itself): what the game has beyond the 4:3 picture reaches the line buffer and our capture.
-struct Patch { uint32_t addr; int n; uint8_t orig[4], wide[4]; };
+struct Patch { uint32_t addr; int n; uint8_t orig[88], wide[88]; };
 constexpr uint32_t kLayers = 0x0B2B50, kSprites = 0x0A5938, kRun = 0xF031C0;
 constexpr Patch kWide[] = {
     {kLayers + (0xF03444 - kRun), 2, {0x18, 0x3A}, {0x01, 0xDA}},   // subq #1,r26 -> add r14,r26: strips up to 300 left
@@ -908,8 +910,54 @@ constexpr Patch kWide[] = {
     {kSprites + (0xF034C8 - kRun), 4, {0x00, 0x00, 0x00, 0x00}, {0xFF, 0xA0, 0xFF, 0xFF}},   // movei #0 -> #-96: left
     {kSprites + (0xF034D0 - kRun), 2, {0x01, 0x80}, {0x02, 0x00}},   // movei #$180 -> #$200: right
     {kSprites + (0xF03726 - kRun), 2, {0xD0, 0x14}, {0xD0, 0x00}},   // jump pl -> jump t: no left clip
+    // The layer builder's first part (per layer: x = -(camera & mask), the strips' map entries from camera >> shift)
+    // starts one tile further left: x - (mask + 1), map index - 1 (a mask-0 layer, fixed, stays: bit 0 cleared).
+    // Room from a redundant 'or', the jr / jump delay slots and a shorter r13 set-up; the loop moves up 2 bytes.
+    // With the counts + 2 (below) a layer covers a tile past each edge: no strip pops in at a wide view's edges.
+    {kLayers + (0xF03218 - kRun), 88,
+     {0x98, 0x08, 0x32, 0x2A, 0x00, 0xF0, 0x98, 0x09, 0x32, 0x82, 0x00, 0xF0, 0x98, 0x0D, 0x32, 0x86, 0x00, 0xF0, 0xA4, 0x54, 0x08, 0x82, 0xA4, 0x55, 0x08, 0x82, 0x7C, 0x14, 0xD1, 0xA2, 0xE4, 0x00, 0x88, 0x6C, 0xA6, 0xB6, 0x2A, 0xD6, 0x7C, 0x16, 0xD4, 0x61, 0xE4, 0x00, 0xD1, 0x00, 0xE4, 0x00, 0x65, 0x16, 0x42, 0xCC, 0x64, 0xCC, 0x8A, 0x8B, 0x08, 0x95, 0x9E, 0xA7, 0x0B, 0x0B, 0x08, 0x35, 0x9E, 0xA4, 0x08, 0x35, 0x9E, 0xB6, 0x08, 0x35, 0x9E, 0xA5, 0x08, 0x35, 0xA6, 0xA6, 0x89, 0x80, 0x24, 0x80, 0x5E, 0xCC, 0x20, 0x00, 0xBA, 0x80},
+     {0x98, 0x08, 0x32, 0x28, 0x00, 0xF0, 0x98, 0x09, 0x32, 0x82, 0x00, 0xF0, 0x89, 0x2D, 0x08, 0x8D, 0xA4, 0x54, 0x08, 0x82, 0xA4, 0x55, 0x08, 0x82, 0x7C, 0x14, 0xD1, 0xA2, 0xE4, 0x00, 0x88, 0x6C, 0xA6, 0xB6, 0x7C, 0x16, 0xD4, 0x41, 0x65, 0x16, 0xD1, 0x00, 0x42, 0xCC, 0x64, 0xCC, 0x8A, 0x8B, 0x08, 0x95, 0x9E, 0xA7, 0x0B, 0x0B, 0x08, 0x35, 0x9E, 0xA4, 0x08, 0x35, 0x9E, 0xB6, 0x08, 0x35, 0x9E, 0xA5, 0x08, 0x35, 0xA6, 0xA6, 0x89, 0x80, 0x24, 0x80, 0x08, 0x24, 0x3C, 0x04, 0x00, 0x80, 0x10, 0x8C, 0x5E, 0xCC, 0x20, 0x00, 0xBA, 0x80}},
 };
 bool g_wide_on = false;
+
+// The layers' strip counts (descriptor + 4; the record holds 7 strips): + 2 with the patch above, for each layer
+// with a mask (tiles). The layer list ((record, descriptor) pairs up to a 0 record) is the level's: the 68K at $A4EEE
+// puts the long at $B811C + 16 * word $B822E into $B8118 just before it runs the builder ($B8118 holds another list
+// the rest of the frame - not to be touched). Remembered per descriptor so a level's own rewrite is the new original.
+std::map<uint32_t, std::pair<uint8_t, uint8_t>> g_layer_counts;   // descriptor -> original, ours
+void LayerCounts(bool on) {
+  auto be32 = [](uint32_t a) { return Be32(jagMemSpace + (a & 0x1FFFFC)); };
+  static const uint8_t kPick[] = {0x41, 0xF9, 0x00, 0x0B, 0x81, 0x1C, 0x30, 0x39, 0x00, 0x0B, 0x82, 0x2E,   // lea, move.w
+                                  0xE9, 0x48, 0x23, 0xF0, 0x00, 0x00, 0x00, 0x0B, 0x81, 0x18};          // lsl, move.l
+  if (std::memcmp(jagMemSpace + 0x0A4EEE, kPick, sizeof kPick) != 0) return;
+  const uint32_t level = uint32_t(jagMemSpace[0x0B822E] << 8 | jagMemSpace[0x0B822F]);
+  if (level > 64) return;
+  const uint32_t list = be32(0x0B811C + 16 * level);
+  if (list < 0x1000 || list >= 0x200000) return;
+  for (int i = 0; i < 16; ++i) {
+    const uint32_t rec = be32(list + 8u * uint32_t(i)), desc = be32(list + 8u * uint32_t(i) + 4);
+    if (rec == 0 || desc < 0x1000 || desc >= 0x1FFFF0) break;
+    uint8_t& count = jagMemSpace[desc + 4];
+    const uint8_t mask = jagMemSpace[desc + 5];
+    auto it = g_layer_counts.find(desc);
+    if (it == g_layer_counts.end() || (count != it->second.first && count != it->second.second))
+      it = g_layer_counts.insert_or_assign(desc, std::pair<uint8_t, uint8_t>(
+                                                     count, uint8_t(mask ? std::min(count + 2, 7) : count))).first;
+    count = on ? it->second.second : it->second.first;
+    // The record's own strip count (word + 10, bit 15 a flag), which the second part loops over: the same + 2.
+    static std::map<uint32_t, std::pair<uint16_t, uint16_t>> rec_counts;
+    uint8_t* rw = jagMemSpace + rec + 10;
+    const uint16_t now = uint16_t(rw[0] << 8 | rw[1]);
+    auto rt = rec_counts.find(rec);
+    if (rt == rec_counts.end() || (now != rt->second.first && now != rt->second.second)) {
+      const int n = now & 0x7FFF;
+      rt = rec_counts.insert_or_assign(rec, std::pair<uint16_t, uint16_t>(
+                                                now, uint16_t((now & 0x8000) | (mask && n ? std::min(n + 2, 7) : n)))).first;
+    }
+    const uint16_t v = on ? rt->second.second : rt->second.first;
+    rw[0] = uint8_t(v >> 8), rw[1] = uint8_t(v);
+  }
+}
 
 void ApplyWide(bool on) {
   for (const Patch& p : kWide) {   // only over the original (or our) bytes: another game / version stays untouched
@@ -917,6 +965,7 @@ void ApplyWide(bool on) {
     if (std::memcmp(m, p.orig, size_t(p.n)) != 0 && std::memcmp(m, p.wide, size_t(p.n)) != 0) return;
   }
   for (const Patch& p : kWide) std::memcpy(jagMemSpace + p.addr, on ? p.wide : p.orig, size_t(p.n));
+  LayerCounts(on);
   g_wide_on = on;
 }
 
@@ -1177,6 +1226,57 @@ void AfterFrame() {
       }
     }
   }
+  // Wide screens: a full-width 8-bit strip low on the screen (the ground: rows of colour ramps the game cycles, each
+  // repeating with its own period, wider down the rows) carries on past both ends, each row repeated at its period
+  // (found by the fewest mismatches; mirrored if none fits).
+  if (g_wide_on)
+    for (Sprite& sp : g_cur.sprites) {
+      if (sp.type != 0 || sp.depth > 3 || sp.w < 300 || sp.h > 64 || (sp.flags & 3) || sp.lead || sp.x > 0 ||
+          sp.x + sp.w < 384 || sp.row_y.back() - sp.row_y.front() + 1 != sp.h)
+        continue;
+      constexpr int kExt = 160;
+      static std::map<uint32_t, std::vector<int>> periods;   // per strip (DATA): each row's period, kept while it fits
+      std::vector<int>& per = periods[sp.data];
+      per.resize(size_t(sp.h), 0);
+      const int w = sp.w;
+      auto px = [&](int j, int o) { return sp.raw[size_t(j) * w + o] | (sp.opaque[size_t(j) * w + o] ? 0 : 0x10000u); };
+      auto misses = [&](int j, int pp, int limit) {
+        int m = 0;
+        for (int o = 0; o + pp < w && m <= limit; ++o) m += px(j, o) != px(j, o + pp);
+        return m;
+      };
+      sp.lead = sp.tail = kExt;
+      sp.lead_rgb.assign(size_t(kExt) * sp.h, 0);
+      sp.tail_rgb.assign(size_t(kExt) * sp.h, 0);
+      for (int j = 0; j < sp.h; ++j) {
+        int& pp = per[size_t(j)];
+        if (pp == 0 || misses(j, pp, (w - pp) / 5) * 5 > w - pp) {
+          pp = 0;
+          int best = w;
+          for (int c = 4; c <= w / 2; ++c) {
+            const int m = misses(j, c, best);
+            if (m * 5 <= w - c && m < best) best = m, pp = c;
+            if (m == 0) break;
+          }
+        }
+        for (int k = 0; k < kExt; ++k) {
+          int ol = k - kExt, orr = w + k;   // offsets left of 0 / right of the last
+          if (pp) {
+            ol += ((-ol + pp - 1) / pp) * pp;
+            orr -= ((orr - w + pp) / pp) * pp;
+          } else {
+            ol = std::min(-ol - 1, w - 1);
+            orr = std::max(2 * w - orr - 1, 0);
+          }
+          auto rgb = [&](int o) {
+            const size_t i = size_t(j) * w + o;
+            return sp.opaque[i] ? (ToRgb(sp.raw[i], g_cur.vmode) | 0xFF000000u) : 0u;
+          };
+          sp.lead_rgb[size_t(j) * kExt + k] = rgb(ol);
+          sp.tail_rgb[size_t(j) * kExt + k] = rgb(orr);
+        }
+      }
+    }
   if (g_upd_frame == g_frames && g_this_upd.size() == g_motion.size())
     for (size_t i = 0; i < g_motion.size(); ++i) g_this_upd[i].mdx = g_motion[i].dx, g_this_upd[i].mdy = g_motion[i].dy;
   // Test: D2K_LAYER_DUMP=<prefix>: the 8-bit playfield layer's raw bytes each update (<prefix>_<frame>.bin, a
@@ -1372,8 +1472,11 @@ void HiLoad(SDL_Renderer* ren) {
       for (int j = 0; j < hi->h; ++j) {   // premultiplied (the mask is 0 / 255)
         uint32_t* r = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(hi->pixels) + size_t(j) * hi->pitch);
         for (int i = 0; i < hi->w; ++i)
-          if ((r[i] >> 24) < 128) r[i] = 0;
-          else r[i] |= 0xFF000000u;
+          {
+            const uint32_t a = r[i] >> 24;
+            auto mul = [a](uint32_t c) { return (c * a + 127) / 255; };
+            r[i] = a << 24 | mul(r[i] >> 16 & 0xFF) << 16 | mul(r[i] >> 8 & 0xFF) << 8 | mul(r[i] & 0xFF);
+          }
       }
       p.tex = SDL_CreateTextureFromSurface(ren, hi);
       if (p.tex) {
@@ -1405,6 +1508,7 @@ Gpu::Src HiFor(const Sprite& sp, uint16_t vmode) {
   if (pitch_px <= 0) return {};
   const int64_t at = int64_t(sp.data) * 8 / bpp + sp.skip, row = at / pitch_px, col = at % pitch_px;
   const int64_t c0 = (sp.flags & 1) ? col : col - sp.lead;
+  if (sp.tail) return {};
   const int wtot = sp.w + sp.lead;
   if (sp.type == 1) {
     const float sx = 32.f / float(sp.hs), sy = 32.f / float(sp.vs);
@@ -1470,7 +1574,7 @@ void BuildAtlas(SDL_Renderer* ren) {
   static std::vector<uint8_t> written;
   Compose(g_cur, lbuf, written, kLbufW, kRows, &g_gpu.deltas);
   std::vector<std::pair<int, int>> sizes;
-  for (const Sprite& sp : g_cur.sprites) sizes.push_back({sp.lead + sp.w, sp.h});
+  for (const Sprite& sp : g_cur.sprites) sizes.push_back({sp.lead + sp.w + sp.tail, sp.h});
   for (const RmwDelta& d : g_gpu.deltas) {
     const Sprite& sp = g_cur.sprites[d.sprite];
     sizes.push_back({sp.w, sp.h});
@@ -1513,6 +1617,9 @@ void BuildAtlas(SDL_Renderer* ren) {
         g_gpu.px[size_t(r.y + j) * size + r.x + o] =
             sp.opaque[k] ? (ToRgb(sp.raw[k], g_cur.vmode) | 0xFF000000u) : 0u;
       }
+    for (int j = 0; j < sp.h; ++j)
+      for (int k = 0; k < sp.tail; ++k)
+        g_gpu.px[size_t(r.y + j) * size + r.x + sp.w + k] = sp.tail_rgb[size_t(j) * sp.tail + k];
   }
   g_gpu.rmw_at.clear();
   for (size_t d = 0; d < g_gpu.deltas.size(); ++d) {
@@ -1562,7 +1669,8 @@ void BuildAtlas(SDL_Renderer* ren) {
         px[size_t(r.y + h - 1 + k) * size + r.x + i] = px[size_t(r.y + h - 1) * size + r.x + i];
       }
   };
-  for (size_t i = 0; i < n; ++i) pad(rects[i], g_cur.sprites[i].lead + g_cur.sprites[i].w, g_cur.sprites[i].h);
+  for (size_t i = 0; i < n; ++i)
+    pad(rects[i], g_cur.sprites[i].lead + g_cur.sprites[i].w + g_cur.sprites[i].tail, g_cur.sprites[i].h);
   for (size_t d = 0; d < g_gpu.deltas.size(); ++d) {
     const Sprite& sp = g_cur.sprites[g_gpu.deltas[d].sprite];
     pad(rects[n + 2 * d], sp.w, sp.h);
@@ -1670,14 +1778,14 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
       int j1 = j0 + 1;
       while (j1 < sp.h && sp.row_y[j1] == sp.row_y[j1 - 1] + 1) ++j1;
       const float y0 = wy(float(sp.row_y[j0]) + oy), y1 = wy(float(sp.row_y[j1 - 1] + 1) + oy);
-      float x0, x1, u0 = r.u0, u1 = r.u0 + float(sp.lead + sp.w) * r.du;
+      float x0, x1, u0 = r.u0, u1 = r.u0 + float(sp.lead + sp.w + sp.tail) * r.du;
       if (sp.flags & 1) {   // reflected: pixel o at x - o
         x0 = wx(float(sp.x - sp.w - sp.lead + 1) + ox);
         x1 = wx(float(sp.x + 1) + ox);
         std::swap(u0, u1);
       } else {
         x0 = wx(float(sp.x - sp.lead) + ox);
-        x1 = wx(float(sp.x + sp.w) + ox);
+        x1 = wx(float(sp.x + sp.w + sp.tail) + ox);
       }
       quad(x0, y0, x1, y1, u0, r.v0 + float(j0) * r.dv, u1, r.v0 + float(j1) * r.dv, white);
       j0 = j1;

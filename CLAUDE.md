@@ -570,6 +570,25 @@ Tooling pitfalls (cost time today)
   tools/d2k_art_route.py <m2000|classic|plus> (16000 frames). First census (attract + 3 modes): 434
   pictures, ~0.95 Mpx (25 big: title pictures, logos, backdrops); 2000 / Plus art is pre-rendered CGI (16-bit),
   Classic is tiny arcade pixel art; 28 seen in several colourings.
+- Wide edges (2026-11-19 later; owner: "pop in at the edges", ground short of the border): each backdrop band is a
+  window of N strips over a tile map, first strip at x in (-tile, 0], so its right end jumped between 384 and 512 and
+  new strips appeared inside a 16:9 view (mirrored pads filled the gap until then). The layer builder's first part
+  (per layer descriptor: speed long, count, mask, shift, map mask bytes, map long; record + 24 = strip ids, record
+  + 10 = the second part's own count, bit 15 a flag) is patched (kWide 88-byte block at F03218: one tile further
+  left; a mask-0 layer stays) and LayerCounts raises both counts by 2 (7 at most). The level's layer list is the long
+  at $B811C + 16 * word $B822E (the 68K at $A4EEE puts it in $B8118 just before the builder runs; $B8118 holds the
+  sprite list the rest of the frame - never patch through it). Tile table: {DATA, height, id} entries.
+  The ground (8-bit 384 x 20 buffer at row 234, redrawn each update: rows of colour ramps, each periodic, 32 + 4 *
+  row px) carries on 160 px past both ends, each row repeated at its period (Sprite lead / tail columns). IsLayer
+  (the playfield layer) now needs h >= 200. 4:3 checks unchanged with the patches (same results on / off).
+- Ridges: tools/d2k_ridges.py (run by d2k_art_pack.py) smooths stair-stepped backdrop outlines in the 4x pack: lines
+  through run middles where neighbouring runs differ by <= 3 px (bigger jumps stay vertical: cacti, rocks), ends
+  pinned (tiles meet), --ridge-detail 0.5 px rocky roughness, anti-aliased edge (the loader premultiplies real alpha).
+  Chosen pictures: >= 128 wide, bottom row solid, >= 12 steps, big jumps <= steps / 4 (desert mountains / dunes; city
+  skylines and logos untouched).
+- Known renderer gap (found 2026-11-19, not new): Plus mode's purple nebula clouds and the radar's landscape line are
+  not in our picture (--d2kcheck on the Plus route: 400-75000 px off; Classic 350-550 px), no unhandled objects
+  reported - probably GPU-drawn into the line buffer. 2000 mode exact.
 - High-res art (2026-11-19; setting d2k_hires default 1, F4, menu PICTURE "High-res art"): pack build\d2k_art (never
   in git / published: made from the cartridge) = pack.txt (each picture's memory place: depth, DWIDTH, OP pitch, row /
   column = pixel address // and % the line pitch in pixels) + src\<n>.png (1x original) + hi\<n>.png (4x). Built by
