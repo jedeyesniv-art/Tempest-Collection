@@ -174,6 +174,9 @@ reference/tools/rmac is a clone of the assembler; building / running it was refu
 classifier (downloaded code) - ask the owner before trying again.
 
 ## Where we are (end of 2026-11-17, evening; start here next time)
+Latest (2026-11-19): Defender 2000 work - a standalone build\d2k.exe ("Defender 2000.bat"), deliberately NOT in the
+collection (owner: "it's not Tempest", for now). State and next steps: "Defender 2000 renderer" below and PLAN.md
+"Defender 2000"; waiting on the owner's play test (arcade Thrust / Reverse, wide screen, smooth motion).
 All committed; play folder current (dist\TempestCollection, ~0.67 GB; the owner plays it from Steam on Windows and on
 the Steam Deck). THE TO-DO LIST: PLAN.md "Collection status and open items". NEXT: item 5 step 2 (master volume + normalised loudness);
 step 1 (the launcher's settings menu shell + T3K disc again + launcher options) done 2026-11-18. Also done late 2026-11-17: the launcher's T3K disc
