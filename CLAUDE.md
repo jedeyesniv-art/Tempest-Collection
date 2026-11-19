@@ -526,7 +526,27 @@ Tooling pitfalls (cost time today)
   updates (one update behind). Motion: same image (clipping by DATA / width recognised; same size + moved DATA =
   another animation frame, not motion), else predicted (still / own last motion / a layer's) within 10 px, else a
   layer sibling's. Lead-ins + ghosts fill the left edge while blending. Settings d2k_native (F8), d2k_interpolate (F7),
-  d2k_filter sharp (SDL PIXELART) / smooth / nearest. Tests: D2K_FORCE_A=<0..1> (window), D2K_MOTION_LOG=1,
+  d2k_widescreen (F6), d2k_filter sharp (SDL PIXELART) / smooth / nearest (no D2K menu page yet). Tests: D2K_FORCE_A=<0..1> (window), D2K_MOTION_LOG=1,
   D2K_WHO=x,y (with --d2kcheck). Cost ~0.4 ms a present at 1920x1440.
-- Not smooth yet: whatever the game draws INTO the 8-bit 384x238 playfield bitmap (stars, shots, particles?) moves at
-  30 Hz with that bitmap.
+- Playfield layer (2026-11-19): the 8-bit 384x238 bitmap is cleared (blitter) and redrawn every update: sky stars
+  (GPU tables, several parallax speeds), scanner blips, lasers (blitter rows built in a scratch row at $18E166..),
+  explosion particles. Window: cut into items per update (8-connected pixel groups; a row of dashes = one beam) and
+  matched to the update before's: (1) bursts - an explosion's pieces as one group moved by its centroid and scaled
+  about it (one scale fits every ring: same start point and time; particles change colour as they age, so grouped by
+  outline), its unpaired pieces moved by the model; (2) shape near a prediction (still / own last motion / this
+  update's common displacements / the sprite layers'); (3) mutual nearest; (4) beams by row, ends blended. New items
+  fade in, vanished ones fade out over the first half of an update. D2K_ITEM_LOG=1 prints per update; D2K_LAYER_DUMP=
+  <prefix> writes the layer's bytes per update. Known: a burst leaving the layer's left edge (x < 0) breaks up.
+- Wide screens (2026-11-19; setting d2k_widescreen, default 1, F6): the object list is built by GPU overlays the 68K
+  copies into $F031C0 from RAM - layers $0B2B50 (records -> 128/256 px strips, cull 0..383, left clip by DATA),
+  sprites $0A5938 (world x - camera & 4095 - 255, kept while -w < x < 384 + w, left clip). d2k.cpp kWide patches their
+  RAM sources (only over the original bytes): no left clips (the OP draws negative XPOS), strips up to 300 left,
+  sprites -96..512. Our picture then fills the window around the 4:3 dst (Draw's view); a layer's end strips continue
+  in mirrored copies where its record runs short (21:9). HUD stays in the 4:3 place; the playfield layer (stars,
+  shots) only covers line-buffer 0..383. The 4:3 core picture is unchanged (sweep 94 / 94 exact with the patches).
+  Side effect: the sprite overlay steps animations only for kept objects, now a wider window (no game logic seen).
+- Survey tools: D2K_GPULOG=F0:F1:file (GPU loads / stores outside its RAM + blits; core hook vjHostGpuMem),
+  D2K_M68KLOG=F0:F1:lo:hi:file (writes into a range by the 68K with its pc, or by another unit as $FF0000xx | who;
+  core hook vjHostM68kWrite), D2K_RAMDUMP=F:file (2 MB), D2K_WIDESHOT=F:margin:file (software picture, wider),
+  tools/jrisc_dis.py (GPU disassembler: python -I tools/jrisc_dis.py ram.bin <src> <len> <run address>), capstone
+  (installed) for 68K.

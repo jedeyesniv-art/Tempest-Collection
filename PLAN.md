@@ -1394,3 +1394,8 @@ Open, roughly in order:
 - 2026-11-18 later: native renderer + interpolation done (CLAUDE.md "Defender 2000 renderer"). Next candidates: what is
   drawn into the 8-bit playfield bitmap (30 Hz still), widescreen (the game culls at the edges: needs the world's
   objects past them), the owner's look at it in the window, then stick controls and the Classic / Plus modes.
+- 2026-11-19: shots / particles / stars smooth (the playfield layer cut into matched items) and wide screens (the
+  game's two list-building GPU overlays patched in RAM; mirrored layer ends). CLAUDE.md "Defender 2000 renderer".
+  Next candidates: the owner's look in the window (motion, wide), a D2K menu page (own settings: native, smooth
+  motion, wide, filter), HUD to the corners on wide windows, stars / shots past line-buffer 0..383 on wide windows,
+  stick controls, Classic / Plus modes.

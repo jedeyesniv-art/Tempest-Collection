@@ -1,7 +1,7 @@
 @echo off
 rem Defender 2000 with the native renderer (build\t2k.exe hosts it for now).
 rem Settings / saves / states: build\userdata_d2k\ (separate from Tempest 2000's).
-rem Keys: F11 fullscreen, F8 native / emulated picture, F7 smooth motion on / off, Esc or pad Back = menu.
+rem Keys: F11 fullscreen, F8 native / emulated picture, F7 smooth motion on / off, F6 wide screen on / off, Esc or pad Back = menu.
 cd /d "%~dp0"
 if not exist "build\t2k.exe" (
   echo build\t2k.exe is missing - run build.bat first.

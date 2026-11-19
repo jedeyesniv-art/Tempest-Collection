@@ -607,6 +607,10 @@ int main(int argc, char** argv) {
         const bool on = settings::Num("d2k_interpolate", 1) == 0;
         settings::Save("d2k_interpolate", on ? "1" : "0");
         menu::Toast(on ? "Smooth motion on" : "Smooth motion off", now);
+      } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F6 && d2k::Active()) {
+        const bool on = settings::Num("d2k_widescreen", 1) == 0;
+        settings::Save("d2k_widescreen", on ? "1" : "0");
+        menu::Toast(on ? "Wide screen on" : "Wide screen off (4:3)", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F8) {
         remaster::SetEnabled(!remaster::Enabled());
         settings::Save("remaster", remaster::Enabled() ? "1" : "0");
@@ -977,7 +981,7 @@ int main(int argc, char** argv) {
       // instead (setting d2k_native; F8 toggles), positions interpolated between the game's updates.
       if (d2k::Active() && !native && settings::Num("d2k_native", 1) != 0) {
         const double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(SDL_GetTicksNS())) / frame_ns;
-        d2k::Draw(ren, dst, float(std::clamp(t, 0.0, 1.0)));
+        d2k::Draw(ren, dst, SDL_FRect{0, 0, float(ww), float(wh)}, float(std::clamp(t, 0.0, 1.0)));
       } else {
         blit(pic_sharp, tex, nullptr, &dst);
       }

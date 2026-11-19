@@ -25,8 +25,9 @@ void SoftRender(std::vector<uint32_t>& out, unsigned w, unsigned h);
 int Check(const std::string& prefix);
 
 // Window drawing: the scene into dst (the 4:3 picture rectangle in window pixels), positions interpolated by t =
-// how far real time is into the current emulated frame (0..1).
-void Draw(SDL_Renderer* ren, const SDL_FRect& dst, float t);
+// how far real time is into the current emulated frame (0..1). With wide screens on it carries on into view (the
+// window) around dst.
+void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view, float t);
 std::string Stats();
 
 }  // namespace d2k
