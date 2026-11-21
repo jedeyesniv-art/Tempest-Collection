@@ -715,9 +715,11 @@ int main(int argc, char** argv) {
         settings::Save("d2k_interpolate", on ? "1" : "0");
         menu::Toast(on ? "Smooth motion on" : "Smooth motion off", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F6 && d2k::Active()) {
-        const bool on = settings::Num("d2k_widescreen", 1) == 0;
-        settings::Save("d2k_widescreen", on ? "1" : "0");
-        menu::Toast(on ? "Wide screen on" : "Wide screen off (4:3)", now);
+        // 2 Defender 2000 only -> 1 all modes -> 0 off -> 2
+        const int ws = int(settings::Num("d2k_widescreen", 2)), next = ws == 2 ? 1 : ws == 1 ? 0 : 2;
+        settings::Save("d2k_widescreen", std::to_string(next));
+        menu::Toast(next == 2 ? "Wide screen: Defender 2000 only" : next == 1 ? "Wide screen: all modes"
+                                                                          : "Wide screen off (4:3)", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F4 && d2k::Active()) {
         const bool on = settings::Num("d2k_hires", 1) == 0;
         settings::Save("d2k_hires", on ? "1" : "0");

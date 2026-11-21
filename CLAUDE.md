@@ -606,7 +606,11 @@ Tooling pitfalls (cost time today)
   fills with ~6500 playfield particles; MatchItems' burst fit / nearest searches are quadratic (BurstFit ~95 scales x
   particles^2): ~2 s an update, the window stopped responding. Over 2000 items (play: a few hundred) an update is not
   matched (drawn as the game puts it). That state: 14 -> 170 fps headless.
-- Wide screens (2026-11-19; setting d2k_widescreen, default 1, F6): the object list is built by GPU overlays the 68K
+- Wide per mode (2026-11-21, owner: Classic and Plus at 4:3, 2000 wide): d2k_widescreen 0 off / 1 all modes / 2
+  Defender 2000 only (default; menu PICTURE "Wide screen", F6 cycles 2 -> 1 -> 0). The mode played = byte $18CD4B (0
+  Classic, 1 Plus, 2 Defender 2000, 255 on menus; logs/d2k/inplay/modesearch.py); wide is off while InPlay() in
+  Classic / Plus (menus and the attract demo stay wide). The owner's settings file was set to 2.
+- Wide screens (2026-11-19; setting d2k_widescreen, F6): the object list is built by GPU overlays the 68K
   copies into $F031C0 from RAM - layers $0B2B50 (records -> 128/256 px strips, cull 0..383, left clip by DATA),
   sprites $0A5938 (world x - camera & 4095 - 255, kept while -w < x < 384 + w, left clip). d2k.cpp kWide patches their
   RAM sources (only over the original bytes): no left clips (the OP draws negative XPOS), strips up to 300 left,

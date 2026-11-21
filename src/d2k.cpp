@@ -1410,7 +1410,12 @@ void ArtDump(const Scene& sc) {
 
 void BeforeFrame() {
   if (!g_active) return;
-  ApplyWide(settings::Num("d2k_widescreen", 1) != 0 && settings::Num("d2k_native", 1) != 0);
+  // d2k_widescreen: 0 off, 1 every mode, 2 Defender 2000 only (default; owner 2026-11-21: Classic and Plus at 4:3).
+  // The mode being played is the byte at $18CD4B: 0 Classic, 1 Plus, 2 Defender 2000, 255 on the menus (RAM search
+  // over the three modes' routes, logs/d2k/inplay/modesearch.py; $18CDDF / $0AD935 follow the mode menu's cursor).
+  const int ws = int(settings::Num("d2k_widescreen", 2));
+  const bool arcade = InPlay() && jagMemSpace[0x18CD4B] <= 1;
+  ApplyWide(settings::Num("d2k_native", 1) != 0 && (ws == 1 || (ws == 2 && !arcade)));
   g_objs.clear();
   g_index.clear();
   for (auto& l : g_line) l = LineState{};
