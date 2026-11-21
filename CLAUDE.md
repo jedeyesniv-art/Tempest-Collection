@@ -669,6 +669,11 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- Level-end fade on wide screens (2026-11-21, owner): 2000's level end is an explosion of particles then black dots
+  in the playfield layer until it is black (the fade between levels), but the layer is only 384 px wide, so a 16:9
+  view showed the backdrop at its sides. While the layer's items cover > 12% of it (g_layer_cover, per update; play
+  peaks ~3%, the fade rises to 100%; full-screen flashes are 100% too) Draw mirrors them past both layer edges
+  (D2K_ITEM_LOG prints the cover).
 - City buildings jumping at the wide edges (2026-11-21, owner: level 6). Two causes: (1) LayerCounts capped a layer
   at 7 strips, so the 7-strip city (64 px tiles) got the tile-left shift and no extra strips: its right end fell short
   of even the 4:3 edge (buildings popped in inside 4:3, in the game's own picture). Records are 32 bytes with the

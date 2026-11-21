@@ -558,6 +558,7 @@ std::vector<Item> g_items, g_prev_items;
 std::vector<size_t> g_dead;                // items of the update before with no successor
 int g_layer = -1;                          // the layer's index in g_cur.sprites (-1: none / not cut)
 int g_items_matched = 0, g_items_total = 0;
+float g_layer_cover = 0;                   // share of the layer's pixels its items cover (this update)
 bool g_wide_on = false;                    // wide screens on (setting d2k_widescreen, the list builder patched)
 
 // The scanner (2000 / Plus) is drawn into the playfield layer: its blips step a whole scanner pixel every few updates
@@ -1661,17 +1662,24 @@ void AfterFrame() {
       g_dead.clear();
       g_edge.clear();
       g_hist.valid = false;
+      g_layer_cover = 0;
     } else if (g_upd_frame == g_frames || g_layer < 0) {
       g_prev_items = std::move(g_items);
       CutItems(g_cur.sprites[size_t(layer)], g_cur.vmode, g_items);
       MatchItems(g_items, g_prev_items);
       SmoothRadar(g_items, g_prev_items);
       EdgeHistory(g_cur.sprites[size_t(layer)], g_items, g_prev_items);
+      {
+        const Sprite& ls = g_cur.sprites[size_t(layer)];
+        long px = 0;
+        for (const Item& it : g_items) px += it.n;
+        g_layer_cover = float(px) / float(std::max(1, ls.w * ls.h));
+      }
       if (std::getenv("D2K_ITEM_LOG")) {
         int m = 0, beams = 0;
         for (const Item& it : g_items) m += it.moving, beams += it.beam;
-        std::fprintf(stderr, "items %d: %zu (%d beams), %d matched, %zu vanished:", g_frames, g_items.size(), beams, m,
-                     g_dead.size());
+        std::fprintf(stderr, "items %d: %zu (%d beams), %d matched, %zu vanished, cover %.3f:", g_frames,
+                     g_items.size(), beams, m, g_dead.size(), g_layer_cover);
         for (const Item& it : g_items)
           if (!it.moving && it.n > 1) std::fprintf(stderr, " new[%d,%d %dx%d]", it.x, it.y, it.w, it.h);
         std::fprintf(stderr, "\n");
@@ -2409,6 +2417,28 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
         const Item& it = g_edge[k];
         const float mx = it.moving ? -(1.f - a) * it.vx : 0.f, my = it.moving ? -(1.f - a) * it.vy : 0.f;
         item_quad(it, g_gpu.edge_at[k], float(it.x) + mx, float(it.x + it.w) + mx, float(it.y) + my);
+      }
+      // Wide screens: a layer covered with particles (2000's level end: an explosion of particles, then black dots
+      // until the screen is black - the game's fade between levels) carries on past its ends as its mirror image, or
+      // the backdrop showed beside the 4:3 picture (2026-11-21, owner). Normal play covers a few percent (stars,
+      // shots, explosions).
+      constexpr float kCoverMirror = 0.12f;
+      if (view_r > view_l && g_layer_cover > kCoverMirror) {
+        const float le = float(sp.x), re = float(sp.x + sp.w);
+        for (size_t k = 0; k < g_items.size(); ++k) {
+          const Item& it = g_items[k];
+          if (it.radar) continue;
+          const float mx = it.moving ? -(1.f - a) * it.vx : 0.f, my = it.moving ? -(1.f - a) * it.vy : 0.f;
+          const float x0 = float(it.x) + mx, x1 = x0 + float(it.w);
+          const AtlasRect r = g_gpu.item_at[k];
+          const float f = it.moving || g_period == 1 ? 1.f : std::min(1.f, 2.f * a);
+          for (const float e : {le, re}) {
+            const float m0 = 2.f * e - x1, m1 = 2.f * e - x0;   // mirrored about the edge (u reversed below)
+            if (e == le ? m1 <= view_l : m0 >= view_r) continue;
+            quad(wx(m0), wy(float(it.y) + my), wx(m1), wy(float(it.y + it.h) + my), float(r.x + it.w) * inv,
+                 float(r.y) * inv, float(r.x) * inv, float(r.y + it.h) * inv, SDL_FColor{f, f, f, f});
+          }
+        }
       }
       continue;
     }
