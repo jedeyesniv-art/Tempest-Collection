@@ -669,6 +669,16 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- City buildings jumping at the wide edges (2026-11-21, owner: level 6). Two causes: (1) LayerCounts capped a layer
+  at 7 strips, so the 7-strip city (64 px tiles) got the tile-left shift and no extra strips: its right end fell short
+  of even the 4:3 edge (buildings popped in inside 4:3, in the game's own picture). Records are 32 bytes with the
+  descriptor right after, so the ids at +24 have room for 8: cap 8 there (core picture wide on == off again in the
+  background). (2) A 16:9 view still needs up to ~45 px more on one side or the other: ExtendLayers adds the next real
+  tiles from the level's map (builder part 1: pos = camera * speed >> 6, strip i = map[(pos >> shift) + i & mapmask],
+  signed id, 0 empty, < 0 reflected; tile table at record +16, 8 bytes {DATA, height, palette word}; tile step record +8)
+  as scene strips, after checking the shown strips / gaps fit one map offset and decode identically; pads now only from a
+  row's outermost strips. D2K_NO_EXTEND=1 turns it off. Tools: logs/d2k/city/ (layers.py RAM inspector, winscroll.py
+  edge-vs-centre shift per present, odd.py motion-log outliers); t2k/d2k --winshots=F0:F1:prefix (every present).
 - Black screen / GPU runaway in 2000 mode (2026-11-21, owner's level-6 state logs/d2k/black/owner_black.state, already
   dead): a CORE bug, not ours (crashed with wide / renderer / idle skip off, any timing model). The core's late load
   write-back (issue #811, gpu.c gpu_ldx_slot) also fired for a load in the delay slot of a TAKEN jump: the object task

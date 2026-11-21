@@ -366,6 +366,8 @@ int main(int argc, char** argv) {
   std::vector<std::pair<int, std::string>> d2k_checks;
   std::string save_file, load_file, gpulog_spec, survey_spec, start_state, winshot_file;
   int winshot_at = -1;
+  std::string winshots_prefix;   // --winshots=F0:F1:<prefix>: every present from frame F0 to F1 -> <prefix>_<n>.bmp, quit
+  int winshots_f0 = -1, winshots_f1 = -1;
   struct Poke { int frame; uint32_t addr, value; };
   std::vector<Poke> pokes;   // --poke=F:hexaddr:hexword: write a RAM word before frame F (tests)
   int peek0 = -1, peek1 = -1;
@@ -440,6 +442,11 @@ int main(int argc, char** argv) {
       from_launcher = true;
     } else if (a == "--menu" || a == "--menu=all") {
       menu_test = a == "--menu" ? 1 : 2;
+    } else if (a.rfind("--winshots=", 0) == 0) {
+      auto v = val("--winshots="); auto c1 = v.find(':'); auto c2 = v.find(':', c1 + 1);
+      winshots_f0 = std::atoi(v.substr(0, c1).c_str());
+      winshots_f1 = std::atoi(v.substr(c1 + 1, c2 - c1 - 1).c_str());
+      winshots_prefix = v.substr(c2 + 1);
     } else if (a.rfind("--winshot=", 0) == 0) {
       auto v = val("--winshot="); auto c = v.find(':');
       winshot_at = std::atoi(v.substr(0, c).c_str());
@@ -1147,6 +1154,16 @@ int main(int argc, char** argv) {
     menu::DrawToast(ren, ww, wh, now);
     static int presents = 0;
     if (menu_test && presents++ == 0) menu::Open(menu_test == 2);
+    if (winshots_f0 >= 0 && int(frame_count) >= winshots_f0) {   // --winshots: every present in a frame range
+      static int n = 0;
+      if (SDL_Surface* shot = SDL_RenderReadPixels(ren, nullptr)) {
+        SDL_SaveBMP(shot, (winshots_prefix + "_" + std::to_string(n++) + ".bmp").c_str());
+        std::fprintf(stderr, "winshots %d: frame %d\n", n - 1, int(frame_count));
+        perf::DiscardFrame();
+        SDL_DestroySurface(shot);
+      }
+      if (int(frame_count) >= winshots_f1) running = false;
+    }
     if (winshot_at >= 0 && (menu_test ? presents : int(frame_count)) >= winshot_at) {   // --winshot=N:<bmp>: the window after N frames
       if (SDL_Surface* shot = SDL_RenderReadPixels(ren, nullptr)) {
         SDL_SaveBMP(shot, winshot_file.c_str());

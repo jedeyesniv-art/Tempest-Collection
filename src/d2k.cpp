@@ -1210,7 +1210,7 @@ constexpr Patch kWide[] = {
      {0x98, 0x08, 0x32, 0x28, 0x00, 0xF0, 0x98, 0x09, 0x32, 0x82, 0x00, 0xF0, 0x89, 0x2D, 0x08, 0x8D, 0xA4, 0x54, 0x08, 0x82, 0xA4, 0x55, 0x08, 0x82, 0x7C, 0x14, 0xD1, 0xA2, 0xE4, 0x00, 0x88, 0x6C, 0xA6, 0xB6, 0x7C, 0x16, 0xD4, 0x41, 0x65, 0x16, 0xD1, 0x00, 0x42, 0xCC, 0x64, 0xCC, 0x8A, 0x8B, 0x08, 0x95, 0x9E, 0xA7, 0x0B, 0x0B, 0x08, 0x35, 0x9E, 0xA4, 0x08, 0x35, 0x9E, 0xB6, 0x08, 0x35, 0x9E, 0xA5, 0x08, 0x35, 0xA6, 0xA6, 0x89, 0x80, 0x24, 0x80, 0x08, 0x24, 0x3C, 0x04, 0x00, 0x80, 0x10, 0x8C, 0x5E, 0xCC, 0x20, 0x00, 0xBA, 0x80}},
 };
 
-// The layers' strip counts (descriptor + 4; the record holds 7 strips): + 2 with the patch above, for each layer
+// The layers' strip counts (descriptor + 4; room for 8 ids, see cap): + 2 with the patch above, for each layer
 // with a mask (tiles). The layer list ((record, descriptor) pairs up to a 0 record) is the level's: the 68K at $A4EEE
 // puts the long at $B811C + 16 * word $B822E into $B8118 just before it runs the builder ($B8118 holds another list
 // the rest of the frame - not to be touched). Remembered per descriptor so a level's own rewrite is the new original.
@@ -1229,10 +1229,15 @@ void LayerCounts(bool on) {
     if (rec == 0 || desc < 0x1000 || desc >= 0x1FFFF0) break;
     uint8_t& count = jagMemSpace[desc + 4];
     const uint8_t mask = jagMemSpace[desc + 5];
+    // Strip ids live at record + 24 up to the descriptor: 8 when it follows the 32-byte record (every level seen),
+    // else the 7 the game uses at most. (2026-11-21: with 7, a 7-strip layer of 64 px tiles (level 6's city) got the
+    // tile-left shift above and no extra strips, so its right end fell short of even the 4:3 picture's edge and
+    // buildings popped in there.)
+    const int cap = desc == rec + 32 ? 8 : 7;
     auto it = g_layer_counts.find(desc);
     if (it == g_layer_counts.end() || (count != it->second.first && count != it->second.second))
       it = g_layer_counts.insert_or_assign(desc, std::pair<uint8_t, uint8_t>(
-                                                     count, uint8_t(mask ? std::min(count + 2, 7) : count))).first;
+                                                     count, uint8_t(mask ? std::min(count + 2, cap) : count))).first;
     count = on ? it->second.second : it->second.first;
     // The record's own strip count (word + 10, bit 15 a flag), which the second part loops over: the same + 2.
     static std::map<uint32_t, std::pair<uint16_t, uint16_t>> rec_counts;
@@ -1242,7 +1247,7 @@ void LayerCounts(bool on) {
     if (rt == rec_counts.end() || (now != rt->second.first && now != rt->second.second)) {
       const int n = now & 0x7FFF;
       rt = rec_counts.insert_or_assign(rec, std::pair<uint16_t, uint16_t>(
-                                                now, uint16_t((now & 0x8000) | (mask && n ? std::min(n + 2, 7) : n)))).first;
+                                                now, uint16_t((now & 0x8000) | (mask && n ? std::min(n + 2, cap) : n)))).first;
     }
     const uint16_t v = on ? rt->second.second : rt->second.first;
     rw[0] = uint8_t(v >> 8), rw[1] = uint8_t(v);
@@ -1293,6 +1298,134 @@ void DumpGpu(const std::string& file) {
   g.write(reinterpret_cast<const char*>(&gpu_pc), 4);
   g.write(reinterpret_cast<const char*>(gpu_reg_bank_0), 128);
   g.write(reinterpret_cast<const char*>(gpu_reg_bank_1), 128);
+}
+
+// ---- wide screens: layer rows carried on from the level's tile map ----------------------------------------------
+// A layer record holds at most 7 strips: 64 px tiles (2000 mode's cities, level 6) cover 448 px, a window that slides
+// a tile at a time as the layer scrolls, so one edge of a 16:9 view fell up to ~45 px short in turn; the mirrored pads
+// stood in there and the real building replaced them a tile later (2026-11-21, owner: "the city background shifts
+// between entire buildings"). The layer builder (GPU overlay $0B2B50) makes strip i of a record from its descriptor:
+// tile id map[(pos >> shift) + i & mapmask] (signed byte: 0 = empty, negative = reflected), the tile's {DATA long,
+// height word, palette word} at record +16's table + 8 * |id|, the strips a record +8 word apart. So each row the
+// game drew is matched against its map (the shown strips and gaps must fit one map offset, every candidate offset
+// must agree) and the tiles past its ends are added as more strips of the scene, decoded from memory like captured
+// ones: matching, smooth motion and the high-res art treat them like the game's. Anything that doesn't fit is left
+// to the pads. The level's layer list as in LayerCounts.
+void ExtendLayers(Scene& s) {
+  static const uint8_t kPick[] = {0x41, 0xF9, 0x00, 0x0B, 0x81, 0x1C, 0x30, 0x39, 0x00, 0x0B, 0x82, 0x2E,
+                                  0xE9, 0x48, 0x23, 0xF0, 0x00, 0x00, 0x00, 0x0B, 0x81, 0x18};
+  if (std::memcmp(jagMemSpace + 0x0A4EEE, kPick, sizeof kPick) != 0) return;
+  auto be32 = [](uint32_t a) { return Be32(jagMemSpace + (a & 0x1FFFFC)); };
+  auto be16 = [](uint32_t a) { return int(jagMemSpace[a & 0x1FFFFE] << 8 | jagMemSpace[(a & 0x1FFFFE) + 1]); };
+  auto s8 = [](uint32_t a) { return int(int8_t(jagMemSpace[a & 0x1FFFFF])); };
+  const uint32_t level = uint32_t(be16(0x0B822E));
+  if (level > 64) return;
+  const uint32_t list = be32(0x0B811C + 16 * level);
+  if (list < 0x1000 || list >= 0x200000) return;
+  constexpr int kExt = 136;   // line-buffer px past the 4:3 picture's sides (21:9 needs ~122)
+  const int view_l = g_x0 - kExt, view_r = g_x0 + 326 + kExt;
+  static const int kBpp[5] = {1, 2, 4, 8, 16};
+  for (int li = 0; li < 16; ++li) {
+    const uint32_t rec = be32(list + 8u * uint32_t(li)), desc = be32(list + 8u * uint32_t(li) + 4);
+    if (rec == 0 || rec >= 0x200000 || desc < 0x1000 || desc >= 0x1FFFF0) break;
+    const uint32_t table = be32(rec + 16), map = be32(desc + 8);
+    const int tw = be16(rec + 8), n = jagMemSpace[desc + 7] + 1;
+    if (table < 0x1000 || table >= 0x200000 || map < 0x1000 || map >= 0x200000 || tw < 16 || tw > 128) continue;
+    std::map<uint32_t, int> by_data;   // tile DATA -> id
+    for (int k = 0; k < n; ++k)
+      if (const int id = std::abs(s8(map + uint32_t(k)))) by_data[be32(table + 8u * uint32_t(id))] = id;
+    // The record's strips in this scene: unscaled, unclipped, one tile wide, on one row.
+    std::vector<size_t> mem;
+    for (size_t i = 0; i < s.sprites.size(); ++i) {
+      const Sprite& sp = s.sprites[i];
+      if (sp.type == 0 && !(sp.flags & 2) && sp.w == tw && sp.skip == 0 && sp.w == sp.src_w && sp.depth <= 4 &&
+          by_data.count(sp.data))
+        mem.push_back(i);
+    }
+    if (mem.size() < 2) continue;
+    const Sprite& t = s.sprites[mem[0]];
+    auto left_of = [](const Sprite& sp) { return (sp.flags & 1) ? sp.x - sp.w + 1 : sp.x; };
+    int l0 = INT32_MAX;
+    bool ok = true;
+    for (size_t i : mem) {
+      const Sprite& sp = s.sprites[i];
+      ok = ok && sp.row == t.row && sp.h == t.h && sp.depth == t.depth && sp.dwidth == t.dwidth &&
+           sp.pitch == t.pitch && sp.row_y == t.row_y;
+      l0 = std::min(l0, left_of(sp));
+    }
+    if (!ok) continue;
+    std::map<int, int> shown;   // slot -> signed id
+    for (size_t i : mem) {
+      const Sprite& sp = s.sprites[i];
+      const int d = left_of(sp) - l0;
+      if (d % tw || shown.count(d / tw)) { ok = false; break; }
+      shown[d / tw] = by_data[sp.data] * ((sp.flags & 1) ? -1 : 1);
+    }
+    const int kmax = shown.empty() ? 0 : shown.rbegin()->first;
+    if (!ok || kmax > 16) continue;
+    // Decoding from memory must give the captured pixels (rows DWIDTH phrases apart).
+    const int bpp = kBpp[t.depth];
+    auto decode = [&](Sprite& sp) {
+      sp.raw.assign(size_t(sp.w) * size_t(sp.h), 0);
+      sp.opaque.assign(sp.raw.size(), 0);
+      for (int r = 0; r < sp.h; ++r)
+        for (int c = 0; c < sp.w; ++c) {
+          bool zero = false;
+          const size_t o = size_t(r) * size_t(sp.w) + size_t(c);
+          sp.raw[o] = Pixel(sp.data + uint32_t(r) * sp.dwidth * 8u, c, bpp, sp.pitch, sp.index, &zero);
+          sp.opaque[o] = !((sp.flags & 4) && zero);
+        }
+    };
+    {
+      Sprite check = t;
+      decode(check);
+      if (check.raw != t.raw || check.opaque != t.opaque) continue;
+      // (the palette: phrase 2's INDEX = the tile's word << 1; only used below 8 bits a pixel)
+      if (bpp < 8 && ((be16(table + 8u * uint32_t(by_data[t.data]) + 6) << 1) & 0xFE) != t.index) continue;
+    }
+    // Map offsets that explain the shown slots (and their gaps).
+    auto at = [&](int j, int k) { return s8(map + uint32_t(((j + k) % n + n) % n)); };
+    std::vector<int> cand;
+    for (int j = 0; j < n; ++j) {
+      bool fit = true;
+      for (int k = 0; k <= kmax && fit; ++k) {
+        auto it = shown.find(k);
+        fit = at(j, k) == (it == shown.end() ? 0 : it->second);
+      }
+      if (fit) cand.push_back(j);
+    }
+    if (cand.empty()) continue;
+    std::vector<Sprite> add;
+    for (int dir : {-1, 1}) {
+      for (int step = 1; step <= 8; ++step) {
+        const int k = dir < 0 ? -step : kmax + step;
+        const int left = l0 + k * tw;
+        if (dir < 0 ? left + tw <= view_l : left >= view_r) break;
+        const int id = at(cand[0], k);
+        bool agree = true;
+        for (int j : cand) agree = agree && at(j, k) == id;
+        if (!agree) break;
+        if (id == 0) continue;
+        const uint32_t e = table + 8u * uint32_t(std::abs(id));
+        if (be16(e + 4) != be16(table + 8u * uint32_t(std::abs(shown.begin()->second)) + 4)) break;   // tile height
+        Sprite sp = t;
+        sp.addr = 0;
+        sp.data = be32(e);
+        sp.flags = (t.flags & ~1) | (id < 0 ? 1 : 0);
+        sp.index = (be16(e + 6) << 1) & 0xFE;
+        sp.x = id < 0 ? left + tw - 1 : left;
+        sp.lead = 0, sp.tail = 0;
+        sp.lead_rgb.clear(), sp.tail_rgb.clear(), sp.idx.clear();
+        decode(sp);
+        add.push_back(std::move(sp));
+      }
+    }
+    if (add.empty()) continue;
+    size_t last = 0;
+    for (size_t i : mem) last = std::max(last, i);
+    s.sprites.insert(s.sprites.begin() + std::ptrdiff_t(last + 1), std::make_move_iterator(add.begin()),
+                     std::make_move_iterator(add.end()));
+  }
 }
 
 // ---- art dump -----------------------------------------------------------------------------------------------------
@@ -1457,6 +1590,7 @@ void AfterFrame() {
   if (!g_active) return;
   std::swap(g_prev_frame, g_cur);
   BuildScene(g_cur);
+  if (g_wide_on && !std::getenv("D2K_NO_EXTEND")) ExtendLayers(g_cur);   // (D2K_NO_EXTEND=1: tests)
   ++g_frames;
   if (g_art_dir) ArtDump(g_cur);
   if (g_glog && g_frames >= g_glog_f0 && g_frames <= g_glog_f1) std::fprintf(g_glog, "F %d\n", g_frames);
@@ -2173,7 +2307,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
       if (!strip(a)) continue;
       int al, ar;
       span(a, &al, &ar);
-      bool left = false, right = false;
+      bool left = false, right = false, more_left = false, more_right = false;
       for (size_t k = 0; k < n; ++k) {
         const Sprite& b = g_cur.sprites[k];
         if (k == i || !strip(b) || b.row != a.row || b.h != a.h || b.depth != a.depth) continue;
@@ -2181,8 +2315,12 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
         span(b, &bl, &br);
         if (std::abs(br - al) <= 1) left = true;
         if (std::abs(bl - ar) <= 1) right = true;
+        more_left = more_left || bl < al;
+        more_right = more_right || bl > al;
       }
-      if (left != right) pad_side[i] = left ? 2 : 1;   // (a lone image is no layer: not padded)
+      // (a lone image is no layer: not padded; only the row's outermost strips pad outwards - one beside a gap in the
+      // middle of the row (an empty tile) would have drawn copies across the gap and on to the edge)
+      if (left != right && (left ? !more_right : !more_left)) pad_side[i] = left ? 2 : 1;
     }
   }
   // Mirrored copies of sprite i's drawn pixels from its end towards the view's edge.
