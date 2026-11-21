@@ -11,6 +11,7 @@
 // Line buffer pixels are raw 16-bit words (CRY / RGB16 by VMODE); RMW adds signed CRY deltas; colour tables are
 // the core's own.
 #include "d2k.h"
+#include "d2k_bonus.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1124,12 +1125,38 @@ void OnBlit(uint32_t cmd, uint32_t who) {
 // Test: D2K_M68KLOG=F0:F1:lo:hi:file - 68K writes into [lo, hi] (hex), frames F0..F1: "W <pc> <addr> <size> <value>".
 FILE* g_mlog = nullptr;
 int g_mlog_f0 = 0, g_mlog_f1 = -1;
+// The bonus tunnel's overlay (d2k_bonus): its inputs are snapshotted when the 68K starts the GPU on it (the long
+// $F03FFC set after the overlay's blit from $0AB008 to $F031C0) - the 68K still updates some between the copy and the
+// start (the tunnel's ring table: the copy-time values put the near rings a pixel or two off).
+bool g_bonus_pending = false;
 void OnM68kWrite(uint32_t addr, uint32_t value, int size, uint32_t pc) {
   if (g_mlog && g_frames >= g_mlog_f0 && g_frames <= g_mlog_f1)
     std::fprintf(g_mlog, "W %06X %06X %d %08X\n", pc & 0xFFFFFF, addr, size, value);
+  if (g_bonus_pending && addr >= 0xF03FFC && addr <= 0xF03FFF && value != 0) {
+    g_bonus_pending = false;
+    d2k_bonus::OnOverlayLoad(g_frames);
+  }
+}
+void (*g_bonus_chain)(uint32_t, uint32_t) = nullptr;
+void OnBlitBonus(uint32_t cmd, uint32_t who) {
+  if (g_bonus_chain) g_bonus_chain(cmd, who);
+  const uint8_t* b = vjBlitterRam();
+  if (Be32(b + 0x00) == 0xF031C0 && cmd == 0x01800001) {   // an overlay copy (other blits share the A1 base)
+    g_bonus_pending = false;
+    if (Be32(b + 0x24) == 0x0AB008 && d2k_bonus::Signature()) {
+      if (vjHostM68kWrite == OnM68kWrite && vjHostM68kWriteLo <= 0xF03FFC && vjHostM68kWriteHi >= 0xF03FFC)
+        g_bonus_pending = true;
+      else
+        d2k_bonus::OnOverlayLoad(g_frames);   // (D2K_M68KLOG elsewhere: at the copy)
+    }
+  }
 }
 
 bool Install() {
+  g_bonus_chain = vjHostBlit;
+  vjHostBlit = OnBlitBonus;
+  vjHostM68kWriteLo = 0xF03FFC, vjHostM68kWriteHi = 0xF03FFF;
+  vjHostM68kWrite = OnM68kWrite;
   if (const char* ml = std::getenv("D2K_M68KLOG")) {
     char file[512] = {};
     unsigned lo = 0, hi = 0;
@@ -1224,7 +1251,7 @@ constexpr Patch kWide[] = {
      {0x98, 0x08, 0x32, 0x28, 0x00, 0xF0, 0x98, 0x09, 0x32, 0x82, 0x00, 0xF0, 0x89, 0x2D, 0x08, 0x8D, 0xA4, 0x54, 0x08, 0x82, 0xA4, 0x55, 0x08, 0x82, 0x7C, 0x14, 0xD1, 0xA2, 0xE4, 0x00, 0x88, 0x6C, 0xA6, 0xB6, 0x7C, 0x16, 0xD4, 0x41, 0x65, 0x16, 0xD1, 0x00, 0x42, 0xCC, 0x64, 0xCC, 0x8A, 0x8B, 0x08, 0x95, 0x9E, 0xA7, 0x0B, 0x0B, 0x08, 0x35, 0x9E, 0xA4, 0x08, 0x35, 0x9E, 0xB6, 0x08, 0x35, 0x9E, 0xA5, 0x08, 0x35, 0xA6, 0xA6, 0x89, 0x80, 0x24, 0x80, 0x08, 0x24, 0x3C, 0x04, 0x00, 0x80, 0x10, 0x8C, 0x5E, 0xCC, 0x20, 0x00, 0xBA, 0x80}},
 };
 
-// The layers' strip counts (descriptor + 4; room for 8 ids, see cap): + 2 with the patch above, for each layer
+// The layers' strip counts (descriptor + 4; room: see room below): + 2 with the patch above, for each layer
 // with a mask (tiles). The layer list ((record, descriptor) pairs up to a 0 record) is the level's: the 68K at $A4EEE
 // puts the long at $B811C + 16 * word $B822E into $B8118 just before it runs the builder ($B8118 holds another list
 // the rest of the frame - not to be touched). Remembered per descriptor so a level's own rewrite is the new original.
@@ -1243,25 +1270,31 @@ void LayerCounts(bool on) {
     if (rec == 0 || desc < 0x1000 || desc >= 0x1FFFF0) break;
     uint8_t& count = jagMemSpace[desc + 4];
     const uint8_t mask = jagMemSpace[desc + 5];
-    // Strip ids live at record + 24 up to the descriptor: 8 when it follows the 32-byte record (every level seen),
-    // else the 7 the game uses at most. (2026-11-21: with 7, a 7-strip layer of 64 px tiles (level 6's city) got the
-    // tile-left shift above and no extra strips, so its right end fell short of even the 4:3 picture's edge and
-    // buildings popped in there.)
-    const int cap = desc == rec + 32 ? 8 : 7;
+    // Strip ids live at record + 24 up to the descriptor (it follows the record: 32 bytes = 8 ids, the space levels'
+    // 40 = 16), else the 7 the game uses at most. Never fewer than the game's own count. (2026-11-21: a cap of 7 cut
+    // the space levels' 14-strip auroras to 7 - half the screen, in the game's own picture too; and with 7, level 6's
+    // 7-strip city got the tile-left shift and no extra strips, its right end short of the 4:3 edge.)
+    const int room = desc >= rec + 32 && desc <= rec + 64 ? int(desc - rec) - 24 : 7;
+    // States saved by builds with the 7 cap carry the cut counts; these six descriptors (levels 5 and 6, read after a
+    // clean boot: the level data is unpacked then) have 14.
+    static const uint32_t kFourteen[] = {0x0B8890, 0x0B88C8, 0x0B8900, 0x0B8938, 0x0B8970, 0x0B89A8};
+    const bool fourteen = std::find(std::begin(kFourteen), std::end(kFourteen), desc) != std::end(kFourteen);
+    if (fourteen && count < 14 && jagMemSpace[desc + 5] == 31) count = 14;
+    auto grow = [&](int n) { return mask ? std::max(n, std::min(n + 2, room)) : n; };
     auto it = g_layer_counts.find(desc);
     if (it == g_layer_counts.end() || (count != it->second.first && count != it->second.second))
-      it = g_layer_counts.insert_or_assign(desc, std::pair<uint8_t, uint8_t>(
-                                                     count, uint8_t(mask ? std::min(count + 2, cap) : count))).first;
+      it = g_layer_counts.insert_or_assign(desc, std::pair<uint8_t, uint8_t>(count, uint8_t(grow(count)))).first;
     count = on ? it->second.second : it->second.first;
     // The record's own strip count (word + 10, bit 15 a flag), which the second part loops over: the same + 2.
     static std::map<uint32_t, std::pair<uint16_t, uint16_t>> rec_counts;
     uint8_t* rw = jagMemSpace + rec + 10;
-    const uint16_t now = uint16_t(rw[0] << 8 | rw[1]);
+    uint16_t now = uint16_t(rw[0] << 8 | rw[1]);
+    if (fourteen && (now & 0x7FFF) < 14) now = uint16_t((now & 0x8000) | 14);   // (as above)
     auto rt = rec_counts.find(rec);
     if (rt == rec_counts.end() || (now != rt->second.first && now != rt->second.second)) {
       const int n = now & 0x7FFF;
       rt = rec_counts.insert_or_assign(rec, std::pair<uint16_t, uint16_t>(
-                                                now, uint16_t((now & 0x8000) | (mask && n ? std::min(n + 2, cap) : n)))).first;
+                                                now, uint16_t((now & 0x8000) | (n ? grow(n) : n)))).first;
     }
     const uint16_t v = on ? rt->second.second : rt->second.first;
     rw[0] = uint8_t(v >> 8), rw[1] = uint8_t(v);
@@ -1326,6 +1359,10 @@ void DumpGpu(const std::string& file) {
 // ones: matching, smooth motion and the high-res art treat them like the game's. Anything that doesn't fit is left
 // to the pads. The level's layer list as in LayerCounts.
 void ExtendLayers(Scene& s) {
+  static const bool log = std::getenv("D2K_EXTEND_LOG") != nullptr;   // test: why a layer row isn't extended
+  auto why = [&](uint32_t rec, const char* reason) {
+    if (log) std::fprintf(stderr, "extend %d: record %06X: %s\n", g_frames, rec, reason);
+  };
   static const uint8_t kPick[] = {0x41, 0xF9, 0x00, 0x0B, 0x81, 0x1C, 0x30, 0x39, 0x00, 0x0B, 0x82, 0x2E,
                                   0xE9, 0x48, 0x23, 0xF0, 0x00, 0x00, 0x00, 0x0B, 0x81, 0x18};
   if (std::memcmp(jagMemSpace + 0x0A4EEE, kPick, sizeof kPick) != 0) return;
@@ -1339,35 +1376,57 @@ void ExtendLayers(Scene& s) {
   constexpr int kExt = 136;   // line-buffer px past the 4:3 picture's sides (21:9 needs ~122)
   const int view_l = g_x0 - kExt, view_r = g_x0 + 326 + kExt;
   static const int kBpp[5] = {1, 2, 4, 8, 16};
+  std::set<std::pair<int, uint64_t>> done;   // rows handled: (row, tile table << 32 | clip)
   for (int li = 0; li < 16; ++li) {
     const uint32_t rec = be32(list + 8u * uint32_t(li)), desc = be32(list + 8u * uint32_t(li) + 4);
     if (rec == 0 || rec >= 0x200000 || desc < 0x1000 || desc >= 0x1FFFF0) break;
     const uint32_t table = be32(rec + 16), map = be32(desc + 8);
     const int tw = be16(rec + 8), n = jagMemSpace[desc + 7] + 1;
     if (table < 0x1000 || table >= 0x200000 || map < 0x1000 || map >= 0x200000 || tw < 16 || tw > 128) continue;
-    std::map<uint32_t, int> by_data;   // tile DATA -> id
+    std::map<uint32_t, int> by_data;   // a strip's DATA -> tile id (also rows into the tile: clipped at the top)
+    std::map<uint32_t, uint32_t> skip_of;   // its DATA -> bytes into the tile
+    std::set<int> ids;
     for (int k = 0; k < n; ++k)
-      if (const int id = std::abs(s8(map + uint32_t(k)))) by_data[be32(table + 8u * uint32_t(id))] = id;
-    // The record's strips in this scene: unscaled, unclipped, one tile wide, on one row.
-    std::vector<size_t> mem;
+      if (const int id = std::abs(s8(map + uint32_t(k)))) ids.insert(id);
+    auto tile_of = [&](const Sprite& sp) {   // the map's tile this strip shows, rows (whole DWIDTHs) into it
+      const uint32_t pitch = sp.dwidth * 8u;
+      for (int id : ids) {
+        const uint32_t d = be32(table + 8u * uint32_t(id)), h = uint32_t(be16(table + 8u * uint32_t(id) + 4));
+        if (sp.data >= d && pitch && (sp.data - d) % pitch == 0 && (sp.data - d) / pitch < std::max(h, 1u)) {
+          by_data[sp.data] = id, skip_of[sp.data] = sp.data - d;
+          return true;
+        }
+      }
+      return false;
+    };
+    // The record's strips in this scene: unscaled, one tile wide, on one row (maybe clipped at the top). Records can
+    // share their tiles (the space levels' aurora rows): the strips are taken a row at a time (row and clip), each row
+    // once, by the first record whose map explains it.
+    for (;;) {
+    std::map<std::pair<int, uint64_t>, std::vector<size_t>> rows_of;
     for (size_t i = 0; i < s.sprites.size(); ++i) {
       const Sprite& sp = s.sprites[i];
       if (sp.type == 0 && !(sp.flags & 2) && sp.w == tw && sp.skip == 0 && sp.w == sp.src_w && sp.depth <= 4 &&
-          by_data.count(sp.data))
-        mem.push_back(i);
+          tile_of(sp) && !done.count({sp.row, uint64_t(table) << 32 | skip_of[sp.data]}))
+        rows_of[{sp.row, uint64_t(table) << 32 | skip_of[sp.data]}].push_back(i);
     }
-    if (mem.size() < 2) continue;
+    if (rows_of.empty()) break;
+    const std::pair<int, uint64_t> key = rows_of.begin()->first;
+    std::vector<size_t> mem = std::move(rows_of.begin()->second);
+    done.insert(key);
+    if (mem.size() < 2) { why(rec, "fewer than 2 strips"); continue; }
     const Sprite& t = s.sprites[mem[0]];
+    const uint32_t clip = skip_of[t.data];   // (every member clipped alike, checked below)
     auto left_of = [](const Sprite& sp) { return (sp.flags & 1) ? sp.x - sp.w + 1 : sp.x; };
     int l0 = INT32_MAX;
     bool ok = true;
     for (size_t i : mem) {
       const Sprite& sp = s.sprites[i];
       ok = ok && sp.row == t.row && sp.h == t.h && sp.depth == t.depth && sp.dwidth == t.dwidth &&
-           sp.pitch == t.pitch && sp.row_y == t.row_y;
+           sp.pitch == t.pitch && sp.row_y == t.row_y && skip_of[sp.data] == clip;
       l0 = std::min(l0, left_of(sp));
     }
-    if (!ok) continue;
+    if (!ok) { why(rec, "strips differ (row / size / clip)"); continue; }
     std::map<int, int> shown;   // slot -> signed id
     for (size_t i : mem) {
       const Sprite& sp = s.sprites[i];
@@ -1376,7 +1435,7 @@ void ExtendLayers(Scene& s) {
       shown[d / tw] = by_data[sp.data] * ((sp.flags & 1) ? -1 : 1);
     }
     const int kmax = shown.empty() ? 0 : shown.rbegin()->first;
-    if (!ok || kmax > 16) continue;
+    if (!ok || kmax > 16) { why(rec, "not on the tile grid"); continue; }
     // Decoding from memory must give the captured pixels (rows DWIDTH phrases apart).
     const int bpp = kBpp[t.depth];
     auto decode = [&](Sprite& sp) {
@@ -1393,7 +1452,7 @@ void ExtendLayers(Scene& s) {
     {
       Sprite check = t;
       decode(check);
-      if (check.raw != t.raw || check.opaque != t.opaque) continue;
+      if (check.raw != t.raw || check.opaque != t.opaque) { why(rec, "decode differs"); continue; }
       // (the palette: phrase 2's INDEX = the tile's word << 1; only used below 8 bits a pixel)
       if (bpp < 8 && ((be16(table + 8u * uint32_t(by_data[t.data]) + 6) << 1) & 0xFE) != t.index) continue;
     }
@@ -1408,7 +1467,7 @@ void ExtendLayers(Scene& s) {
       }
       if (fit) cand.push_back(j);
     }
-    if (cand.empty()) continue;
+    if (cand.empty()) { why(rec, "no map offset fits"); continue; }
     std::vector<Sprite> add;
     for (int dir : {-1, 1}) {
       for (int step = 1; step <= 8; ++step) {
@@ -1424,7 +1483,7 @@ void ExtendLayers(Scene& s) {
         if (be16(e + 4) != be16(table + 8u * uint32_t(std::abs(shown.begin()->second)) + 4)) break;   // tile height
         Sprite sp = t;
         sp.addr = 0;
-        sp.data = be32(e);
+        sp.data = be32(e) + clip;
         sp.flags = (t.flags & ~1) | (id < 0 ? 1 : 0);
         sp.index = (be16(e + 6) << 1) & 0xFE;
         sp.x = id < 0 ? left + tw - 1 : left;
@@ -1439,6 +1498,7 @@ void ExtendLayers(Scene& s) {
     for (size_t i : mem) last = std::max(last, i);
     s.sprites.insert(s.sprites.begin() + std::ptrdiff_t(last + 1), std::make_move_iterator(add.begin()),
                      std::make_move_iterator(add.end()));
+    }   // (next row of this record's tiles)
   }
 }
 
@@ -1605,6 +1665,16 @@ void AfterFrame() {
   std::swap(g_prev_frame, g_cur);
   BuildScene(g_cur);
   if (g_wide_on && !std::getenv("D2K_NO_EXTEND")) ExtendLayers(g_cur);   // (D2K_NO_EXTEND=1: tests)
+  if (std::getenv("D2K_BONUS_CHECK")) {   // test: the bonus tunnel's exact dots against the game's buffer
+    const int k = d2k_bonus::Latest(g_frames);
+    if (k >= 0) d2k_bonus::Check(k, std::to_string(g_frames).c_str());
+    for (const Sprite& sp : g_cur.sprites)
+      if (IsLayer(sp))
+        std::fprintf(stderr, "bonus frame %d: layer DATA %06X row %d -> shown snapshot %d (buffer %06X)\n", g_frames,
+                     sp.data, sp.row, d2k_bonus::ShownSnapshot(sp.data, g_upd_frame),
+                     d2k_bonus::ShownSnapshot(sp.data, g_upd_frame) >= 0
+                         ? d2k_bonus::Buffer(d2k_bonus::ShownSnapshot(sp.data, g_upd_frame)) : 0u);
+  }
   ++g_frames;
   if (g_art_dir) ArtDump(g_cur);
   if (g_glog && g_frames >= g_glog_f0 && g_frames <= g_glog_f1) std::fprintf(g_glog, "F %d\n", g_frames);
@@ -2394,6 +2464,51 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
       mode = SDL_BLENDMODE_BLEND_PREMULTIPLIED;
       ++next_rmw;
       continue;
+    }
+    // The bonus tunnel (2000 mode, between levels): every dot of the layer comes from one GPU overlay, generated here
+    // as the game does (d2k_bonus) and drawn as round dots at sub-pixel places, the travel / angle / wave between two
+    // updates - instead of the layer's pixels, whose ~500 dots a frame mostly can't be matched across updates (they
+    // smeared). Wide screens get the stars the game culls at its 384 px edges. D2K_NO_BONUS=1: the layer as usual.
+    static const bool no_bonus = std::getenv("D2K_NO_BONUS") != nullptr;
+    if (int(i) == g_layer && !no_bonus) {
+      if (const int bk = d2k_bonus::ShownSnapshot(sp.data, g_upd_frame); bk >= 0) {
+        static SDL_Texture* dot = nullptr;
+        if (!dot) {   // a soft-edged disc, premultiplied white
+          constexpr int kD = 32;
+          std::vector<uint32_t> px(kD * kD);
+          for (int y = 0; y < kD; ++y)
+            for (int x = 0; x < kD; ++x) {
+              const float dx = (float(x) + 0.5f) / kD * 2 - 1, dy = (float(y) + 0.5f) / kD * 2 - 1;
+              const float al = std::clamp((1.f - std::sqrt(dx * dx + dy * dy)) * kD / 4.f, 0.f, 1.f);
+              const uint32_t c = uint32_t(al * 255.f + 0.5f);
+              px[size_t(y) * kD + x] = c << 24 | c << 16 | c << 8 | c;
+            }
+          dot = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, kD, kD);
+          if (dot) SDL_UpdateTexture(dot, nullptr, px.data(), kD * 4), SDL_SetTextureScaleMode(dot, SDL_SCALEMODE_LINEAR);
+        }
+        if (dot) {
+          static std::vector<d2k_bonus::Pt> pts;
+          static const bool trace = std::getenv("D2K_BONUS_TRACE") != nullptr;
+          if (trace) std::fprintf(stderr, "bonus draw: frame %d upd %d layer %06X -> snapshot %d, t %.3f\n", g_frames,
+                                  g_upd_frame, sp.data, bk, t);
+          // Smooth: between the picture shown before and this one (the game advances one step a load and shows each
+          // load's picture for one update, though the loads come 1-3 frames apart - so by updates, not by frames).
+          d2k_bonus::Points(bk, a, false, pts);
+          use(dot);
+          const float row0 = float(int((sp.data - d2k_bonus::Buffer(bk)) / 384u));
+          const float top = float(sp.row_y.front()), rows = float(sp.h);
+          for (const d2k_bonus::Pt& p : pts) {
+            const float s = float(p.size), y = p.y - row0;
+            if (y < 0 || y + s > rows) continue;
+            if (!g_wide_on && (p.x < 0 || p.x + s > float(sp.w))) continue;
+            const uint32_t c = ToRgb(Clut(p.col), g_cur.vmode);
+            const SDL_FColor col{float(c >> 16 & 0xFF) / 255.f, float(c >> 8 & 0xFF) / 255.f, float(c & 0xFF) / 255.f, 1};
+            const float d = s * 1.25f, cx = float(sp.x) + p.x + 0.5f * s, cy = top + y + 0.5f * s;
+            quad(wx(cx - d / 2), wy(cy - d / 2), wx(cx + d / 2), wy(cy + d / 2), 0, 0, 1, 1, col);
+          }
+          continue;
+        }
+      }
     }
     if (int(i) == g_layer && g_gpu.item_at.size() == g_items.size()) {
       use(g_gpu.tex);

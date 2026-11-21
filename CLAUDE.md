@@ -669,6 +669,29 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- Space-level auroras cut to half the screen (2026-11-21, owner's state logs/d2k/aurora/owner.state, level 6 after the
+  planet is lost): OUR bug - LayerCounts capped every count at 7 (later 8), so the six aurora descriptors of levels 5
+  and 6 (32 px tiles, count 14 = 448 px, records 40 bytes so room for 16 ids) were cut to 7 = 224 px, in the game's
+  own picture too, and the cut value went into save states. Now room = descriptor - record - 24 (8 / 16), a count is
+  never lowered, and kFourteen repairs those six descriptors' counts in older states (values read after a clean boot:
+  the level data is unpacked at boot; not raw in the cartridge). ExtendLayers now also takes strips clipped at the
+  top (DATA whole rows into the tile, every strip alike) and goes a row at a time (records share tiles: the aurora
+  rows), each row once; D2K_EXTEND_LOG=1 says why a row isn't extended.
+- Bonus tunnel (2000 mode between levels; owner's state logs/d2k/bonus/owner_bonus.state, 2026-11-21): the whole
+  playfield layer (384 x 279 8-bit, buffers $1CB000 / $1E5400) is dots from one GPU overlay ($0AB008; disassembly
+  logs/d2k/bonus/ovl.dis): LFSR stars (fixed seeds, so every dot keeps its identity), streaks, wave pairs ($ABD2C),
+  pods ($AB920, 16-byte entries, with collision logic inside), tunnel rings ($AB720 table, $ABD2A count, wave $1AED6C),
+  projected x / z around (192, 139), camera from the sine table ($1AE030) at angle $AB700 (turning; wraps at 512),
+  travel $AB704 (+13 a load). Our item matching smeared it (~400 of 500 dots unmatched a update). src/d2k_bonus.cpp
+  ports the generator (exact mode == the game's buffer byte for byte on most loads; D2K_BONUS_CHECK=1 compares; the
+  rest: the GPU not done by frame end, or a pixel off in near rings after turning - the 68K updates state while the
+  GPU draws) and Draw shows its smooth version instead of the layer: round sub-pixel dots, the scalars and pods / ring
+  angles interpolated between the shown picture and the one before (by displayed pictures, not frames: the loads come
+  1-3 frames apart but each picture shows for one update), stars past the 384 px edges on wide screens. Inputs are
+  snapshotted when the 68K starts the GPU ($F03FFC set after the overlay's blit; other blits share A1 $F031C0, only
+  cmd $01800001 is an overlay copy). Shown snapshot = the newest drawn into the shown buffer before the update flipped
+  to it (the GPU starts the next picture in a buffer still on screen). D2K_NO_BONUS=1 off, D2K_BONUS_TRACE=1 logs.
+  CRT++ trails turn the smooth dots into long rays (the owner's CRT look 1 has none). --press now works in window runs.
 - Classic auto fire (2026-11-21, owner): Classic's fire is edge-triggered (one laser a press, a new one only when the last
   is done). d2k::AutoFire (main.cpp pad + headless presses): while Fire is held in Classic play (d2k::ModePlayed() 0)
   it presses 4 frames on / 4 off. Setting d2k_autofire (default 1), menu CONTROLS "Auto fire (Classic)".

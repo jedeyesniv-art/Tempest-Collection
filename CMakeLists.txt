@@ -26,7 +26,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang")
   target_compile_options(vj_libchdr PRIVATE -w)
 endif()
 
-add_executable(t2k WIN32 src/main.cpp src/host.cpp src/settings.cpp src/volume.cpp src/runlog.cpp src/t2k.cpp src/menu.cpp src/pixfont.cpp src/t2k_menu.cpp src/d2k_menu.cpp src/controls.cpp src/traps.cpp src/gpulog.cpp src/jagsurvey.cpp src/d2k.cpp src/remaster.cpp src/perf.cpp src/xbr.cpp src/crt.cpp src/crt_menu.cpp res/t2k.rc)
+add_executable(t2k WIN32 src/main.cpp src/host.cpp src/settings.cpp src/volume.cpp src/runlog.cpp src/t2k.cpp src/menu.cpp src/pixfont.cpp src/t2k_menu.cpp src/d2k_menu.cpp src/controls.cpp src/traps.cpp src/gpulog.cpp src/jagsurvey.cpp src/d2k.cpp src/d2k_bonus.cpp src/remaster.cpp src/perf.cpp src/xbr.cpp src/crt.cpp src/crt_menu.cpp res/t2k.rc)
 target_link_libraries(t2k PRIVATE vj_core SDL3::SDL3-static)
 target_compile_definitions(t2k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
 if(WIN32)

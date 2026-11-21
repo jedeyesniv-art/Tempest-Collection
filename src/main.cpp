@@ -860,6 +860,10 @@ int main(int argc, char** argv) {
       // In the game's menus pad B means back: kept away from the game (where any button confirms).
       host::Input in = ReadPad(pad, t2k::MenuScreen() ? held & ~2u : held, keys, &tp);
       if (t2k::MenuTick()) in.buttons |= 1u << host::B;
+      // Test: --press in a window run too (RetroPad buttons, at the frame count; not the arcade / keypad names).
+      for (auto& p : presses)
+        if (p.btn >= 0 && p.btn < 100 && int(frame_count) >= p.frame && int(frame_count) < p.frame + p.len)
+          in.buttons |= uint16_t(1u << p.btn);
       if (music_frames > 0) { in.buttons |= 1u << host::X; --music_frames; }
       if (quiet_frames > 0) --quiet_frames;
       host::SetInput(0, in);
