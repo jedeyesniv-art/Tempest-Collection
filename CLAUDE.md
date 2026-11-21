@@ -586,9 +586,10 @@ Tooling pitfalls (cost time today)
   pinned (tiles meet), --ridge-detail 0.5 px rocky roughness, anti-aliased edge (the loader premultiplies real alpha).
   Chosen pictures: >= 128 wide, bottom row solid, >= 12 steps, big jumps <= steps / 4 (desert mountains / dunes; city
   skylines and logos untouched).
-- Known renderer gap (found 2026-11-19, not new): Plus mode's purple nebula clouds and the radar's landscape line are
-  not in our picture (--d2kcheck on the Plus route: 400-75000 px off; Classic 350-550 px), no unhandled objects
-  reported - probably GPU-drawn into the line buffer. 2000 mode exact.
+- FIXED 2026-11-21 (was the "Plus nebula / radar line gap"; owner: a big black square over Classic's playfield):
+  TRANS makes a palettised pixel see-through when its own BITS are 0 (core op.c), not its CLUT entry; Classic / Plus
+  2-bpp buffers have a non-zero black at index 0. --d2kcheck sweeps (route, 1800-6000 every 25): Classic, Plus, 2000
+  all 169 / 169 exact.
 - High-res art (2026-11-19; setting d2k_hires default 1, F4, menu PICTURE "High-res art"): pack build\d2k_art (never
   in git / published: made from the cartridge) = pack.txt (each picture's memory place: depth, DWIDTH, OP pitch, row /
   column = pixel address // and % the line pitch in pixels) + src\<n>.png (1x original) + hi\<n>.png (4x). Built by

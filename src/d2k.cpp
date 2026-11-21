@@ -116,7 +116,8 @@ uint16_t Pixel(uint32_t line, int k, int bpp, int pitch, int index, bool* zero, 
   else if (bpp == 4) ci = (index & 0xF0) | v;
   if (ci_out) *ci_out = ci;
   const uint16_t c = Clut(ci);
-  *zero = c == 0;   // (the core tests the CLUT entry, not the index)
+  *zero = v == 0;   // (TRANS: the core tests the pixel's own bits, not its CLUT entry - Classic's 2-bpp buffers
+                    // have a non-zero colour at index 0, which drew as a big black square over the playfield)
   return c;
 }
 
