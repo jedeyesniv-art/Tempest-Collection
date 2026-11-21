@@ -564,9 +564,18 @@ bool g_wide_on = false;                    // wide screens on (setting d2k_wides
 // scanner's rows each blip is drawn at the average of its last 4 positions instead (1 px in 3 updates becomes a
 // steady third of a pixel each update, about 2 updates late) and blended between those averages.
 constexpr int kRadarRow0 = 26, kRadarRow1 = 61;   // line-buffer rows of the scanner (its bar: row 30, 32 high)
+bool InRadar(const Item& it) { return !it.beam && it.y >= kRadarRow0 && it.y + it.h - 1 <= kRadarRow1; }
+// A blip moves at most a few scanner pixels an update (2000 at full thrust: ~3). 2000's humanoid blips (2 x 2) sit in
+// one row (54) ~15-40 px apart, and a star layer's displacement (a prediction) paired them with a neighbour: they slid
+// across between updates (owner 2026-11-21: "move quickly or swap positions"). Blips (3+ pixels) in the scanner's rows
+// only pair within this; single pixels there may be stars passing behind it.
+bool BlipMove(const Item& c, const Item& p) { return std::abs(c.x - p.x) <= 4 && std::abs(c.y - p.y) <= 2; }
+bool BlipOnly(const Item& c) { return InRadar(c) && c.n >= 3; }
 void SmoothRadar(std::vector<Item>& cur, const std::vector<Item>& prev) {
   for (Item& c : cur) {
-    c.radar = !c.beam && c.y >= kRadarRow0 && c.y + c.h - 1 <= kRadarRow1;
+    c.radar = InRadar(c);
+    // (A star crossing the scanner's rows moves further than a blip: drawn as a star, not averaged.)
+    if (c.radar && c.prev >= 0 && size_t(c.prev) < prev.size() && !BlipMove(c, prev[size_t(c.prev)])) c.radar = false;
     if (!c.radar) continue;
     const Item* p = c.prev >= 0 && size_t(c.prev) < prev.size() && prev[size_t(c.prev)].radar ? &prev[size_t(c.prev)]
                                                                                                : nullptr;
@@ -789,9 +798,11 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
   {
     std::map<uint64_t, std::pair<std::vector<int>, std::vector<int>>> groups;
     for (size_t i = 0; i < cur.size(); ++i)
-      if (!done[i] && !cur[i].beam && cur[i].n >= 2) groups[cur[i].mask].first.push_back(int(i));   // (not stars)
+      if (!done[i] && !cur[i].beam && cur[i].n >= 2 && !BlipOnly(cur[i]))   // (not stars, not scanner blips)
+        groups[cur[i].mask].first.push_back(int(i));
     for (size_t j = 0; j < prev.size(); ++j)
-      if (!taken[j] && !prev[j].beam && groups.count(prev[j].mask)) groups[prev[j].mask].second.push_back(int(j));
+      if (!taken[j] && !prev[j].beam && !BlipOnly(prev[j]) && groups.count(prev[j].mask))
+        groups[prev[j].mask].second.push_back(int(j));
     // Single-link clusters (24 pixels) of one update's items: one burst each (scanner blips share the outline).
     auto clusters = [](const std::vector<Item>& v, const std::vector<int>& ix) {
       std::vector<std::vector<int>> out;
@@ -831,7 +842,7 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
             Item& p = prev[j];
             // (by the piece's middle, in the 2x2 particles' top-left terms the fit used)
             const float mx = float(p.x) + float(p.w - 2) * 0.5f, my = float(p.y) + float(p.h - 2) * 0.5f;
-            if (taken[j] || p.beam || p.n < 2 || std::hypot(mx - best_b.pcx, my - best_b.pcy) > best_b.r / best_b.k + 4.f)
+            if (taken[j] || p.beam || p.n < 2 || BlipOnly(p) || std::hypot(mx - best_b.pcx, my - best_b.pcy) > best_b.r / best_b.k + 4.f)
               continue;
             p.vx = best_b.ccx + best_b.k * (mx - best_b.pcx) - mx;
             p.vy = best_b.ccy + best_b.k * (my - best_b.pcy) - my;
@@ -839,7 +850,7 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
           for (size_t i = 0; i < cur.size(); ++i) {
             Item& c = cur[i];
             const float mx = float(c.x) + float(c.w - 2) * 0.5f, my = float(c.y) + float(c.h - 2) * 0.5f;
-            if (done[i] || c.beam || c.n < 2 || std::hypot(mx - best_b.ccx, my - best_b.ccy) > best_b.r + 4.f) continue;
+            if (done[i] || c.beam || c.n < 2 || BlipOnly(c) || std::hypot(mx - best_b.ccx, my - best_b.ccy) > best_b.r + 4.f) continue;
             c.vx = mx - (best_b.pcx + (mx - best_b.ccx) / best_b.k);
             c.vy = my - (best_b.pcy + (my - best_b.ccy) / best_b.k);
             c.moving = true;
@@ -856,14 +867,18 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
     const bool lone = dense && c.n == 1;
     for (size_t j = 0; j < prev.size(); ++j) {
       const Item& p = prev[j];
-      if (p.beam || std::abs(p.n - c.n) > std::max(2, c.n / 3)) continue;
+      if (p.beam || std::abs(p.n - c.n) > std::max(2, c.n / 3) || (BlipOnly(c) && !BlipMove(c, p))) continue;
       const int dx = c.x - p.x, dy = c.y - p.y;
       if (std::abs(dx) > kMaxX || std::abs(dy) > kMaxY) continue;
       float err = lone ? 1e9f : std::fabs(float(dx) - p.vx) + std::fabs(float(dy) - p.vy);
       for (auto& q : lone ? strong : preds)
         err = std::min(err, std::fabs(float(dx) - q.first) + std::fabs(float(dy) - q.second));
       if (err > (lone ? 1.f : 3.f)) continue;
-      pairs.push_back({err + (p.shape == c.shape ? 0.f : 1.5f), int(i), int(j)});
+      // (Ties - two blinking blips 4 px apart, each fitting a 4 px prediction - go to the shorter move: no swap.)
+      // (Scanner blips blink colour every update: compared by outline, or a neighbour of the old colour 1-4 px away
+      // took a still blip's partner.)
+      const bool same = BlipOnly(c) ? p.mask == c.mask : p.shape == c.shape;
+      pairs.push_back({err + (same ? 0.f : 1.5f) + 0.01f * float(std::abs(dx) + std::abs(dy)), int(i), int(j)});
     }
   }
   std::sort(pairs.begin(), pairs.end(), [](const Pair& a, const Pair& b) { return a.score < b.score; });
@@ -875,7 +890,9 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
     float bd = 14.5f;
     for (size_t j = 0; j < prev.size(); ++j) {
       const Item& p = prev[j];
-      if (taken[j] || p.beam || std::abs(p.n - cur[i].n) > std::max(2, cur[i].n / 3)) continue;
+      if (taken[j] || p.beam || std::abs(p.n - cur[i].n) > std::max(2, cur[i].n / 3) ||
+          (BlipOnly(cur[i]) && !BlipMove(cur[i], p)))
+        continue;
       const float d = std::hypot(float(cur[i].x - p.x), float(cur[i].y - p.y));
       if (d < bd) bd = d, best = int(j);
     }

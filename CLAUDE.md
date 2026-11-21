@@ -577,7 +577,13 @@ Tooling pitfalls (cost time today)
   layer items; SmoothRadar draws items in line-buffer rows 26..61 at the average of their last 4 positions along the
   match chain, blended between averages (1 px per 4 updates -> 0.25 px each update, ~2 updates late; smooth motion
   only). Classic: NOT done - its radar (and landscape line) is inside the 2-bpp playfield buffer, which is drawn whole
-  (IsLayer needs depth 3) and updates at 60 Hz: it steps like the original.
+  (IsLayer needs depth 3) and updates at 60 Hz: it steps like the original (owner: looks good, leave it).
+  Blip pairing (2026-11-21, owner: 2000's bottom-row blips "move quickly or swap positions"): the humanoid blips (2x2)
+  sit in row 54 ~15-40 px apart and a star layer's displacement (a prediction) paired them with a neighbour (205 jumps
+  of 16-43 px from the owner's level-2 state). Now blips (3+ px in the scanner rows, BlipOnly) pair only within 4 px
+  across / 2 down (BlipMove), stay out of burst grouping, compare by outline (they blink colour), ties go to the
+  shorter move; SmoothRadar averages only blip-sized moves (stars crossing the scanner rows are drawn as stars).
+  Row-54 jumps 205 -> 3 (4 px steps).
 - Plus sky (2026-11-21, owner: aurora cut at 4:3, starfield "swapping pixels"): the aurora is a mirrored pair of
   SCALED strips (type 1, 48 px source drawn 168 wide, row 178) - the wide pads now take type 0 and 1. The sky has
   ~370 items (three star layers at ~1-2 / 3-4 / 6-7 px a frame, ~100 stars each, colour by row and changing): in a
