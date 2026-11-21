@@ -560,8 +560,11 @@ Tooling pitfalls (cost time today)
   same-image match yields to a same-size sprite > 10 px nearer (an animation frame flip); step 2 needs the same
   reflect flag. D2K_MOTION_LOG shows s<step>#<prev index> per sprite. Classic route: matches implying >= 12 px a
   frame 41 -> 10 (rest: world wrap at x ~2040, landers appearing); Plus unmatched 516 -> 179, 2000 505 -> 220.
-  OPEN (old): 2000's foreground rock row (64x22 strips at row 232, images + mirroring change as it scrolls) moves -6
-  but matches as +58 (same image one tile over) on some updates - needs a tiled-row rule.
+  Step 4 (same day): a row of strips (same row / height / depth, 32+ px wide) takes the motion most of its same-image
+  (step 1) matches agree on, over members matched by steps 2 / 3. 2000's foreground rocks (64x22 at row 232) scroll
+  ~+58 an update while thrusting (measured from the pictures: logs/d2k/hum/rowshift.py; the pattern repeats ~64 px, so
+  0 / -6 fit nearly as well - don't trust a single shift fit); step 2 had given the left strips another layer's -6.
+  Rows split between motions on the routes: 0 (was a few a second while thrusting).
 - Wide screens (2026-11-19; setting d2k_widescreen, default 1, F6): the object list is built by GPU overlays the 68K
   copies into $F031C0 from RAM - layers $0B2B50 (records -> 128/256 px strips, cull 0..383, left clip by DATA),
   sprites $0A5938 (world x - camera & 4095 - 255, kept while -w < x < 384 + w, left clip). d2k.cpp kWide patches their

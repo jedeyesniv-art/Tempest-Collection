@@ -510,6 +510,23 @@ void MatchMotion(const Scene& cur) {
     }
     if (!g_motion[i].matched) ++g_unmatched;
   }
+  // 4. A row of strips (a parallax layer: same row, height and depth, 32+ px wide) moves as one: the motion most of
+  // its same-image matches agree on overrules its members matched by size or by a sibling. (2000's foreground rocks
+  // scroll ~58 px an update; step 2 took another layer's -6 for the left strips and step 3 copied it on, so those
+  // slid the other way.)
+  for (size_t i = 0; i < cur.sprites.size(); ++i) {
+    const Sprite& a = cur.sprites[i];
+    if (a.w < 32 || g_motion[i].step == 1 || !g_motion[i].matched) continue;
+    std::map<std::pair<float, float>, int> votes;
+    for (size_t k = 0; k < cur.sprites.size(); ++k) {
+      const Sprite& b = cur.sprites[k];
+      if (g_motion[k].step == 1 && b.row == a.row && b.h == a.h && b.depth == a.depth && b.w >= 32)
+        ++votes[{g_motion[k].dx, g_motion[k].dy}];
+    }
+    int best = 1;   // (at least two same-image strips must agree)
+    for (auto& [m, n] : votes)
+      if (n > best) best = n, g_motion[i].dx = m.first, g_motion[i].dy = m.second, g_motion[i].step = 4;
+  }
 }
 
 // ---- the playfield layer's contents -------------------------------------------------------------------------------
