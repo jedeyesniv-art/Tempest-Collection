@@ -517,7 +517,8 @@ Tooling pitfalls (cost time today)
 - Standalone d2k.exe (2026-11-19, owner: not in the collection for now): the build copies t2k.exe to build\d2k.exe;
   main.cpp g_defender = the exe's name has "d2k" / "defender" (FindRom then looks for "Defender") or the cartridge is
   Defender 2000 (d2k::IsDefender, by file name). Then: userdata\d2k_settings.txt, defender2000.eeprom,
-  states\d2k_slotN.state, log d2k, volume key d2k (-24.05 LUFS measured), window title, src/d2k_menu.cpp page
+  states\d2k_slotN.state, log d2k, volume key d2k (-24.05 LUFS measured), window title, src/d2k_menu.cpp page (GAME "Restart the game" =
+  host::Reset, the core's retro_reset: the console's reset, EEPROM kept; headless --reset=F)
   (volume, save states, controls, picture: renderer / smooth motion / wide / pixels, CRT), ReadPadD2K; the T2K-only
   keys and hooks (F2, camera, pause line, quit to title) are off. "Defender 2000.bat" starts build\d2k.exe.
 - Controls (manual + tests): d-pad left / right = the game's turn-and-thrust (push the way you face to thrust, the
@@ -528,7 +529,11 @@ Tooling pitfalls (cost time today)
   Thrust holds the d-pad that way, Reverse holds the other way until the word flips (<= 6 frames; 2 always did it,
   the ship keeps most of its speed). Defaults: A fire, B / RB bomb, X laser, RT thrust, LB / LT reverse, Y Option,
   Start pause; setting d2k_stick_lr off = the stick moves up / down only (the d-pad still turns, for the game's
-  menus: no reliable "in play" flag found - $0B4BE6 / $180FEA stay 1 after a game over). Keyboard: Z fire, C bomb,
+  menus). Bindings apply only in play (2026-11-21, owner's layout: RT fire, A thrust, X reverse, LB laser, B / RB bomb,
+  Y option, LT reverse, Start pause): d2k::InPlay = long $18CD98 == $00760084 (play in every mode + the attract demo;
+  title 0, menus $00EF0034 / $00F0002A, between levels $007A0020; RAM search logs/d2k/inplay/search2.py, D2K_RAMDUMPS=
+  F0:F1:step:prefix, D2K_INPLAY_LOG=1). Outside play, fixed: A / Start = Jaguar B (select), B = Jaguar C (back: level
+  select -> mode menu), Y = Option, d-pad + stick move. The pause keeps InPlay on. Keyboard: Z fire, C bomb,
   X laser, Space thrust, Shift reverse. Headless: --press=F:thrust / reverse.
 - No source exists. Survey: t2k --survey=F0:F1:file (src/jagsurvey.cpp, core hooks vjHostGpuGo / vjHostBlit /
   vjHostOpObject). The picture is all OP bitmaps (CRY, VMODE $06C1, BGEN, per-line BG = the sky gradient set from GPU
@@ -565,6 +570,20 @@ Tooling pitfalls (cost time today)
   ~+58 an update while thrusting (measured from the pictures: logs/d2k/hum/rowshift.py; the pattern repeats ~64 px, so
   0 / -6 fit nearly as well - don't trust a single shift fit); step 2 had given the left strips another layer's -6.
   Rows split between motions on the routes: 0 (was a few a second while thrusting).
+- Scanner (2026-11-21, owner: radar jittery in all modes): the game steps blips a whole scanner pixel every few updates
+  (and blinks enemy blips red / yellow <-> green every update - the game's own). 2000 / Plus: the blips are playfield
+  layer items; SmoothRadar draws items in line-buffer rows 26..61 at the average of their last 4 positions along the
+  match chain, blended between averages (1 px per 4 updates -> 0.25 px each update, ~2 updates late; smooth motion
+  only). Classic: NOT done - its radar (and landscape line) is inside the 2-bpp playfield buffer, which is drawn whole
+  (IsLayer needs depth 3) and updates at 60 Hz: it steps like the original.
+- Plus sky (2026-11-21, owner: aurora cut at 4:3, starfield "swapping pixels"): the aurora is a mirrored pair of
+  SCALED strips (type 1, 48 px source drawn 168 wide, row 178) - the wide pads now take type 0 and 1. The sky has
+  ~370 items (three star layers at ~1-2 / 3-4 / 6-7 px a frame, ~100 stars each, colour by row and changing): in a
+  dense layer (> 150 items of 1-2 px) single pixels only take a motion >= 20 position-only pairs share (h1 in
+  MatchItems; colour-blind) and skip the mutual-nearest step; with g_period 1 new items show at once and vanished
+  ones go (no half-frame fade flashes). Plus frame 2400 state: new / vanished per frame ~30 -> ~10, odd motions
+  (-38..+48) gone. 2000 mode: only big explosions differ (~1 item an update). OPEN: Plus's hills and stars are in
+  the 384 px playfield bitmap and end ~30 px short of a 16:9 window's edges (the aurora now shows below them there).
 - Wide screens (2026-11-19; setting d2k_widescreen, default 1, F6): the object list is built by GPU overlays the 68K
   copies into $F031C0 from RAM - layers $0B2B50 (records -> 128/256 px strips, cull 0..383, left clip by DATA),
   sprites $0A5938 (world x - camera & 4095 - 255, kept while -w < x < 384 + w, left clip). d2k.cpp kWide patches their

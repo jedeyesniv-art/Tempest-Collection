@@ -43,5 +43,7 @@ bool SaveStateInto(std::vector<uint8_t>& s);   // reuses s (run-ahead: no alloca
 // The next frames' pictures are wanted (off: the core skips building the picture; LastFrame keeps the last one).
 void SetVideoEnabled(bool on);
 bool LoadState(const std::vector<uint8_t>& s);
+// The console's reset button: the cartridge boots again; the EEPROM (high scores, options) is kept.
+void Reset();
 
 }  // namespace host

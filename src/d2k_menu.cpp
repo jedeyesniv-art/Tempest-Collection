@@ -23,10 +23,12 @@ void Install(bool from_launcher) {
   p.Header("GAME");
   p.Choice("Volume", "volume", {"0", "0.25", "0.5", "0.75", "1", "1.25", "1.5"},
            {"Off", "25%", "50%", "75%", "100%", "125%", "150%"})->def_value = "1";
+  p.Button("Restart the game", kRestart, true);   // (the console's reset: high scores and options are kept)
   p.Choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
   p.Button("  Save state", menu::kSaveState)->slot_info = true;
   p.Button("  Load state", menu::kLoadState, true)->slot_info = true;
-  p.Header("CONTROLS");
+  // The bindings apply in play; the game's menus always get A select, B back, Y Option (main.cpp ReadPadD2K).
+  p.Header("CONTROLS (IN PLAY)");
   // Arcade: up / down on the stick, Thrust and Reverse on buttons (the d-pad keeps the game's own turn-and-thrust,
   // and works the game's menus).
   p.Choice("Stick left / right", "d2k_stick_lr", {"game", "off"},

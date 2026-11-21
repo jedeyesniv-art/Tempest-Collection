@@ -19,6 +19,10 @@ bool Active();
 // Call once per emulated frame.
 int Arcade(bool thrust, bool reverse);
 
+// In play (the game running, the attract demo too) rather than on a menu / title / table / between-level screen: the
+// pad's own bindings apply only in play; menus get fixed buttons (A select, B back). See d2k.cpp.
+bool InPlay();
+
 void BeforeFrame();   // before each emulated frame (clears the capture)
 void AfterFrame();    // after it: builds the frame's scene, tracks game updates
 

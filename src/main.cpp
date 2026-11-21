@@ -136,9 +136,41 @@ std::string FindRom(const std::string& given, const char* title_word) {
 // the arcade's, done on the d-pad (d2k::Arcade). Setting d2k_stick_lr off: the stick moves up / down only (arcade);
 // the d-pad keeps the game's own turn-and-thrust and works its menus. Keyboard: Z fire, C smart bomb, X laser,
 // Space thrust, Shift reverse, O Option, P / Enter Pause, arrows.
+// Outside play (d2k::InPlay: title, menus, tables, between levels) the pad's bindings don't apply: fixed menu buttons
+// - A / Start select (Jaguar B), B back (Jaguar C: level select -> mode menu), Y Option, d-pad / stick move - so a
+// remapped layout (fire on RT, thrust on A) still works the menus.
 host::Input ReadPadD2K(SDL_Gamepad* pad, uint32_t held, const bool* keys) {
   host::Input in;
   auto set = [&](int b, bool on) { if (on) in.buttons |= uint16_t(1u << b); };
+  if (!d2k::InPlay()) {
+    d2k::Arcade(false, false);   // (lets go of a held Reverse)
+    if (pad) {
+      auto btn = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(pad, b); };
+      set(host::B, btn(SDL_GAMEPAD_BUTTON_SOUTH) || btn(SDL_GAMEPAD_BUTTON_START));
+      set(host::Y, btn(SDL_GAMEPAD_BUTTON_EAST));
+      set(host::START, btn(SDL_GAMEPAD_BUTTON_NORTH));
+      set(host::UP, btn(SDL_GAMEPAD_BUTTON_DPAD_UP));
+      set(host::DOWN, btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN));
+      set(host::LEFT, btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT));
+      set(host::RIGHT, btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT));
+      const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+      set(host::LEFT, lx < -16000);
+      set(host::RIGHT, lx > 16000);
+      set(host::UP, ly < -16000);
+      set(host::DOWN, ly > 16000);
+    }
+    if (keys) {
+      set(host::UP, keys[SDL_SCANCODE_UP]);
+      set(host::DOWN, keys[SDL_SCANCODE_DOWN]);
+      set(host::LEFT, keys[SDL_SCANCODE_LEFT]);
+      set(host::RIGHT, keys[SDL_SCANCODE_RIGHT]);
+      set(host::B, keys[SDL_SCANCODE_Z] || keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_SPACE]);
+      set(host::Y, keys[SDL_SCANCODE_C] || keys[SDL_SCANCODE_BACKSPACE]);
+      set(host::A, keys[SDL_SCANCODE_X]);
+      set(host::START, keys[SDL_SCANCODE_O]);
+    }
+    return in;
+  }
   set(host::B, controls::FnHeld(held, d2k_menu::kFire));
   set(host::Y, controls::FnHeld(held, d2k_menu::kBomb));
   set(host::A, controls::FnHeld(held, d2k_menu::kLaser));
@@ -329,7 +361,7 @@ int main(int argc, char** argv) {
   std::vector<Press> presses;
   std::vector<StickHold> sticks;
   std::vector<std::pair<std::string, std::string>> sets;
-  int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1;
+  int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1, reset_at = -1;
   std::vector<int> menuback_at;   // --menuback=F[,F..]: B (back) in the game's menus at these frames
   std::vector<std::pair<int, std::string>> d2k_checks;
   std::string save_file, load_file, gpulog_spec, survey_spec, start_state, winshot_file;
@@ -421,6 +453,8 @@ int main(int argc, char** argv) {
       gpulog_spec = val("--gpulog=");
     } else if (a.rfind("--title=", 0) == 0) {
       title_at = std::atoi(val("--title=").c_str());
+    } else if (a.rfind("--reset=", 0) == 0) {   // --reset=F: the console reset before frame F (menu "Restart the game")
+      reset_at = std::atoi(val("--reset=").c_str());
     } else if (a.rfind("--menuback=", 0) == 0) {
       std::stringstream ss(val("--menuback="));
       for (std::string t; std::getline(ss, t, ',');) menuback_at.push_back(std::atoi(t.c_str()));
@@ -531,6 +565,7 @@ int main(int argc, char** argv) {
       t2k::BeforeFrame(tp);
       t2k::SetPauseLine(pause_line);
       if (f == title_at) t2k::ReturnToTitle();
+      if (f == reset_at) host::Reset();
       gpulog::SetFrame(f);
       jagsurvey::SetFrame(f);
       if (f == load_at) {
@@ -716,6 +751,11 @@ int main(int argc, char** argv) {
         case t2k_menu::kCheatWarp:
           t2k::CheatWarp();
           menu::Toast("Warp after this level", now);
+          break;
+        case d2k_menu::kRestart:
+          host::Reset();
+          host::Audio().clear();
+          menu::Toast("Game restarted", now);
           break;
         case menu::kToggleFullscreen: set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break;
         case menu::kReturnToTitle:

@@ -10,6 +10,9 @@ namespace d2k_menu {
 // on the d-pad (src/d2k.cpp Arcade).
 enum Fn { kNone, kFire, kBomb, kLaser, kThrust, kReverse, kOption, kPause };
 
+// Menu actions (numbered past t2k_menu's: main.cpp handles both in one switch).
+enum Action { kRestart = menu::kGameAction + 10 };
+
 // Registers the controls functions and the menu page. from_launcher: the last item says "Return to launcher".
 void Install(bool from_launcher);
 

@@ -545,12 +545,40 @@ struct Item {
   int prev = -1;                           // matched item of the update before
   bool moving = false;                     // has a motion (matched, or a burst's new particle)
   int bx0 = 0, bx1 = 0, by = 0;            // beams: the matched beam's span and row
+  // Scanner blips (SmoothRadar): the last positions along the item's chain, drawn at their average, blended from the
+  // update before's average (sx_prev).
+  int hn = 0;
+  float hx[4] = {}, hy[4] = {};
+  bool radar = false;
+  float sx = 0, sy = 0, sx_prev = 0, sy_prev = 0;
   std::vector<uint32_t> rgb;               // w * h premultiplied XRGB (0 = see-through)
 };
 std::vector<Item> g_items, g_prev_items;
 std::vector<size_t> g_dead;                // items of the update before with no successor
 int g_layer = -1;                          // the layer's index in g_cur.sprites (-1: none / not cut)
 int g_items_matched = 0, g_items_total = 0;
+
+// The scanner (2000 / Plus) is drawn into the playfield layer: its blips step a whole scanner pixel every few updates
+// (one pixel is a long way in the world), so blended update by update they go hold - hold - slide. Within the
+// scanner's rows each blip is drawn at the average of its last 4 positions instead (1 px in 3 updates becomes a
+// steady third of a pixel each update, about 2 updates late) and blended between those averages.
+constexpr int kRadarRow0 = 26, kRadarRow1 = 61;   // line-buffer rows of the scanner (its bar: row 30, 32 high)
+void SmoothRadar(std::vector<Item>& cur, const std::vector<Item>& prev) {
+  for (Item& c : cur) {
+    c.radar = !c.beam && c.y >= kRadarRow0 && c.y + c.h - 1 <= kRadarRow1;
+    if (!c.radar) continue;
+    const Item* p = c.prev >= 0 && size_t(c.prev) < prev.size() && prev[size_t(c.prev)].radar ? &prev[size_t(c.prev)]
+                                                                                               : nullptr;
+    c.hn = 0;
+    if (p)
+      for (int k = std::max(0, p->hn - 3); k < p->hn; ++k) c.hx[c.hn] = p->hx[k], c.hy[c.hn] = p->hy[k], ++c.hn;
+    c.hx[c.hn] = float(c.x), c.hy[c.hn] = float(c.y), ++c.hn;
+    c.sx = c.sy = 0;
+    for (int k = 0; k < c.hn; ++k) c.sx += c.hx[k], c.sy += c.hy[k];
+    c.sx /= float(c.hn), c.sy /= float(c.hn);
+    c.sx_prev = p ? p->sx : c.sx, c.sy_prev = p ? p->sy : c.sy;
+  }
+}
 
 bool IsLayer(const Sprite& sp) {
   return sp.type == 0 && sp.depth == 3 && sp.w >= 300 && !(sp.flags & 3) && sp.h >= 200 &&
@@ -712,6 +740,24 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
   for (auto& m : modes) preds.push_back({float(m.second.first), float(m.second.second)});
   for (const Motion& m : g_motion)
     if (m.matched) preds.push_back({m.dx, m.dy});
+  // Single pixels in a dense field only follow a motion many pairs share (a star layer: ~80 stars each in Plus):
+  // Plus's dust (one pixel coloured by its row, 2 px down and far sideways a frame) has no identity, and paired by
+  // any looser prediction it slid across between frames. Unmatched, it is drawn where the game puts it.
+  // (Counted by position alone: the stars change colour between frames. Random pairs spread ~1-2 per offset; a star
+  // layer's ~80 stars make a peak.)
+  // (Dense: over 150 items of 1-2 px - Plus's sky has ~370; 2000's explosions push its item count past 150, but as
+  // 2 x 2 particles.)
+  const bool dense = std::count_if(cur.begin(), cur.end(), [](const Item& c) { return !c.beam && c.n <= 2; }) > 150;
+  std::vector<std::pair<float, float>> strong;
+  if (dense) {
+    std::map<std::pair<int, int>, int> h1;
+    for (const Item& c : cur)
+      if (!c.beam && c.n == 1)
+        for (const Item& p : prev)
+          if (!p.beam && p.n == 1 && std::abs(c.x - p.x) <= kMaxX && std::abs(c.y - p.y) <= kMaxY) ++h1[{c.x - p.x, c.y - p.y}];
+    for (auto& [d, n] : h1)
+      if (n >= 20) strong.push_back({float(d.first), float(d.second)});
+  }
   std::vector<Pair> pairs;
   std::vector<bool> taken(prev.size(), false), done(cur.size(), false);
   auto take = [&](int i, int j) {
@@ -797,14 +843,16 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
   for (size_t i = 0; i < cur.size(); ++i) {
     const Item& c = cur[i];
     if (c.beam) continue;
+    const bool lone = dense && c.n == 1;
     for (size_t j = 0; j < prev.size(); ++j) {
       const Item& p = prev[j];
       if (p.beam || std::abs(p.n - c.n) > std::max(2, c.n / 3)) continue;
       const int dx = c.x - p.x, dy = c.y - p.y;
       if (std::abs(dx) > kMaxX || std::abs(dy) > kMaxY) continue;
-      float err = std::fabs(float(dx) - p.vx) + std::fabs(float(dy) - p.vy);
-      for (auto& q : preds) err = std::min(err, std::fabs(float(dx) - q.first) + std::fabs(float(dy) - q.second));
-      if (err > 3.f) continue;
+      float err = lone ? 1e9f : std::fabs(float(dx) - p.vx) + std::fabs(float(dy) - p.vy);
+      for (auto& q : lone ? strong : preds)
+        err = std::min(err, std::fabs(float(dx) - q.first) + std::fabs(float(dy) - q.second));
+      if (err > (lone ? 1.f : 3.f)) continue;
       pairs.push_back({err + (p.shape == c.shape ? 0.f : 1.5f), int(i), int(j)});
     }
   }
@@ -823,8 +871,10 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
     }
     return best;
   };
+  // Not single stars (1-2 px) in a dense field (Plus: ~370 items, stars ~13 px apart moving up to 13 px a frame):
+  // there the nearest is about random, and a wrong pair slides across between frames.
   for (size_t i = 0; i < cur.size(); ++i) {
-    if (done[i] || cur[i].beam) continue;
+    if (done[i] || cur[i].beam || (dense && cur[i].n <= 2)) continue;
     const int j = nearest_prev(i);
     if (j < 0) continue;
     int back = -1;   // the nearest unmatched current item to prev j
@@ -923,6 +973,12 @@ bool Install() {
 }
 
 bool Active() { return g_active; }
+
+// In play: the long at $18CD98 reads $00760084 in play in every mode (and in the attract demo, which runs the game) and
+// something else on the title (0), the mode / level menus ($00EF0034 / $00F0002A), the high-score table, the credits
+// and the between-level screens ($007A0020). Found by a RAM search over 2000 / Classic / idle routes (2026-11-21:
+// 215 play samples, 92 others; logs/d2k/inplay/search2.py). What it is is unknown (two words, not a pointer).
+bool InPlay() { return Be32(jagMemSpace + 0x18CD98) == 0x00760084u; }
 
 // Arcade controls. The ship's facing is the word at $190630 (+1 right, -1 left; every mode, from boot on); the game
 // turns the ship when the d-pad points the other way (read on its updates: 2 frames always did it) and thrusts while
@@ -1190,6 +1246,21 @@ void AfterFrame() {
       WriteBmp(file, out, unsigned(326 + 2 * margin), 240);
     }
   }
+  // Test: D2K_RAMDUMP=F:file - main RAM (2 MB) after frame F; D2K_RAMDUMPS=F0:F1:step:prefix - every step frames
+  // (<prefix>_<frame>.bin).
+  if (std::getenv("D2K_INPLAY_LOG")) {   // test: in play / not changes
+    static int last = -1;
+    if (int(InPlay()) != last) last = int(InPlay()), std::fprintf(stderr, "inplay %d: %d\n", g_frames, last);
+  }
+  if (const char* rs = std::getenv("D2K_RAMDUMPS")) {
+    char prefix[480] = {};
+    int f0 = 0, f1 = -1, step = 1;
+    if (std::sscanf(rs, "%d:%d:%d:%479s", &f0, &f1, &step, prefix) == 4 && step > 0 && g_frames >= f0 &&
+        g_frames <= f1 && (g_frames - f0) % step == 0) {
+      std::ofstream o(std::string(prefix) + "_" + std::to_string(g_frames) + ".bin", std::ios::binary);
+      o.write(reinterpret_cast<const char*>(jagMemSpace), 0x200000);
+    }
+  }
   if (const char* rd = std::getenv("D2K_RAMDUMP")) {   // test: D2K_RAMDUMP=F:file - main RAM (2 MB) after frame F
     char file[512] = {};
     int f = -1;
@@ -1229,6 +1300,7 @@ void AfterFrame() {
       g_prev_items = std::move(g_items);
       CutItems(g_cur.sprites[size_t(layer)], g_cur.vmode, g_items);
       MatchItems(g_items, g_prev_items);
+      SmoothRadar(g_items, g_prev_items);
       if (std::getenv("D2K_ITEM_LOG")) {
         int m = 0, beams = 0;
         for (const Item& it : g_items) m += it.moving, beams += it.beam;
@@ -1852,7 +1924,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
     const size_t n = g_cur.sprites.size();
     pad_side.assign(n, 0);
     auto strip = [](const Sprite& sp) {
-      return sp.type == 0 && !(sp.flags & 2) && sp.w >= 64 && sp.h >= 16 &&
+      return sp.type <= 1 && !(sp.flags & 2) && sp.w >= 64 && sp.h >= 16 &&
              sp.row_y.back() - sp.row_y.front() + 1 == sp.h;
     };
     auto span = [](const Sprite& sp, int* l, int* r) {
@@ -1937,16 +2009,21 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
       };
       for (size_t k = 0; k < g_items.size(); ++k) {
         const Item& it = g_items[k];
-        if (it.beam && it.prev >= 0) {
+        if (it.radar && interp) {   // (SmoothRadar)
+          const float x = it.sx_prev + a * (it.sx - it.sx_prev), y = it.sy_prev + a * (it.sy - it.sy_prev);
+          item_quad(it, g_gpu.item_at[k], x, x + float(it.w), y, it.moving || g_period == 1 ? 1.f : std::min(1.f, 2.f * a));
+        } else if (it.beam && it.prev >= 0) {
           const float x0 = float(it.bx0) + a * float(it.x - it.bx0), x1 = float(it.bx1) + a * float(it.x + it.w - it.bx1);
           item_quad(it, g_gpu.item_at[k], x0, x1, float(it.by) + a * float(it.y - it.by));
         } else {
           const float mx = it.moving ? -(1.f - a) * it.vx : 0.f, my = it.moving ? -(1.f - a) * it.vy : 0.f;
           item_quad(it, g_gpu.item_at[k], float(it.x) + mx, float(it.x + it.w) + mx, float(it.y) + my,
-                    it.moving ? 1.f : std::min(1.f, 2.f * a));
+                    it.moving || g_period == 1 ? 1.f : std::min(1.f, 2.f * a));
         }
       }
-      if (a < 0.5f)
+      // (Updates every frame (Plus, Classic): new items show at once and vanished ones go, as the game draws them - a
+      // half-frame fade only flashed them at half brightness.)
+      if (a < 0.5f && g_period > 1)
         for (size_t k = 0; k < g_dead.size() && k < g_gpu.dead_at.size(); ++k) {
           const Item& it = g_prev_items[g_dead[k]];
           const float mx = a * it.vx, my = a * it.vy;

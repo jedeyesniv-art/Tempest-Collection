@@ -183,6 +183,8 @@ uint8_t* SaveRam(size_t* size) {
 
 void SetVideoEnabled(bool on) { g_video = on; }
 
+void Reset() { retro_reset(); }
+
 bool SaveStateInto(std::vector<uint8_t>& s) {
   size_t n = retro_serialize_size();
   if (s.size() != n) s.resize(n);
