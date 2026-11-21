@@ -37,7 +37,8 @@ extern void (*vjHostBlit)(uint32_t cmd, uint32_t who);
 extern void (*vjHostM68kWrite)(uint32_t addr, uint32_t value, int size, uint32_t pc);
 extern uint32_t vjHostM68kWriteLo, vjHostM68kWriteHi;
 const uint8_t* vjBlitterRam(void);
-}
+uint8_t GPUReadByte(uint32_t offset, uint32_t who);
+extern uint32_t gpu_pc, gpu_reg_bank_0[32], gpu_reg_bank_1[32];}
 
 namespace d2k {
 namespace {
@@ -1281,6 +1282,19 @@ void ApplyWide(bool on) {
     std::memcpy(m, on ? e.wide : e.orig, size_t(e.n));
 }
 
+// Test dumps: <file>.gpu next to a RAM dump = GPU RAM $F03000..$F03FFF, then the GPU pc and both register banks
+// (u32 little-endian).
+void DumpGpu(const std::string& file) {
+  std::ofstream g(file, std::ios::binary);
+  for (uint32_t a = 0xF03000; a < 0xF04000; ++a) {
+    const char b = char(GPUReadByte(a, 0));
+    g.write(&b, 1);
+  }
+  g.write(reinterpret_cast<const char*>(&gpu_pc), 4);
+  g.write(reinterpret_cast<const char*>(gpu_reg_bank_0), 128);
+  g.write(reinterpret_cast<const char*>(gpu_reg_bank_1), 128);
+}
+
 // ---- art dump -----------------------------------------------------------------------------------------------------
 // D2K_ART_DUMP=<dir>: the source rectangle of every object drawn (not the playfield layer), once per distinct content:
 // where the OP read it in memory (DATA, line pitch DWIDTH, first pixel, pixels x rows) and its pixels as the game
@@ -1469,8 +1483,10 @@ void AfterFrame() {
     int f0 = 0, f1 = -1, step = 1;
     if (std::sscanf(rs, "%d:%d:%d:%479s", &f0, &f1, &step, prefix) == 4 && step > 0 && g_frames >= f0 &&
         g_frames <= f1 && (g_frames - f0) % step == 0) {
-      std::ofstream o(std::string(prefix) + "_" + std::to_string(g_frames) + ".bin", std::ios::binary);
+      const std::string file = std::string(prefix) + "_" + std::to_string(g_frames) + ".bin";
+      std::ofstream o(file, std::ios::binary);
       o.write(reinterpret_cast<const char*>(jagMemSpace), 0x200000);
+      DumpGpu(file + ".gpu");
     }
   }
   if (const char* rd = std::getenv("D2K_RAMDUMP")) {   // test: D2K_RAMDUMP=F:file - main RAM (2 MB) after frame F
@@ -1479,6 +1495,7 @@ void AfterFrame() {
     if (std::sscanf(rd, "%d:%511s", &f, file) == 2 && f == g_frames) {
       std::ofstream o(file, std::ios::binary);
       o.write(reinterpret_cast<const char*>(jagMemSpace), 0x200000);
+      DumpGpu(std::string(file) + ".gpu");
     }
   }
   if (g_mlog && g_frames >= g_mlog_f0 && g_frames <= g_mlog_f1) std::fprintf(g_mlog, "F %d\n", g_frames);

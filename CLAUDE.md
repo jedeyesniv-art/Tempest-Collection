@@ -669,6 +669,15 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- Black screen / GPU runaway in 2000 mode (2026-11-21, owner's level-6 state logs/d2k/black/owner_black.state, already
+  dead): a CORE bug, not ours (crashed with wide / renderer / idle skip off, any timing model). The core's late load
+  write-back (issue #811, gpu.c gpu_ldx_slot) also fired for a load in the delay slot of a TAKEN jump: the object task
+  $A61B0 ends a handler `jump eq,(r7) / load (r14+56),r0` into `movei #$F03296,r0 / jump ne,(r0)`, so r0 kept the
+  loaded data and the GPU ran into main RAM. Now armed only in program order (gpu.c + dsp.c). Repro harness:
+  logs/d2k/black/bot.py (random play from the owner's slot-1 state, 5000-frame segments chained by save states,
+  CRASH-DETECT lines) + replay.py; before: 4 of 14 seeds crashed, after: 0 of 20 (400k frames). D2K_RAMDUMP(S) also
+  write <file>.gpu (GPU RAM + pc + both register banks). GPU task protocol: code copied (blitter) to $F031C0, long
+  $F03FFC = go (resident loop at $F03072 polls), the task clears it; the 68K waits ($A423A + 18 inline tst.l).
 - Survey tools: D2K_GPULOG=F0:F1:file (GPU loads / stores outside its RAM + blits; core hook vjHostGpuMem),
   D2K_M68KLOG=F0:F1:lo:hi:file (writes into a range by the 68K with its pc, or by another unit as $FF0000xx | who;
   core hook vjHostM68kWrite), D2K_RAMDUMP=F:file (2 MB), D2K_WIDESHOT=F:margin:file (software picture, wider),
