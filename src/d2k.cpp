@@ -726,6 +726,15 @@ void BurstFit(const std::vector<Item>& cur, const std::vector<Item>& prev, const
 
 void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
   constexpr int kMaxX = 48, kMaxY = 24;
+  // A screen full of particles (2000's level end: ~6500 items, against a few hundred in play) is drawn where the game
+  // puts it: the burst fit and the nearest searches grow with the square of the count (seconds an update there - the
+  // owner's level-2 end ran at a few frames a second and the window stopped responding).
+  constexpr size_t kMaxItems = 2000;
+  if (cur.size() > kMaxItems || prev.size() > kMaxItems) {
+    g_dead.clear();
+    g_items_total += int(cur.size());
+    return;
+  }
   // The displacements many same-shape pairs share this update (the star layers' scroll, the world's).
   std::map<std::pair<int, int>, int> hist;
   for (const Item& c : cur)

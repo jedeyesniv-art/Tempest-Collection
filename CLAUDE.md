@@ -594,6 +594,10 @@ Tooling pitfalls (cost time today)
   Rejects fills (2000's full-screen flashes) and ambiguous shifts; a failed measurement (~1%: explosions over the hills,
   a jump every ~100 frames that no shift fits) restarts the history (carrying on with the last scroll was worse).
   D2K_EDGE_LOG=1. Wide only (g_wide_on).
+- Level-end slowdown (2026-11-21, owner's state logs/d2k/hang/owner_l2end.state, end of 2000 level 2): the screen
+  fills with ~6500 playfield particles; MatchItems' burst fit / nearest searches are quadratic (BurstFit ~95 scales x
+  particles^2): ~2 s an update, the window stopped responding. Over 2000 items (play: a few hundred) an update is not
+  matched (drawn as the game puts it). That state: 14 -> 170 fps headless.
 - Wide screens (2026-11-19; setting d2k_widescreen, default 1, F6): the object list is built by GPU overlays the 68K
   copies into $F031C0 from RAM - layers $0B2B50 (records -> 128/256 px strips, cull 0..383, left clip by DATA),
   sprites $0A5938 (world x - camera & 4095 - 255, kept while -w < x < 384 + w, left clip). d2k.cpp kWide patches their
