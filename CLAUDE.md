@@ -595,7 +595,9 @@ Tooling pitfalls (cost time today)
   tools/d2k_art_pack.py <census>_pics (Real-ESRGAN realesrgan-x4plus via tools/d2k_upscale.py: colours spread into
   see-through pixels, mask upscaled as grey and cut at 50%, 8 px border; ~15 s for 388 pictures on the GPU; the
   anime model posterises). Real-ESRGAN ncnn-vulkan 20220424 in third_party\realesrgan (owner approved the download).
-  Left out: drawing buffers and Classic-only pictures (arcade pixel art, kept blocky). d2k.cpp HiFor: a sprite whose
+  Left out: drawing buffers, Classic-only pictures (arcade pixel art, kept blocky) and tiny pictures (both sides <= 24,
+  --small: 128 of 388; 2026-11-21, owner: humanoids strobed - the upscaler redraws 1-2 px faces / limbs differently in
+  each animation frame). 260 pictures now. d2k.cpp HiFor: a sprite whose
   memory rectangle lies in a picture and whose pixels equal the original there (1% slack) is drawn from the 4x texture
   (linear); scaled objects (the title is one, HSCALE 33) map drawn -> source by 32 / HSCALE, 32 / VSCALE and are
   checked from memory (every 3rd pixel); lead-ins, ghosts and wide-screen mirrored strips use it too; anything else
