@@ -669,6 +669,16 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- High-res playfield, step 1: sky stars (2026-11-21). Survey (logs/d2k/pf, D2K_GPULOG from the city state while
+  firing): the playfield layer ($1CB000 / $1E5400 buffers, shown from row 16) gets 1-px stars from overlay $0ADB98
+  (pc $F0334E), 2x2 / 5-px plots and ~7000 small blitter fills from overlay $0A8F40 (blips, particles?), lasers as a
+  colour-pattern row built in a scratch row ($18E466 / $18E5E6) and blitted in. src/d2k_stars.cpp ports $0ADB98:
+  4 parallax layers x 65 stars, LFSR seed $2D taps $110, x = (lfsr - (camera $183690 >> 9 >> layer)) & $1FF, rows
+  first + 2 j (first = word $180FF8 / 2 - $80), colour 2, on while $1AF146 bit 15 / $B6EDE / !$180FFC. Exact
+  (D2K_STARS_CHECK=1: every star on a colour-2 pixel). Their pixels are erased from the layer before CutItems and
+  Draw shows them as round sub-pixel dots, camera interpolated, the 512 px loop past the 384 px buffer on wide
+  screens. Snapshot at the GPU start like the bonus (g_ovl_pending 2). D2K_NO_STARS=1 off. Next: lasers, then
+  $0A8F40 (particles / blips).
 - Frame pacing (2026-11-21; t2k.exe / d2k.exe window loop, src/main.cpp): the blend time t was read from the clock at
   the draw, which comes ~2 ms later when a frame was emulated first, so at 120 Hz t advanced 0.3 / 0.7 of a frame by
   turns (sd 0.197) instead of 0.5. Now the loop's start (just after the last present returned) snapped to a model of

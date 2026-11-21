@@ -12,6 +12,7 @@
 // the core's own.
 #include "d2k.h"
 #include "d2k_bonus.h"
+#include "d2k_stars.h"
 
 #include <algorithm>
 #include <cmath>
@@ -575,6 +576,8 @@ struct Item {
 };
 std::vector<Item> g_items, g_prev_items;
 std::vector<size_t> g_dead;                // items of the update before with no successor
+int g_stars_snap = -1;   // the sky stars' snapshot erased from this update's layer (d2k_stars), else -1
+const bool g_no_stars = std::getenv("D2K_NO_STARS") != nullptr;   // test: the stars as the layer's pixels
 int g_layer = -1;                          // the layer's index in g_cur.sprites (-1: none / not cut)
 int g_items_matched = 0, g_items_total = 0;
 float g_layer_cover = 0;                   // share of the layer's pixels its items cover (this update)
@@ -1146,13 +1149,14 @@ int g_mlog_f0 = 0, g_mlog_f1 = -1;
 // The bonus tunnel's overlay (d2k_bonus): its inputs are snapshotted when the 68K starts the GPU on it (the long
 // $F03FFC set after the overlay's blit from $0AB008 to $F031C0) - the 68K still updates some between the copy and the
 // start (the tunnel's ring table: the copy-time values put the near rings a pixel or two off).
-bool g_bonus_pending = false;
+int g_ovl_pending = 0;   // the overlay copied, waiting for its start: 1 bonus tunnel, 2 sky stars
 void OnM68kWrite(uint32_t addr, uint32_t value, int size, uint32_t pc) {
   if (g_mlog && g_frames >= g_mlog_f0 && g_frames <= g_mlog_f1)
     std::fprintf(g_mlog, "W %06X %06X %d %08X\n", pc & 0xFFFFFF, addr, size, value);
-  if (g_bonus_pending && addr >= 0xF03FFC && addr <= 0xF03FFF && value != 0) {
-    g_bonus_pending = false;
-    d2k_bonus::OnOverlayLoad(g_frames);
+  if (g_ovl_pending && addr >= 0xF03FFC && addr <= 0xF03FFF && value != 0) {
+    if (g_ovl_pending == 1) d2k_bonus::OnOverlayLoad(g_frames);
+    else d2k_stars::OnOverlayStart(g_frames);
+    g_ovl_pending = 0;
   }
 }
 void (*g_bonus_chain)(uint32_t, uint32_t) = nullptr;
@@ -1160,12 +1164,18 @@ void OnBlitBonus(uint32_t cmd, uint32_t who) {
   if (g_bonus_chain) g_bonus_chain(cmd, who);
   const uint8_t* b = vjBlitterRam();
   if (Be32(b + 0x00) == 0xF031C0 && cmd == 0x01800001) {   // an overlay copy (other blits share the A1 base)
-    g_bonus_pending = false;
-    if (Be32(b + 0x24) == 0x0AB008 && d2k_bonus::Signature()) {
+    g_ovl_pending = 0;
+    const uint32_t src = Be32(b + 0x24);
+    const int kind = src == 0x0AB008 && d2k_bonus::Signature()   ? 1
+                     : src == 0x0ADB98 && d2k_stars::Signature() ? 2
+                                                                 : 0;
+    if (kind) {
       if (vjHostM68kWrite == OnM68kWrite && vjHostM68kWriteLo <= 0xF03FFC && vjHostM68kWriteHi >= 0xF03FFC)
-        g_bonus_pending = true;
-      else
+        g_ovl_pending = kind;
+      else if (kind == 1)
         d2k_bonus::OnOverlayLoad(g_frames);   // (D2K_M68KLOG elsewhere: at the copy)
+      else
+        d2k_stars::OnOverlayStart(g_frames);
     }
   }
 }
@@ -1694,6 +1704,10 @@ void AfterFrame() {
   }
   for (auto it = g_scale_hist.begin(); it != g_scale_hist.end();)
     it = it->second.seen < g_frames - 30 ? g_scale_hist.erase(it) : std::next(it);
+  if (std::getenv("D2K_STARS_CHECK")) {   // test: the sky stars' exact pixels against the game's buffer
+    const int k = d2k_stars::Latest(g_frames);
+    if (k >= 0) d2k_stars::Check(k, g_frames);
+  }
   if (std::getenv("D2K_BONUS_CHECK")) {   // test: the bonus tunnel's exact dots against the game's buffer
     const int k = d2k_bonus::Latest(g_frames);
     if (k >= 0) d2k_bonus::Check(k, std::to_string(g_frames).c_str());
@@ -1777,7 +1791,29 @@ void AfterFrame() {
       g_layer_cover = 0;
     } else if (g_upd_frame == g_frames || g_layer < 0) {
       g_prev_items = std::move(g_items);
-      CutItems(g_cur.sprites[size_t(layer)], g_cur.vmode, g_items);
+      // The sky stars are drawn by us (d2k_stars): their pixels out of the layer first (exact positions of the shown
+      // picture's snapshot, colour 2 there), or they were matched and blended as items.
+      const Sprite& lay = g_cur.sprites[size_t(layer)];
+      const int sk = g_no_stars ? -1 : d2k_stars::ShownSnapshot(lay.data, g_frames);
+      if (sk >= 0) {
+        static Sprite cut;
+        cut = lay;
+        static std::vector<d2k_stars::Star> st;
+        d2k_stars::Stars(sk, 1.f, true, st);
+        const int row0 = int((lay.data - d2k_stars::Buffer(sk)) / 384u);
+        const uint16_t c2 = Clut(2);
+        for (const d2k_stars::Star& p : st) {
+          const int r = p.y - row0, x = int(p.x) - cut.x;
+          if (r < 0 || r >= cut.h || x < 0 || x >= cut.w) continue;
+          const size_t o = size_t(r) * size_t(cut.w) + size_t(x);
+          if (cut.opaque[o] && cut.raw[o] == c2) cut.opaque[o] = 0, cut.raw[o] = 0;
+        }
+        g_stars_snap = sk;
+        CutItems(cut, g_cur.vmode, g_items);
+      } else {
+        g_stars_snap = -1;
+        CutItems(lay, g_cur.vmode, g_items);
+      }
       MatchItems(g_items, g_prev_items);
       SmoothRadar(g_items, g_prev_items);
       EdgeHistory(g_cur.sprites[size_t(layer)], g_items, g_prev_items);
@@ -2325,6 +2361,25 @@ void BuildAtlas(SDL_Renderer* ren) {
 
 }  // namespace
 
+// A soft-edged disc, premultiplied white (the bonus tunnel's and the sky's dots).
+SDL_Texture* DotTexture(SDL_Renderer* ren) {
+  static SDL_Texture* dot = nullptr;
+  if (!dot) {
+    constexpr int kD = 32;
+    std::vector<uint32_t> px(kD * kD);
+    for (int y = 0; y < kD; ++y)
+      for (int x = 0; x < kD; ++x) {
+        const float dx = (float(x) + 0.5f) / kD * 2 - 1, dy = (float(y) + 0.5f) / kD * 2 - 1;
+        const float al = std::clamp((1.f - std::sqrt(dx * dx + dy * dy)) * kD / 4.f, 0.f, 1.f);
+        const uint32_t c = uint32_t(al * 255.f + 0.5f);
+        px[size_t(y) * kD + x] = c << 24 | c << 16 | c << 8 | c;
+      }
+    dot = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, kD, kD);
+    if (dot) SDL_UpdateTexture(dot, nullptr, px.data(), kD * 4), SDL_SetTextureScaleMode(dot, SDL_SCALEMODE_LINEAR);
+  }
+  return dot;
+}
+
 void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, float t) {
   if (!g_active || g_cur.sprites.empty()) return;
   if (g_gpu.built_frame != g_frames || settings::Str("d2k_filter", "sharp") != g_gpu.filter) BuildAtlas(ren);
@@ -2521,20 +2576,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
     static const bool no_bonus = std::getenv("D2K_NO_BONUS") != nullptr;
     if (int(i) == g_layer && !no_bonus) {
       if (const int bk = d2k_bonus::ShownSnapshot(sp.data, g_upd_frame); bk >= 0) {
-        static SDL_Texture* dot = nullptr;
-        if (!dot) {   // a soft-edged disc, premultiplied white
-          constexpr int kD = 32;
-          std::vector<uint32_t> px(kD * kD);
-          for (int y = 0; y < kD; ++y)
-            for (int x = 0; x < kD; ++x) {
-              const float dx = (float(x) + 0.5f) / kD * 2 - 1, dy = (float(y) + 0.5f) / kD * 2 - 1;
-              const float al = std::clamp((1.f - std::sqrt(dx * dx + dy * dy)) * kD / 4.f, 0.f, 1.f);
-              const uint32_t c = uint32_t(al * 255.f + 0.5f);
-              px[size_t(y) * kD + x] = c << 24 | c << 16 | c << 8 | c;
-            }
-          dot = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, kD, kD);
-          if (dot) SDL_UpdateTexture(dot, nullptr, px.data(), kD * 4), SDL_SetTextureScaleMode(dot, SDL_SCALEMODE_LINEAR);
-        }
+        SDL_Texture* const dot = DotTexture(ren);
         if (dot) {
           static std::vector<d2k_bonus::Pt> pts;
           static const bool trace = std::getenv("D2K_BONUS_TRACE") != nullptr;
@@ -2560,6 +2602,31 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
       }
     }
     if (int(i) == g_layer && g_gpu.item_at.size() == g_items.size()) {
+      // The sky stars (d2k_stars; their pixels were taken out of the items): round dots at sub-pixel places, the
+      // camera between the shown picture's snapshot and the one before - and on wide screens the stars of the
+      // 512 px loop past the buffer's 384 px, both sides.
+      if (g_stars_snap >= 0) {
+        if (SDL_Texture* const dot = DotTexture(ren)) {
+          static std::vector<d2k_stars::Star> st;
+          d2k_stars::Stars(g_stars_snap, a, false, st);
+          use(dot);
+          const int row0 = int((sp.data - d2k_stars::Buffer(g_stars_snap)) / 384u);
+          const uint32_t c = ToRgb(Clut(2), g_cur.vmode);
+          const SDL_FColor col{float(c >> 16 & 0xFF) / 255.f, float(c >> 8 & 0xFF) / 255.f, float(c & 0xFF) / 255.f, 1};
+          const float top = float(sp.row_y.front());
+          const bool wide = g_wide_on && view_r > view_l;   // (view_l / view_r: set when the view is wider than 4:3)
+          for (const d2k_stars::Star& p : st) {
+            const int r = p.y - row0;
+            if (r < 0 || r >= sp.h) continue;
+            for (const float xx : {p.x, p.x - 512.f}) {   // (the loop's far end, seen left of the buffer)
+              if (wide ? (float(sp.x) + xx + 1 <= view_l || float(sp.x) + xx >= view_r) : (xx < 0 || xx >= 384.f))
+                continue;
+              const float d = 1.25f, cx = float(sp.x) + xx + 0.5f, cy = top + float(r) + 0.5f;
+              quad(wx(cx - d / 2), wy(cy - d / 2), wx(cx + d / 2), wy(cy + d / 2), 0, 0, 1, 1, col);
+            }
+          }
+        }
+      }
       use(g_gpu.tex);
       // The layer's items: blended like sprites (beams by their ends); vanished ones for the first half.
       // New items fade in and vanished ones out over the first half of the update (premultiplied: all four).
