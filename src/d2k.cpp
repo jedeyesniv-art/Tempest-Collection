@@ -366,7 +366,7 @@ struct Geo {
 std::vector<Geo> g_prev_upd, g_this_upd;   // the update before the current one / the current one
 uint64_t g_last_key = 0;
 int g_upd_frame = 0, g_period = 2;
-struct Motion { float dx = 0, dy = 0; bool matched = false; int clip_px = 0; };
+struct Motion { float dx = 0, dy = 0; bool matched = false; int clip_px = 0; int step = 0, prev = -1; };   // step / prev: log
 std::vector<Motion> g_motion;              // per sprite of g_cur
 std::vector<bool> g_taken;                 // per sprite of the update before: has a successor
 // Ghosts: the update before's sprites with no successor in a moving layer (a tile that scrolled off), drawn moving
@@ -389,16 +389,21 @@ bool SameImage(const Geo& p, const Geo& c, float* dx, float* dy, int* clip_px = 
   int64_t lines = delta / pitch, inl = delta - lines * pitch;
   if (inl < 0) inl += pitch, --lines;
   if (lines > 300 || lines < -300) return false;
-  // DATA moved by `lines` lines + px pixels, or by lines + 1 lines and px - a line's pixels: the smaller motion.
+  // DATA moved by `lines` lines + px pixels, or by lines + 1 lines and px - a line's pixels: of the readings the
+  // sizes allow, the smaller motion. Clipping changes the drawn size, so the same size with DATA moved = another
+  // animation frame stored next to it (no reading). (Choosing first and checking after lost narrow images moving
+  // more than half their line: identical DATA read as "a line down, a line's pixels back" -> rejected, and Classic's
+  // 16 px landers took a neighbour's place instead: the jumping enemies.)
   const int64_t px = inl * 8 / bpp, line_px = pitch * 8 / bpp;
   const float sx = (c.flags & 1) ? -1.f : 1.f;
+  auto allowed = [&](int64_t l, int64_t x) { return !((l != 0 && c.h == p.h) || (x != 0 && c.w == p.w)); };
+  const bool ok0 = allowed(lines, px), ok1 = allowed(lines + 1, px - line_px);
+  if (!ok0 && !ok1) return false;
   const float dx0 = float(c.x - sx * float(px) - p.x), dy0 = float((c.row - lines) - p.row);
   const float dx1 = float(c.x - sx * float(px - line_px) - p.x), dy1 = float((c.row - lines - 1) - p.row);
   int64_t use_lines = lines, use_px = px;
-  if (std::fabs(dx0) + std::fabs(dy0) <= std::fabs(dx1) + std::fabs(dy1)) *dx = dx0, *dy = dy0;
+  if (ok0 && (!ok1 || std::fabs(dx0) + std::fabs(dy0) <= std::fabs(dx1) + std::fabs(dy1))) *dx = dx0, *dy = dy0;
   else *dx = dx1, *dy = dy1, use_lines = lines + 1, use_px = px - line_px;
-  // Clipping changes the drawn size; the same size with DATA moved = another animation frame stored next to it.
-  if ((use_lines != 0 && c.h == p.h) || (use_px != 0 && c.w == p.w)) return false;
   // The pixels the update before showed on the side clipped now: a reflected image is drawn leftwards from DATA,
   // so its left edge clips by narrowing; an unreflected one by moving DATA in.
   if (clip_px) {
@@ -414,25 +419,48 @@ void MatchMotion(const Scene& cur) {
   std::vector<bool>& taken = g_taken;
   taken.assign(g_prev_upd.size(), false);
   constexpr float kMax = 72.f;
-  // 1. The same image nearby.
+  // 1. The same image nearby. Scored by the distance plus half the miss from where the earlier sprite was heading (its
+  // own last motion), best pairs first: Classic's landers fly in tight pairs at 9 px a frame, and taken by plain
+  // distance in list order each would grab the other's place (the jumping enemies). The distance stays the main term:
+  // scored by the prediction alone, one wrong motion confirmed itself (2000's repeating ground strips went +58).
+  auto miss = [](const Geo& p, float dx, float dy) {
+    return std::fabs(dx) + std::fabs(dy) + 0.5f * (std::fabs(dx - p.mdx) + std::fabs(dy - p.mdy));
+  };
+  struct Pair { float cost, dx, dy; int clip; size_t i, j; };
+  std::vector<Pair> pairs;
   for (size_t i = 0; i < cur.sprites.size(); ++i) {
     const Geo c = GeoOf(cur.sprites[i]);
-    float best = 1e9f, bdx = 0, bdy = 0;
-    int bclip = 0;
-    size_t bj = SIZE_MAX;
     for (size_t j = 0; j < g_prev_upd.size(); ++j) {
-      if (taken[j]) continue;
       float dx, dy;
       int clip = 0;
-      if (!SameImage(g_prev_upd[j], c, &dx, &dy, &clip)) continue;
-      const float d = std::fabs(dx) + std::fabs(dy);
-      if (d < best && std::fabs(dx) <= kMax && std::fabs(dy) <= kMax) best = d, bdx = dx, bdy = dy, bj = j, bclip = clip;
+      if (!SameImage(g_prev_upd[j], c, &dx, &dy, &clip) || std::fabs(dx) > kMax || std::fabs(dy) > kMax) continue;
+      pairs.push_back({miss(g_prev_upd[j], dx, dy), dx, dy, clip, i, j});
     }
-    if (bj != SIZE_MAX) {
-      taken[bj] = true;
-      g_motion[i] = {bdx, bdy, true, bclip};
-      ++g_matched_data;
+  }
+  std::stable_sort(pairs.begin(), pairs.end(), [](const Pair& a, const Pair& b) { return a.cost < b.cost; });
+  std::vector<bool> later(cur.sprites.size(), false);   // left to step 2
+  for (const Pair& pr : pairs) {
+    if (g_motion[pr.i].matched || later[pr.i] || taken[pr.j]) continue;
+    // Not when a sprite of about its size fits clearly better (itself in another animation frame: the landers flip
+    // between two images, and the same image farther off is a neighbour) - step 2 takes those.
+    const Geo c = GeoOf(cur.sprites[pr.i]);
+    bool nearer = false;
+    for (size_t j = 0; j < g_prev_upd.size() && !nearer; ++j) {
+      const Geo& p = g_prev_upd[j];
+      if (taken[j] || j == pr.j || p.depth != c.depth || (p.flags & 1) != (c.flags & 1) || std::abs(p.w - c.w) > 8 ||
+          std::abs(p.h - c.h) > 4)
+        continue;
+      // (plain distances: with the prediction in it a wrong motion kept itself - 2000's ground pattern shifts 6 px
+      // while its images rotate, and once read as +58 px it stayed there)
+      nearer = std::fabs(float(c.x - p.x)) + std::fabs(float(c.row - p.row)) + 10.f < std::fabs(pr.dx) + std::fabs(pr.dy);
     }
+    if (nearer) {
+      later[pr.i] = true;
+      continue;
+    }
+    taken[pr.j] = true;
+    g_motion[pr.i] = {pr.dx, pr.dy, true, pr.clip, 1, int(pr.j)};
+    ++g_matched_data;
   }
   // The motions seen so far this update (the parallax layers' scroll, 0 for the HUD): predictions for the rest.
   std::vector<std::pair<float, float>> layer = {{0.f, 0.f}};
@@ -449,7 +477,9 @@ void MatchMotion(const Scene& cur) {
     size_t bj = SIZE_MAX;
     for (size_t j = 0; j < g_prev_upd.size(); ++j) {
       const Geo& p = g_prev_upd[j];
-      if (taken[j] || p.depth != c.depth || std::abs(p.w - c.w) > 8 || std::abs(p.h - c.h) > 4) continue;
+      if (taken[j] || p.depth != c.depth || (p.flags & 1) != (c.flags & 1) || std::abs(p.w - c.w) > 8 ||
+          std::abs(p.h - c.h) > 4)
+        continue;
       const float dx = float(c.x - p.x), dy = float(c.row - p.row);
       if (std::fabs(dx) > kMax || std::fabs(dy) > kMax) continue;
       float err = std::fabs(dx - p.mdx) + std::fabs(dy - p.mdy);
@@ -460,7 +490,7 @@ void MatchMotion(const Scene& cur) {
     }
     if (bj != SIZE_MAX) {
       taken[bj] = true;
-      g_motion[i] = {bdx, bdy, true};
+      g_motion[i] = {bdx, bdy, true, 0, 2, int(bj)};
       ++g_matched_near;
     }
   }
@@ -475,6 +505,7 @@ void MatchMotion(const Scene& cur) {
           std::abs(o.row - c.row) > 8 || c.dwidth == 0)
         continue;
       g_motion[i] = g_motion[k];
+      g_motion[i].step = 3, g_motion[i].prev = -1;
       break;
     }
     if (!g_motion[i].matched) ++g_unmatched;
@@ -1302,8 +1333,9 @@ void AfterFrame() {
     std::fprintf(stderr, "update %d (period %d):", g_frames, g_period);
     for (size_t i = 0; i < g_cur.sprites.size(); ++i) {
       const Sprite& sp = g_cur.sprites[i];
-      std::fprintf(stderr, " [%d,%d %dx%d %06X %s%+.0f,%+.0f L%d]", sp.x, sp.row, sp.w, sp.h, sp.data,
-                   g_motion[i].matched ? "" : "?", g_motion[i].dx, g_motion[i].dy, sp.lead);
+      std::fprintf(stderr, " [%d,%d %dx%d %06X %s%+.0f,%+.0f L%d s%d#%d f%d]", sp.x, sp.row, sp.w, sp.h, sp.data,
+                   g_motion[i].matched ? "" : "?", g_motion[i].dx, g_motion[i].dy, sp.lead, g_motion[i].step,
+                   g_motion[i].prev, sp.flags);
     }
     for (const Ghost& gh : g_ghosts) {
       const Sprite& p = g_prev_scene.sprites[gh.prev];

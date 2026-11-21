@@ -553,6 +553,15 @@ Tooling pitfalls (cost time today)
   update's common displacements / the sprite layers'); (3) mutual nearest; (4) beams by row, ends blended. New items
   fade in, vanished ones fade out over the first half of an update. D2K_ITEM_LOG=1 prints per update; D2K_LAYER_DUMP=
   <prefix> writes the layer's bytes per update. Known: a burst leaving the layer's left edge (x < 0) breaks up.
+- Matching fixes (2026-11-21, owner: Classic / Plus enemies jumped briefly): SameImage picked the smaller of its two
+  readings of a DATA move and THEN rejected it (identical DATA on a 16 px lander moving > 8 px read as "a line down"),
+  so landers took a neighbour's place; now invalid readings drop out first. Step 1 is global best-pairs-first, scored
+  distance + half the miss from the sprite's own last motion (landers fly in tight pairs at 9 px a frame); a
+  same-image match yields to a same-size sprite > 10 px nearer (an animation frame flip); step 2 needs the same
+  reflect flag. D2K_MOTION_LOG shows s<step>#<prev index> per sprite. Classic route: matches implying >= 12 px a
+  frame 41 -> 10 (rest: world wrap at x ~2040, landers appearing); Plus unmatched 516 -> 179, 2000 505 -> 220.
+  OPEN (old): 2000's foreground rock row (64x22 strips at row 232, images + mirroring change as it scrolls) moves -6
+  but matches as +58 (same image one tile over) on some updates - needs a tiled-row rule.
 - Wide screens (2026-11-19; setting d2k_widescreen, default 1, F6): the object list is built by GPU overlays the 68K
   copies into $F031C0 from RAM - layers $0B2B50 (records -> 128/256 px strips, cull 0..383, left clip by DATA),
   sprites $0A5938 (world x - camera & 4095 - 255, kept while -w < x < 384 + w, left clip). d2k.cpp kWide patches their
