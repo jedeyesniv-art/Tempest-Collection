@@ -1167,6 +1167,19 @@ bool InPlay() {
   return Be32(jagMemSpace + 0x194E10) == 0x00140000u && Be32(jagMemSpace + 0x194E14) == 0x17000000u;
 }
 
+// The mode being played: byte $18CD4B (0 Classic, 1 Plus, 2 Defender 2000, 255 on the menus).
+int ModePlayed() { return InPlay() ? jagMemSpace[0x18CD4B] : 255; }
+
+// Classic fires once a press (the arcade's edge-triggered fire, a new laser only once the last one is done). Auto fire
+// (setting d2k_autofire, default on; owner 2026-11-21) presses for the player while Fire is held: 4 frames on, 4 off,
+// the first press at once. Other modes and the menus get the button as it is. Call once a frame.
+bool AutoFire(bool fire) {
+  static int frames = 0;
+  frames = fire ? frames + 1 : 0;
+  if (!fire || ModePlayed() != 0 || settings::Num("d2k_autofire", 1) == 0) return fire;
+  return (frames - 1) % 8 < 4;
+}
+
 // Arcade controls. The ship's facing is the word at $190630 (+1 right, -1 left; every mode, from boot on); the game
 // turns the ship when the d-pad points the other way (read on its updates: 2 frames always did it) and thrusts while
 // it points the way the ship faces.

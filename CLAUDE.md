@@ -669,6 +669,9 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- Classic auto fire (2026-11-21, owner): Classic's fire is edge-triggered (one laser a press, a new one only when the last
+  is done). d2k::AutoFire (main.cpp pad + headless presses): while Fire is held in Classic play (d2k::ModePlayed() 0)
+  it presses 4 frames on / 4 off. Setting d2k_autofire (default 1), menu CONTROLS "Auto fire (Classic)".
 - Level-end fade on wide screens (2026-11-21, owner): 2000's level end is an explosion of particles then black dots
   in the playfield layer until it is black (the fade between levels), but the layer is only 384 px wide, so a 16:9
   view showed the backdrop at its sides. While the layer's items cover > 12% of it (g_layer_cover, per update; play

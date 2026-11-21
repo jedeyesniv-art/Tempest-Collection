@@ -33,6 +33,7 @@ void Install(bool from_launcher) {
   // and works the game's menus).
   p.Choice("Stick left / right", "d2k_stick_lr", {"game", "off"},
            {"Turn and thrust", "Off (arcade)"});
+  p.Choice("Auto fire (Classic)", "d2k_autofire", {"1", "0"}, {"On", "Off (one shot a press)"});
   p.Binds();
   p.Header("PICTURE");
   p.Button("Fullscreen", menu::kToggleFullscreen);

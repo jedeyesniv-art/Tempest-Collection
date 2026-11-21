@@ -22,6 +22,8 @@ int Arcade(bool thrust, bool reverse);
 // In play (the game running, the attract demo too) rather than on a menu / title / table / between-level screen: the
 // pad's own bindings apply only in play; menus get fixed buttons (A select, B back). See d2k.cpp.
 bool InPlay();
+int ModePlayed();           // 0 Classic, 1 Plus, 2 Defender 2000; 255 when not in play
+bool AutoFire(bool fire);   // Fire as the game should see it this frame (Classic: pulsed while held)
 
 void BeforeFrame();   // before each emulated frame (clears the capture)
 void AfterFrame();    // after it: builds the frame's scene, tracks game updates

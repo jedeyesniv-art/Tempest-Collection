@@ -171,7 +171,7 @@ host::Input ReadPadD2K(SDL_Gamepad* pad, uint32_t held, const bool* keys) {
     }
     return in;
   }
-  set(host::B, controls::FnHeld(held, d2k_menu::kFire));
+  set(host::B, d2k::AutoFire(controls::FnHeld(held, d2k_menu::kFire) || (keys && keys[SDL_SCANCODE_Z])));
   set(host::Y, controls::FnHeld(held, d2k_menu::kBomb));
   set(host::A, controls::FnHeld(held, d2k_menu::kLaser));
   set(host::START, controls::FnHeld(held, d2k_menu::kOption));
@@ -197,7 +197,6 @@ host::Input ReadPadD2K(SDL_Gamepad* pad, uint32_t held, const bool* keys) {
     set(host::DOWN, keys[SDL_SCANCODE_DOWN]);
     set(host::LEFT, keys[SDL_SCANCODE_LEFT]);
     set(host::RIGHT, keys[SDL_SCANCODE_RIGHT]);
-    set(host::B, keys[SDL_SCANCODE_Z]);
     set(host::Y, keys[SDL_SCANCODE_C]);
     set(host::A, keys[SDL_SCANCODE_X]);
     set(host::START, keys[SDL_SCANCODE_O]);
@@ -557,8 +556,11 @@ int main(int argc, char** argv) {
           else if (p.btn >= 100) in.keypad |= uint16_t(1u << (p.btn - 100));
           else in.buttons |= uint16_t(1u << p.btn);
         }
-      if (g_defender)
+      if (g_defender) {
         if (const int dir = d2k::Arcade(thrust, reverse)) in.buttons |= uint16_t(1u << (dir < 0 ? host::LEFT : host::RIGHT));
+        const bool b = in.buttons & (1u << host::B);   // (Classic auto fire, as from the pad)
+        in.buttons = uint16_t((in.buttons & ~(1u << host::B)) | (d2k::AutoFire(b) ? 1u << host::B : 0u));
+      }
       t2k::Pad tp;
       for (auto& s : sticks)
         if (f >= s.frame && f < s.frame + s.len) { tp.lx = s.x; tp.ly = s.y; }
