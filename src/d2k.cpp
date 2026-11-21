@@ -368,8 +368,23 @@ struct Geo {
 std::vector<Geo> g_prev_upd, g_this_upd;   // the update before the current one / the current one
 uint64_t g_last_key = 0;
 int g_upd_frame = 0, g_period = 2;
-struct Motion { float dx = 0, dy = 0; bool matched = false; int clip_px = 0; int step = 0, prev = -1; };   // step / prev: log
+struct Motion {
+  float dx = 0, dy = 0;
+  bool matched = false;
+  int clip_px = 0;
+  int step = 0, prev = -1;   // step / prev: log
+  float dw = 0;              // scaled objects: the drawn width's change (the far edge moves by dx + dw)
+};
 std::vector<Motion> g_motion;              // per sprite of g_cur
+// Scaled objects changing scale at their own pace (the mode menu's turning logo: 4 px wider every 2-3 frames while other
+// things change every frame, so the update-to-update blend slid it in one frame and held it for the next one or two -
+// owner: jittery). Per image (DATA): its last two distinct placements and the frames they came, drawn moving evenly
+// from the one to the other over the time between them (one step behind).
+struct ScaleHist {
+  int f0 = -1, f1 = -1, seen = -1;
+  float l0 = 0, r0 = 0, l1 = 0, r1 = 0;   // left / right edges (line buffer)
+};
+std::unordered_map<uint32_t, ScaleHist> g_scale_hist;
 std::vector<bool> g_taken;                 // per sprite of the update before: has a successor
 // Ghosts: the update before's sprites with no successor in a moving layer (a tile that scrolled off), drawn moving
 // with their layer while the blend runs, so no gap opens where they were.
@@ -462,6 +477,9 @@ void MatchMotion(const Scene& cur) {
     }
     taken[pr.j] = true;
     g_motion[pr.i] = {pr.dx, pr.dy, true, pr.clip, 1, int(pr.j)};
+    // A scaled object changing its scale (the mode menu's turning pictures: the same image a few px wider or narrower
+    // each frame) moves both edges: interpolated apart, or its middle wobbled at a half frame (2026-11-21, owner).
+    if (cur.sprites[pr.i].type == 1) g_motion[pr.i].dw = float(c.w - g_prev_upd[pr.j].w);
     ++g_matched_data;
   }
   // The motions seen so far this update (the parallax layers' scroll, 0 for the HUD): predictions for the rest.
@@ -507,7 +525,7 @@ void MatchMotion(const Scene& cur) {
           std::abs(o.row - c.row) > 8 || c.dwidth == 0)
         continue;
       g_motion[i] = g_motion[k];
-      g_motion[i].step = 3, g_motion[i].prev = -1;
+      g_motion[i].step = 3, g_motion[i].prev = -1, g_motion[i].dw = 0;
       break;
     }
     if (!g_motion[i].matched) ++g_unmatched;
@@ -1665,6 +1683,17 @@ void AfterFrame() {
   std::swap(g_prev_frame, g_cur);
   BuildScene(g_cur);
   if (g_wide_on && !std::getenv("D2K_NO_EXTEND")) ExtendLayers(g_cur);   // (D2K_NO_EXTEND=1: tests)
+  for (const Sprite& sp : g_cur.sprites) {   // (scaled objects' pace: see ScaleHist)
+    if (sp.type != 1) continue;
+    const float l = float((sp.flags & 1) ? sp.x - sp.w + 1 : sp.x), r = l + float(sp.w);
+    ScaleHist& h = g_scale_hist[sp.data];
+    if (h.seen < g_frames - 2) h = ScaleHist{};   // (gone a while: starts over)
+    h.seen = g_frames;
+    if (h.f1 < 0) h.f1 = h.f0 = g_frames, h.l0 = h.l1 = l, h.r0 = h.r1 = r;
+    else if (l != h.l1 || r != h.r1) h.f0 = h.f1, h.l0 = h.l1, h.r0 = h.r1, h.f1 = g_frames, h.l1 = l, h.r1 = r;
+  }
+  for (auto it = g_scale_hist.begin(); it != g_scale_hist.end();)
+    it = it->second.seen < g_frames - 30 ? g_scale_hist.erase(it) : std::next(it);
   if (std::getenv("D2K_BONUS_CHECK")) {   // test: the bonus tunnel's exact dots against the game's buffer
     const int k = d2k_bonus::Latest(g_frames);
     if (k >= 0) d2k_bonus::Check(k, std::to_string(g_frames).c_str());
@@ -2355,7 +2384,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
   using Src = Gpu::Src;
   auto atlas = [&](AtlasRect r) { return Src{g_gpu.tex, float(r.x) * inv, float(r.y) * inv, inv, inv}; };
   // A sprite's rows (in runs of consecutive rows) from its pixels in a texture, shifted by (ox, oy) line-buffer pixels.
-  auto draw_rows = [&](const Sprite& sp, Src r, float ox, float oy) {
+  auto draw_rows = [&](const Sprite& sp, Src r, float ox, float oy, float ow = 0) {   // ow: the far edge's extra shift
     use(r.tex);
     int j0 = 0;
     while (j0 < sp.h) {
@@ -2364,12 +2393,12 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
       const float y0 = wy(float(sp.row_y[j0]) + oy), y1 = wy(float(sp.row_y[j1 - 1] + 1) + oy);
       float x0, x1, u0 = r.u0, u1 = r.u0 + float(sp.lead + sp.w + sp.tail) * r.du;
       if (sp.flags & 1) {   // reflected: pixel o at x - o
-        x0 = wx(float(sp.x - sp.w - sp.lead + 1) + ox);
+        x0 = wx(float(sp.x - sp.w - sp.lead + 1) + ox - ow);
         x1 = wx(float(sp.x + 1) + ox);
         std::swap(u0, u1);
       } else {
         x0 = wx(float(sp.x - sp.lead) + ox);
-        x1 = wx(float(sp.x + sp.w + sp.tail) + ox);
+        x1 = wx(float(sp.x + sp.w + sp.tail) + ox + ow);
       }
       quad(x0, y0, x1, y1, u0, r.v0 + float(j0) * r.dv, u1, r.v0 + float(j1) * r.dv, white);
       j0 = j1;
@@ -2446,10 +2475,30 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
           draw_rows(g_prev_scene.sprites[g_ghosts[gi].prev],
                     gi < g_gpu.hi_ghost.size() && g_gpu.hi_ghost[gi].tex ? g_gpu.hi_ghost[gi] : atlas(g_gpu.ghost_at[gi]),
                     a * g_ghosts[gi].dx, a * g_ghosts[gi].dy);
-    float ox = 0, oy = 0;
+    float ox = 0, oy = 0, ow = 0;
     if (i < g_motion.size() && g_motion[i].matched) {
       ox = -(1.f - a) * g_motion[i].dx;
       oy = -(1.f - a) * g_motion[i].dy;
+      ow = -(1.f - a) * g_motion[i].dw;
+    }
+    if (interp && sp.type == 1 && g_motion.size() > i && g_motion[i].matched && g_motion[i].step == 1) {
+      const auto hit = g_scale_hist.find(sp.data);
+      if (hit != g_scale_hist.end()) {
+        const ScaleHist& h = hit->second;
+        const int span = h.f1 - h.f0;
+        const float l = float((sp.flags & 1) ? sp.x - sp.w + 1 : sp.x), r = l + float(sp.w);
+        if (span >= 1 && span <= 4 && l == h.l1 && r == h.r1 && std::fabs(h.l1 - h.l0) <= 8 && std::fabs(h.r1 - h.r0) <= 8) {
+          // the moment one step behind: from (l0, r0) at f1 to (l1, r1) at f1 + span
+          const float u = std::clamp((float(g_frames - 1 - h.f1) + t) / float(span), 0.f, 1.f);
+          const float li = h.l0 + u * (h.l1 - h.l0), ri = h.r0 + u * (h.r1 - h.r0);
+          static const bool trace = std::getenv("D2K_SCALE_TRACE") != nullptr;   // test: the drawn edges per present
+          if (trace) std::fprintf(stderr, "scale %06X: frame %d t %.3f u %.3f left %.2f right %.2f\n", sp.data, g_frames, t, u,
+                                  li, ri);
+          if (sp.flags & 1) ox = ri - r, ow = (l + ox) - li;   // (draw_rows: x0 = l + ox - ow, x1 = r + ox)
+          else ox = li - l, ow = (ri - r) - ox;                // (x0 = l + ox, x1 = r + ox + ow)
+          oy = 0;
+        }
+      }
     }
     if ((sp.flags & 2) && next_rmw < g_gpu.deltas.size() && g_gpu.deltas[next_rmw].sprite == i) {
       flush();
@@ -2571,7 +2620,7 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
       continue;
     }
     const Src src = i < g_gpu.hi.size() && g_gpu.hi[i].tex ? g_gpu.hi[i] : atlas(g_gpu.at[i]);
-    draw_rows(sp, src, ox, oy);
+    draw_rows(sp, src, ox, oy, ow);
     draw_pads(i, sp, src, ox, oy);
   }
   flush();

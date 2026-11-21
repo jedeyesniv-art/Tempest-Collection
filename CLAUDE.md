@@ -669,6 +669,11 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- Mode menu's turning Atari logo (2026-11-21, owner: jittery in ours, smooth emulated): one scaled object (type 1,
+  DATA $016D08) widened 4 px every 2-3 frames while other things change every frame, so the update blend slid it in one
+  frame and held it for the next one or two (and only moved its left edge). Now Motion.dw moves the far edge too, and
+  ScaleHist keeps each scaled image's last two placements: drawn moving evenly between them over the frames they took,
+  one step behind (D2K_SCALE_TRACE=1 prints the drawn edges). State at the menu: logs/d2k/menu/menu600.state.
 - Space-level auroras cut to half the screen (2026-11-21, owner's state logs/d2k/aurora/owner.state, level 6 after the
   planet is lost): OUR bug - LayerCounts capped every count at 7 (later 8), so the six aurora descriptors of levels 5
   and 6 (32 px tiles, count 14 = 448 px, records 40 bytes so room for 16 ids) were cut to 7 = 224 px, in the game's
