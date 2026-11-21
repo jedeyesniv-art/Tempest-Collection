@@ -594,6 +594,14 @@ Tooling pitfalls (cost time today)
   Rejects fills (2000's full-screen flashes) and ambiguous shifts; a failed measurement (~1%: explosions over the hills,
   a jump every ~100 frames that no shift fits) restarts the history (carrying on with the last scroll was worse).
   D2K_EDGE_LOG=1. Wide only (g_wide_on).
+- Plus enemies past 16:9 edges (2026-11-21, owner: they popped in short of the edges): Plus's (arcade-logic) objects
+  are NOT the 2000 sprite overlay's: 64 slots x $40 at $190884 (x / y words +2 / +4, flags +6), turned into display
+  objects by the GPU overlay copied from $0AF988 ($1AF6xx / $C0xx -> the resident copier $F030B6 -> list $8000). It
+  kept x -64..383 (($7FF-masked x + $40) < $1C0) and set flags bit 8 "on screen" (read by other overlays, e.g. the
+  smart bomb). d2k.cpp kWideArcade (own patch group, wide only) makes it -128..511: enemies now first appear at
+  x -144..-128 / 480..512 (were -16..0 / 368..384); Plus check sweep 169 / 169 exact. Classic draws its enemies another
+  way (unchanged). Tools: logs/d2k/pluswide/ (slots.py, dis68k.py 68K via capstone, track*.py), D2K_GPULOG + the
+  survey's overlay blits (a1=F031C0, a2 = source) to find which overlay wrote an address.
 - Level-end slowdown (2026-11-21, owner's state logs/d2k/hang/owner_l2end.state, end of 2000 level 2): the screen
   fills with ~6500 playfield particles; MatchItems' burst fit / nearest searches are quadratic (BurstFit ~95 scales x
   particles^2): ~2 s an update, the window stopped responding. Over 2000 items (play: a few hundred) an update is not

@@ -1231,6 +1231,24 @@ void LayerCounts(bool on) {
   }
 }
 
+// Classic / Plus enemies: the arcade-logic sprite overlay (GPU code the 68K copies from $0AF988 to $F031C0 each frame)
+// keeps an object while r20 = ((world x - camera + offset) & $7FF) + $40 < $1C0, i.e. screen x -64..383, and marks it
+// on screen (object flags bit 8, which the game reads: other overlays only act on marked objects, e.g. the smart bomb).
+// Wide: x -128..511 (as the 2000 sprites), by adding $40 twice before the mask and moving the subtraction into the two
+// branch delay slots (r9 = $40 is also the slot stride, so it stays). The on-screen band beyond a 16:9 view is then
+// ~90 / 115 px, about the original's ~80 / 40 px beyond 4:3. (2026-11-21, owner: Plus enemies popped in short of the
+// 16:9 edges.) Code at $F032B2:
+//   orig: and r22,r20 / add r9,r20 / subq #5,r10 / loadw / bclr #8 / storew / addq #2,r10 / btst #5,r13 /
+//         jr ne,+7 / nop / movei #$1C0,r1 / cmp r1,r20 / jump pl,(r0) / nop / sub r9,r20
+//   wide: add r9,r20 / add r9,r20 / and r22,r20 / (same 7) / jr ne,+6 / sub r9,r20 / movei #$240,r1 / cmp r1,r20 /
+//         jump pl,(r0) / sub r9,r20   (the scaled path, bit 5, branches to the last sub: x = M - 128 either way)
+constexpr Patch kWideArcade = {
+    0x0AF988 + (0xF032B2 - 0xF031C0), 34,
+    {0x26, 0xD4, 0x01, 0x34, 0x18, 0xAA, 0xA1, 0x4D, 0x3D, 0x0D, 0xB9, 0x4D, 0x08, 0x4A, 0x34, 0xAD, 0xD4, 0xE1,
+     0xE4, 0x00, 0x98, 0x01, 0x01, 0xC0, 0x00, 0x00, 0x78, 0x34, 0xD0, 0x14, 0xE4, 0x00, 0x11, 0x34},
+    {0x01, 0x34, 0x01, 0x34, 0x26, 0xD4, 0x18, 0xAA, 0xA1, 0x4D, 0x3D, 0x0D, 0xB9, 0x4D, 0x08, 0x4A, 0x34, 0xAD,
+     0xD4, 0xC1, 0x11, 0x34, 0x98, 0x01, 0x02, 0x40, 0x00, 0x00, 0x78, 0x34, 0xD0, 0x14, 0x11, 0x34}};
+
 void ApplyWide(bool on) {
   for (const Patch& p : kWide) {   // only over the original (or our) bytes: another game / version stays untouched
     uint8_t* m = jagMemSpace + p.addr;
@@ -1239,6 +1257,11 @@ void ApplyWide(bool on) {
   for (const Patch& p : kWide) std::memcpy(jagMemSpace + p.addr, on ? p.wide : p.orig, size_t(p.n));
   LayerCounts(on);
   g_wide_on = on;
+  // Classic / Plus enemies (their own group: a mismatch here never holds back the patches above).
+  const Patch& e = kWideArcade;
+  uint8_t* m = jagMemSpace + e.addr;
+  if (std::memcmp(m, e.orig, size_t(e.n)) == 0 || std::memcmp(m, e.wide, size_t(e.n)) == 0)
+    std::memcpy(m, on ? e.wide : e.orig, size_t(e.n));
 }
 
 // ---- art dump -----------------------------------------------------------------------------------------------------
