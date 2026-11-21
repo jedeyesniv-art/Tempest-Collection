@@ -669,6 +669,13 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- High scores lost after loading states (2026-11-21, owner: "not saving high scores"; T2K too): the core's save state
+  holds the EEPROM chip (eeprom_ram), so loading an older state rolled the chip back and the game's next save (name
+  entry, options) wrote the old tables + its change over the file. Now host::LoadState puts the core's save buffer
+  (the newest EEPROM, packed on every write = our file) back into the chip after every load (core vjEepromFromSaveBuf,
+  libretro.c). D2K's EEPROM: header word, 3 tables x 4 entries x (score long + 6 chars), then $867A + a checksum long
+  (not a plain sum: left to the game). The game reads the chip into RAM ($1B9A18 / $1B9A98) when it needs the tables;
+  the 10-entry table on screen ($0B5A80, 16 bytes an entry) keeps only its top 4.
 - High-res playfield, step 1: sky stars (2026-11-21). Survey (logs/d2k/pf, D2K_GPULOG from the city state while
   firing): the playfield layer ($1CB000 / $1E5400 buffers, shown from row 16) gets 1-px stars from overlay $0ADB98
   (pc $F0334E), 2x2 / 5-px plots and ~7000 small blitter fills from overlay $0A8F40 (blips, particles?), lasers as a

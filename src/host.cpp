@@ -1,6 +1,8 @@
 // host.cpp - libretro host for the statically linked Virtual Jaguar core.
 #include "host.h"
 
+extern "C" void vjEepromFromSaveBuf(void);   // (core, llamasoft-jaguar)
+
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -198,7 +200,11 @@ std::vector<uint8_t> SaveState() {
 }
 
 bool LoadState(const std::vector<uint8_t>& s) {
-  return !s.empty() && retro_unserialize(s.data(), s.size());
+  // The EEPROM stays the newest (our file / the core's save buffer), not the state's: loading an older state rolled
+  // the high scores back, and the game's next save wrote them over the file (2026-11-21, owner: D2K kept no scores).
+  if (s.empty() || !retro_unserialize(s.data(), s.size())) return false;
+  vjEepromFromSaveBuf();
+  return true;
 }
 
 }  // namespace host
