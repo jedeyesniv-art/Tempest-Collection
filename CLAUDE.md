@@ -669,6 +669,13 @@ Tooling pitfalls (cost time today)
   playfield layer, 320x10 message text, a scaled buffer (1CB000 / 1E5400 180x238). Cost ~0.07 ms a present at 1080p.
   Test: D2K_HI_LOG=1 (window: matched / not per update, every 60 frames). Window tests from boot drift from headless
   timing: use a state (logs/d2k/hires/title500.state = the title).
+- Frame pacing (2026-11-21; t2k.exe / d2k.exe window loop, src/main.cpp): the blend time t was read from the clock at
+  the draw, which comes ~2 ms later when a frame was emulated first, so at 120 Hz t advanced 0.3 / 0.7 of a frame by
+  turns (sd 0.197) instead of 0.5. Now the loop's start (just after the last present returned) snapped to a model of
+  the display's refresh grid (period from the display mode, phase pulled 10% a present, k refreshes, resync when far
+  off; not with --novsync) is the time for the blend AND for deciding to emulate: 516 of 524 presents step exactly
+  0.5 (sd 0.046; the rest real stalls). PACE_LOG=1 logs per present (todo, draw time, t, present return);
+  logs/d2k/pace.py summarises. T3K / TxK / T81 have their own loops (not looked at).
 - Mode menu's turning Atari logo (2026-11-21, owner: jittery in ours, smooth emulated): one scaled object (type 1,
   DATA $016D08) widened 4 px every 2-3 frames while other things change every frame, so the update blend slid it in one
   frame and held it for the next one or two (and only moved its left edge). Now Motion.dw moves the far edge too, and

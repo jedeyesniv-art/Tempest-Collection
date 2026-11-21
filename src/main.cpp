@@ -682,6 +682,9 @@ int main(int argc, char** argv) {
   // picture, HUD, CRT) and presenting, and frames shown a second.
   uint64_t perf_t1 = 0, perf_t2 = 0;   // (T2K_PERF: perf.h)
   uint64_t cap_slot = 0;   // frame_cap: the next present's slot on a fixed grid
+  static const bool pace_log = std::getenv("PACE_LOG") != nullptr;
+  uint64_t pace_draw = 0;
+  double pace_t = 0;
   while (running) {
     // Frame rate (setting frame_cap: 0 = the display's, 60 = at most 60 pictures a second - less work, e.g. the Steam
     // Deck at 90 Hz). Slots on a fixed 60 Hz grid; each picture goes to the first refresh after its slot (on 90 Hz:
@@ -696,6 +699,28 @@ int main(int argc, char** argv) {
       cap_slot = 0;
     }
     uint64_t now = SDL_GetTicksNS();
+    // The blend's time (see the remaster blend below): the loop starts just after the last present returned, so on
+    // the display's refresh grid - give or take the return's own jitter (~1 ms) and a stall now and then. A model of
+    // the grid (period from the display, phase pulled 10% towards each measurement, k refreshes since the last one)
+    // gives even steps; a measurement far off the grid restarts it (no vsync, a long stall, another display).
+    uint64_t blend_now = now;
+    if (!novsync) {
+      static double grid = 0, period = 0;
+      if (period == 0) {
+        const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+        period = dm && dm->refresh_rate > 20 ? 1e9 / double(dm->refresh_rate) : 1e9 / 60.0;
+      }
+      const double m = double(now);
+      const double k = std::max(1.0, std::round((m - grid) / period));
+      const double pred = grid + k * period, err = m - pred;
+      if (grid == 0 || std::fabs(err) > 0.35 * period || k > 8) {
+        grid = m;
+      } else {
+        grid = pred + 0.1 * err;
+        period += 0.002 * err / k;
+      }
+      blend_now = uint64_t(grid);
+    }
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) running = false;
@@ -828,7 +853,7 @@ int main(int argc, char** argv) {
     // Emulate as many frames as real time asks for (at most 4 to catch up).
     int todo = 0;
     if (!menu::IsOpen()) {
-      while (now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }
+      while (blend_now >= next && todo < 4) { next += uint64_t(frame_ns); ++todo; }   // (the blend's time: t stays in step)
       if (now > next + uint64_t(frame_ns * 8)) next = now;  // stalled: resync
     }
     // Original mode (setting native): every improvement off - the emulator's own picture, no remaster, no
@@ -1054,9 +1079,12 @@ int main(int argc, char** argv) {
         remaster::SetPowerUps(float(settings::Num("remaster_pup_floor", 0.7)),
                               float(settings::Num("remaster_pup_glow", 1.0)));
         // Blend between the last two frames by how far real time is into the current frame's slot (the frame
-        // due at next - frame_ns was just emulated). Paused / menu: the latest frame.
+        // due at next - frame_ns was just emulated). Paused / menu: the latest frame. The time is the loop's start
+        // (blend_now: just after the last present returned, on the display's refresh grid), not the clock at the
+        // draw: a frame emulated first moved the draw ~2 ms later, so t advanced 0.3 / 0.7 of a frame by turns
+        // between presents at 120 Hz instead of 0.5 (2026-11-21; PACE_LOG=1 logs it).
         remaster::SetInterpolate(settings::Num("remaster_interpolate", 1) != 0);
-        double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(SDL_GetTicksNS())) / frame_ns;
+        double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(blend_now)) / frame_ns;
         remaster::SetWindow(dst, ww, wh, fr.width, fr.height);
         remaster::Interpolate(float(t));
         float corners[4][2], dim = 0;
@@ -1111,7 +1139,8 @@ int main(int argc, char** argv) {
       // The emulated picture over ours (text, not-yet-ours), then the HUD layer. Defender 2000: our picture
       // instead (setting d2k_native; F8 toggles), positions interpolated between the game's updates.
       if (d2k::Active() && !native && settings::Num("d2k_native", 1) != 0) {
-        const double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(SDL_GetTicksNS())) / frame_ns;
+        const double t = menu::IsOpen() ? 1.0 : 1.0 - double(int64_t(next) - int64_t(blend_now)) / frame_ns;   // (as above)
+        if (pace_log) pace_draw = SDL_GetTicksNS(), pace_t = t;
         d2k::Draw(ren, dst, SDL_FRect{0, 0, float(ww), float(wh)}, float(std::clamp(t, 0.0, 1.0)));
       } else {
         blit(pic_sharp, tex, nullptr, &dst);
@@ -1184,6 +1213,9 @@ int main(int argc, char** argv) {
     SDL_RenderPresent(ren);
     {
       const uint64_t t3 = SDL_GetTicksNS();
+      if (pace_log)   // test: PACE_LOG=1 - per present: frames emulated, draw time, t, when the present returned (ms)
+        std::fprintf(stderr, "pace todo %d draw %.3f t %.3f presented %.3f\n", todo, double(pace_draw) / 1e6, pace_t,
+                     double(t3) / 1e6);
       perf::Add("present (+vsync)", t3 - perf_t2);
       if (running) perf::EndFrame(t3 - now, ww, wh);
     }
