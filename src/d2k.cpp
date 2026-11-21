@@ -557,6 +557,7 @@ std::vector<Item> g_items, g_prev_items;
 std::vector<size_t> g_dead;                // items of the update before with no successor
 int g_layer = -1;                          // the layer's index in g_cur.sprites (-1: none / not cut)
 int g_items_matched = 0, g_items_total = 0;
+bool g_wide_on = false;                    // wide screens on (setting d2k_widescreen, the list builder patched)
 
 // The scanner (2000 / Plus) is drawn into the playfield layer: its blips step a whole scanner pixel every few updates
 // (one pixel is a long way in the world), so blended update by update they go hold - hold - slide. Within the
@@ -909,6 +910,160 @@ void MatchItems(std::vector<Item>& cur, std::vector<Item>& prev) {
   g_items_total += int(cur.size());
 }
 
+// ---- wide screens: what scrolled out of the playfield layer -------------------------------------------------------
+// Plus's hills (the ground: one item as wide as the layer) and its stars live in the 384 px layer, which ends short of
+// a 16:9 window's edges. The ground's scroll is measured each update (the shift that best lines its pixels up with the
+// history's) and a history canvas wider than the layer by kEdgeM columns each side is shifted by it and refreshed from
+// the layer: past the layer's trailing edge the window shows the ground that scrolled out (the leading edge has never
+// been seen: nothing there), coloured from the live ground (below). Stars that leave across an edge carry on at their
+// last motion. The ground and these
+// pieces blend with the measured scroll (the item matcher took the ground as still or misread its height changes).
+constexpr int kEdgeM = 96;
+struct EdgeHist {
+  int lx = 0, ly = 0, lw = 0, lh = 0;   // the layer's place (line buffer) and size
+  std::vector<uint32_t> px;             // (lw + 2 kEdgeM) x lh; column c = line-buffer x lx - kEdgeM + c; 0 = nothing
+  std::vector<int> age;                 // per column: updates since it was last in the layer
+  bool valid = false;
+} g_hist;
+std::vector<Item> g_edge;               // drawn past the layer's edges: the history's two sides, stars carrying on
+
+void EdgeHistory(const Sprite& layer, std::vector<Item>& cur, const std::vector<Item>& prev) {
+  std::vector<Item> stars;   // last update's carried-on stars (the ground pieces are rebuilt)
+  for (Item& e : g_edge)
+    if (e.n <= 4) stars.push_back(std::move(e));
+  g_edge.clear();
+  const int lx = layer.x, ly = layer.row_y.front(), lw = layer.w, lh = layer.h, W = lw + 2 * kEdgeM;
+  int gi = -1;
+  for (size_t i = 0; i < cur.size(); ++i)
+    if (!cur[i].beam && cur[i].w >= lw - 2 && cur[i].n >= 1000 && cur[i].n * 10 < cur[i].w * cur[i].h * 9 &&
+        cur[i].h * 2 < lh && (gi < 0 || cur[i].n > cur[size_t(gi)].n))   // (not a full-screen fill: 2000's flashes)
+      gi = int(i);
+  if (!g_wide_on || gi < 0) {
+    g_hist.valid = false;
+    return;
+  }
+  Item& g = cur[size_t(gi)];
+  if (!g_hist.valid || g_hist.lx != lx || g_hist.ly != ly || g_hist.lw != lw || g_hist.lh != lh) {
+    g_hist = EdgeHist{lx, ly, lw, lh, std::vector<uint32_t>(size_t(W) * lh, 0u), std::vector<int>(size_t(W), 0), false};
+  }
+  // The ground in layer coordinates.
+  std::vector<uint32_t> gp(size_t(lw) * lh, 0u);
+  const int gx = g.x - lx, gy = g.y - ly;
+  int r0 = lh, r1 = -1;
+  for (int j = 0; j < g.h; ++j)
+    for (int o = 0; o < g.w; ++o) {
+      const uint32_t c = g.rgb[size_t(j) * g.w + o];
+      const int x = gx + o, y = gy + j;
+      if (!c || x < 0 || x >= lw || y < 0 || y >= lh) continue;
+      gp[size_t(y) * lw + x] = c;
+      r0 = std::min(r0, y), r1 = std::max(r1, y);
+    }
+  // The scroll: the shift with the fewest disagreements over the columns the history saw last update - by the outline
+  // (opaque or not) only: the texture is an animated surface, redrawn differently each frame (no shift, no palette
+  // cycle matches it).
+  int dx = 0;
+  bool ok = false;
+  if (g_hist.valid) {
+    constexpr int kMax = 48;
+    double score[2 * kMax + 1], best = 1e9;
+    int bmm = 0, buni = 0;
+    for (int d = -kMax; d <= kMax; ++d) {
+      int uni = 0, mm = 0;
+      for (int y = r0; y <= r1; ++y)
+        for (int x = std::max(0, d); x < std::min(lw, lw + d); ++x) {
+          const bool a = gp[size_t(y) * lw + x], b = g_hist.px[size_t(y) * W + x - d + kEdgeM];
+          uni += a || b, mm += a != b;
+        }
+      const double s = score[d + kMax] = uni ? double(mm) / uni : 1.0;
+      if (s < best) best = s, dx = d, bmm = mm, buni = uni;
+    }
+    double other = 1e9;   // the best shift 3+ away: a flat or repeating outline fits several
+    for (int d = -kMax; d <= kMax; ++d)
+      if (std::abs(d - dx) >= 3) other = std::min(other, score[d + kMax]);
+    ok = best < 0.03 && other > best + 0.02;
+    static const bool log = std::getenv("D2K_EDGE_LOG") != nullptr;
+    if (log)
+      std::fprintf(stderr, "edge %d: ground dx %d (%d of %d pixels differ, next %.3f)%s\n", g_frames, dx, bmm, buni,
+                   other, ok ? "" : " - lost");
+  }
+  // Not measured (an explosion over the hills; every ~100 frames on the Plus route the hills also jump in a way no
+  // shift fits, and the next update matches the new picture): start the history again. The sides are empty for that
+  // update and refill as the hills scroll.
+  if (!ok) dx = 0, std::fill(g_hist.px.begin(), g_hist.px.end(), 0u);
+  // Shift the history and refresh the layer's columns from the ground now.
+  if (dx) {
+    std::vector<uint32_t> s(g_hist.px.size(), 0u);
+    for (int y = 0; y < lh; ++y)
+      for (int c = std::max(0, dx); c < std::min(W, W + dx); ++c) s[size_t(y) * W + c] = g_hist.px[size_t(y) * W + c - dx];
+    g_hist.px.swap(s);
+    std::vector<int> a(size_t(W), 0);
+    for (int c = std::max(0, dx); c < std::min(W, W + dx); ++c) a[size_t(c)] = g_hist.age[size_t(c - dx)];
+    g_hist.age.swap(a);
+  }
+  for (int c = 0; c < W; ++c) g_hist.age[size_t(c)] = c >= kEdgeM && c < kEdgeM + lw ? 0 : g_hist.age[size_t(c)] + 1;
+  for (int y = 0; y < lh; ++y)
+    std::memcpy(&g_hist.px[size_t(y) * W + kEdgeM], &gp[size_t(y) * lw], size_t(lw) * 4);
+  g_hist.valid = true;
+  if (ok) g.moving = true, g.vx = float(dx), g.vy = 0;
+  // The two sides as items (cropped to what they hold). Their shape is the history's; columns that left the layer up
+  // to 3 updates ago keep its colours (flying, the trailing strip is that fresh), older ones (slow, still) take the
+  // live ground's mirrored about the layer's edge at the same depth below the outline, so the surface keeps animating
+  // (the history's own colour where the mirrored column is too shallow).
+  std::vector<int> top(size_t(W), -1), ltop(size_t(lw), -1);   // first opaque rows: history columns, the ground now
+  for (int c = 0; c < W; ++c)
+    for (int y = 0; y < lh; ++y)
+      if (g_hist.px[size_t(y) * W + c]) { top[size_t(c)] = y; break; }
+  for (int x = 0; x < lw; ++x)
+    for (int y = 0; y < lh; ++y)
+      if (gp[size_t(y) * lw + x]) { ltop[size_t(x)] = y; break; }
+  auto live = [&](int c, int y) -> uint32_t {
+    const int x = c - kEdgeM;                             // layer column
+    const int m = x < 0 ? -1 - x : 2 * lw - 1 - x;        // mirrored into the layer
+    const int t = m >= 0 && m < lw ? ltop[size_t(m)] : -1;
+    if (t < 0 || top[size_t(c)] < 0) return 0;
+    const int yy = t + (y - top[size_t(c)]);
+    return yy < lh ? gp[size_t(yy) * lw + m] : 0u;
+  };
+  auto side = [&](int c0, int c1) {
+    int x0 = c1, x1 = c0 - 1, y0 = lh, y1 = -1;
+    for (int y = 0; y < lh; ++y)
+      for (int c = c0; c < c1; ++c)
+        if (g_hist.px[size_t(y) * W + c]) x0 = std::min(x0, c), x1 = std::max(x1, c), y0 = std::min(y0, y), y1 = std::max(y1, y);
+    if (x1 < x0) return;
+    Item it;
+    it.x = lx - kEdgeM + x0, it.y = ly + y0, it.w = x1 - x0 + 1, it.h = y1 - y0 + 1, it.n = it.w * it.h;
+    it.moving = ok, it.vx = float(dx);
+    it.rgb.resize(size_t(it.w) * it.h);
+    for (int y = 0; y < it.h; ++y)
+      for (int o = 0; o < it.w; ++o) {
+        const uint32_t h = g_hist.px[size_t(y0 + y) * W + x0 + o];
+        const uint32_t l = h && g_hist.age[size_t(x0 + o)] > 3 ? live(x0 + o, y0 + y) : 0u;
+        it.rgb[size_t(y) * it.w + o] = l ? l : h;
+      }
+    g_edge.push_back(std::move(it));
+  };
+  side(0, kEdgeM);
+  side(kEdgeM + lw, W);
+  // Stars: carried-on ones move on (dropped once back over the layer or out of the margin); stars of the update before
+  // that vanished on their way out across an edge join them.
+  auto outside = [&](const Item& it) {
+    return it.x + it.w <= lx || it.x >= lx + lw;
+  };
+  auto in_margin = [&](const Item& it) { return it.x + it.w > lx - kEdgeM && it.x < lx + lw + kEdgeM; };
+  for (Item& s : stars) {
+    s.x += int(s.vx), s.y += int(s.vy);
+    if (outside(s) && in_margin(s)) g_edge.push_back(std::move(s));
+  }
+  for (size_t j : g_dead) {
+    const Item& p = prev[j];
+    if (p.beam || p.n > 4 || !p.moving || p.vx == 0) continue;
+    Item s = p;
+    s.x += int(s.vx), s.y += int(s.vy);
+    const bool left_out = s.vx < 0 && s.x + s.w <= lx && p.x < lx + 8, right_out = s.vx > 0 && s.x >= lx + lw && p.x + p.w > lx + lw - 8;
+    if ((left_out || right_out) && in_margin(s)) g_edge.push_back(std::move(s));
+  }
+}
+
 }  // namespace
 
 void SoftRenderFrom(const std::vector<uint16_t>& lbuf, const std::vector<uint8_t>& written, uint16_t vmode,
@@ -974,11 +1129,15 @@ bool Install() {
 
 bool Active() { return g_active; }
 
-// In play: the long at $18CD98 reads $00760084 in play in every mode (and in the attract demo, which runs the game) and
-// something else on the title (0), the mode / level menus ($00EF0034 / $00F0002A), the high-score table, the credits
-// and the between-level screens ($007A0020). Found by a RAM search over 2000 / Classic / idle routes (2026-11-21:
-// 215 play samples, 92 others; logs/d2k/inplay/search2.py). What it is is unknown (two words, not a pointer).
-bool InPlay() { return Be32(jagMemSpace + 0x18CD98) == 0x00760084u; }
+// In play: the longs at $194E10 / $194E14 read $00140000 / $17000000 from a game's start to the menus after it (deaths,
+// wave-complete and game-over screens included) in every mode and in the attract demo, 0 on the title and menus (also
+// set for a moment at boot, before the logo). Found by a RAM search over 2000 / Classic / Plus / idle routes
+// (logs/d2k/inplay/search3.py; the block $194E04..$194E1F is a record that exists only in play). The first marker,
+// $18CD98 = $00760084, was a text position: in Plus play it changes with the messages ($00DD0028, $00B40028 ...) -
+// the owner's buttons went to the menu layout after the first death.
+bool InPlay() {
+  return Be32(jagMemSpace + 0x194E10) == 0x00140000u && Be32(jagMemSpace + 0x194E14) == 0x17000000u;
+}
 
 // Arcade controls. The ship's facing is the word at $190630 (+1 right, -1 left; every mode, from boot on); the game
 // turns the ship when the d-pad points the other way (read on its updates: 2 frames always did it) and thrusts while
@@ -1023,7 +1182,6 @@ constexpr Patch kWide[] = {
      {0x98, 0x08, 0x32, 0x2A, 0x00, 0xF0, 0x98, 0x09, 0x32, 0x82, 0x00, 0xF0, 0x98, 0x0D, 0x32, 0x86, 0x00, 0xF0, 0xA4, 0x54, 0x08, 0x82, 0xA4, 0x55, 0x08, 0x82, 0x7C, 0x14, 0xD1, 0xA2, 0xE4, 0x00, 0x88, 0x6C, 0xA6, 0xB6, 0x2A, 0xD6, 0x7C, 0x16, 0xD4, 0x61, 0xE4, 0x00, 0xD1, 0x00, 0xE4, 0x00, 0x65, 0x16, 0x42, 0xCC, 0x64, 0xCC, 0x8A, 0x8B, 0x08, 0x95, 0x9E, 0xA7, 0x0B, 0x0B, 0x08, 0x35, 0x9E, 0xA4, 0x08, 0x35, 0x9E, 0xB6, 0x08, 0x35, 0x9E, 0xA5, 0x08, 0x35, 0xA6, 0xA6, 0x89, 0x80, 0x24, 0x80, 0x5E, 0xCC, 0x20, 0x00, 0xBA, 0x80},
      {0x98, 0x08, 0x32, 0x28, 0x00, 0xF0, 0x98, 0x09, 0x32, 0x82, 0x00, 0xF0, 0x89, 0x2D, 0x08, 0x8D, 0xA4, 0x54, 0x08, 0x82, 0xA4, 0x55, 0x08, 0x82, 0x7C, 0x14, 0xD1, 0xA2, 0xE4, 0x00, 0x88, 0x6C, 0xA6, 0xB6, 0x7C, 0x16, 0xD4, 0x41, 0x65, 0x16, 0xD1, 0x00, 0x42, 0xCC, 0x64, 0xCC, 0x8A, 0x8B, 0x08, 0x95, 0x9E, 0xA7, 0x0B, 0x0B, 0x08, 0x35, 0x9E, 0xA4, 0x08, 0x35, 0x9E, 0xB6, 0x08, 0x35, 0x9E, 0xA5, 0x08, 0x35, 0xA6, 0xA6, 0x89, 0x80, 0x24, 0x80, 0x08, 0x24, 0x3C, 0x04, 0x00, 0x80, 0x10, 0x8C, 0x5E, 0xCC, 0x20, 0x00, 0xBA, 0x80}},
 };
-bool g_wide_on = false;
 
 // The layers' strip counts (descriptor + 4; the record holds 7 strips): + 2 with the patch above, for each layer
 // with a mask (tiles). The layer list ((record, descriptor) pairs up to a 0 record) is the level's: the 68K at $A4EEE
@@ -1296,11 +1454,14 @@ void AfterFrame() {
       g_items.clear();
       g_prev_items.clear();
       g_dead.clear();
+      g_edge.clear();
+      g_hist.valid = false;
     } else if (g_upd_frame == g_frames || g_layer < 0) {
       g_prev_items = std::move(g_items);
       CutItems(g_cur.sprites[size_t(layer)], g_cur.vmode, g_items);
       MatchItems(g_items, g_prev_items);
       SmoothRadar(g_items, g_prev_items);
+      EdgeHistory(g_cur.sprites[size_t(layer)], g_items, g_prev_items);
       if (std::getenv("D2K_ITEM_LOG")) {
         int m = 0, beams = 0;
         for (const Item& it : g_items) m += it.moving, beams += it.beam;
@@ -1529,7 +1690,7 @@ struct Gpu {
   std::vector<uint32_t> px;
   std::vector<AtlasRect> at;                      // per sprite
   std::vector<AtlasRect> ghost_at;                // per ghost
-  std::vector<AtlasRect> item_at, dead_at;        // per layer item / vanished item
+  std::vector<AtlasRect> item_at, dead_at, edge_at;        // per layer item / vanished item
   std::vector<std::pair<AtlasRect, AtlasRect>> rmw_at;   // per RMW delta: pos, neg
   std::vector<RmwDelta> deltas;
   std::string filter;
@@ -1705,6 +1866,7 @@ void BuildAtlas(SDL_Renderer* ren) {
   for (const Ghost& gh : g_ghosts) sizes.push_back({g_prev_scene.sprites[gh.prev].w, g_prev_scene.sprites[gh.prev].h});
   for (const Item& it : g_items) sizes.push_back({it.w, it.h});
   for (size_t d : g_dead) sizes.push_back({g_prev_items[d].w, g_prev_items[d].h});
+  for (const Item& it : g_edge) sizes.push_back({it.w, it.h});
   std::vector<AtlasRect> rects;
   int size = std::max(g_gpu.size, 1024);
   while (!Pack(size, sizes, rects) && size < 8192) size *= 2;
@@ -1770,13 +1932,16 @@ void BuildAtlas(SDL_Renderer* ren) {
   }
   const size_t i0 = g0 + g_ghosts.size();
   g_gpu.item_at.assign(rects.begin() + long(i0), rects.begin() + long(i0 + g_items.size()));
-  g_gpu.dead_at.assign(rects.begin() + long(i0 + g_items.size()), rects.end());
+  const size_t e0 = i0 + g_items.size() + g_dead.size();
+  g_gpu.dead_at.assign(rects.begin() + long(i0 + g_items.size()), rects.begin() + long(e0));
+  g_gpu.edge_at.assign(rects.begin() + long(e0), rects.end());
   auto put_item = [&](const Item& it, AtlasRect r) {
     for (int j = 0; j < it.h; ++j)
       std::memcpy(&g_gpu.px[size_t(r.y + j) * size + r.x], &it.rgb[size_t(j) * it.w], size_t(it.w) * 4);
   };
   for (size_t k = 0; k < g_items.size(); ++k) put_item(g_items[k], g_gpu.item_at[k]);
   for (size_t k = 0; k < g_dead.size(); ++k) put_item(g_prev_items[g_dead[k]], g_gpu.dead_at[k]);
+  for (size_t k = 0; k < g_edge.size(); ++k) put_item(g_edge[k], g_gpu.edge_at[k]);
   // Edge copies into the gaps.
   auto pad = [&](AtlasRect r, int w, int h) {
     uint32_t* px = g_gpu.px.data();
@@ -1802,6 +1967,7 @@ void BuildAtlas(SDL_Renderer* ren) {
     pad(rects[g0 + gi], g_prev_scene.sprites[g_ghosts[gi].prev].w, g_prev_scene.sprites[g_ghosts[gi].prev].h);
   for (size_t k = 0; k < g_items.size(); ++k) pad(g_gpu.item_at[k], g_items[k].w, g_items[k].h);
   for (size_t k = 0; k < g_dead.size(); ++k) pad(g_gpu.dead_at[k], g_prev_items[g_dead[k]].w, g_prev_items[g_dead[k]].h);
+  for (size_t k = 0; k < g_edge.size(); ++k) pad(g_gpu.edge_at[k], g_edge[k].w, g_edge[k].h);
   SDL_UpdateTexture(g_gpu.tex, nullptr, g_gpu.px.data(), size * 4);
   g_gpu.built_frame = g_frames;
   // High-res art: which sprites (and ghosts) have a replacement this frame.
@@ -2029,6 +2195,12 @@ void Draw(SDL_Renderer* ren, const SDL_FRect& dst, const SDL_FRect& view_in, flo
           const float mx = a * it.vx, my = a * it.vy;
           item_quad(it, g_gpu.dead_at[k], float(it.x) + mx, float(it.x + it.w) + mx, float(it.y) + my, 1.f - 2.f * a);
         }
+      // Wide screens: what scrolled out past the layer's edges (EdgeHistory).
+      for (size_t k = 0; k < g_edge.size() && k < g_gpu.edge_at.size(); ++k) {
+        const Item& it = g_edge[k];
+        const float mx = it.moving ? -(1.f - a) * it.vx : 0.f, my = it.moving ? -(1.f - a) * it.vy : 0.f;
+        item_quad(it, g_gpu.edge_at[k], float(it.x) + mx, float(it.x + it.w) + mx, float(it.y) + my);
+      }
       continue;
     }
     const Src src = i < g_gpu.hi.size() && g_gpu.hi[i].tex ? g_gpu.hi[i] : atlas(g_gpu.at[i]);

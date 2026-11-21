@@ -530,9 +530,11 @@ Tooling pitfalls (cost time today)
   the ship keeps most of its speed). Defaults: A fire, B / RB bomb, X laser, RT thrust, LB / LT reverse, Y Option,
   Start pause; setting d2k_stick_lr off = the stick moves up / down only (the d-pad still turns, for the game's
   menus). Bindings apply only in play (2026-11-21, owner's layout: RT fire, A thrust, X reverse, LB laser, B / RB bomb,
-  Y option, LT reverse, Start pause): d2k::InPlay = long $18CD98 == $00760084 (play in every mode + the attract demo;
-  title 0, menus $00EF0034 / $00F0002A, between levels $007A0020; RAM search logs/d2k/inplay/search2.py, D2K_RAMDUMPS=
-  F0:F1:step:prefix, D2K_INPLAY_LOG=1). Outside play, fixed: A / Start = Jaguar B (select), B = Jaguar C (back: level
+  Y option, LT reverse, Start pause): d2k::InPlay = longs $194E10 / $194E14 == $00140000 / $17000000 (a record that
+  exists from a game's start to the menus after it, deaths / wave-complete / game over included, every mode + the
+  attract demo; 0 on title and menus; RAM search logs/d2k/inplay/search3.py over 2000 / Classic / Plus / idle dumps,
+  D2K_RAMDUMPS=F0:F1:step:prefix, D2K_INPLAY_LOG=1). The first marker ($18CD98 == $00760084) was a text position: Plus
+  play changes it with its messages, so the owner's buttons fell back to the menu layout after a death. Outside play, fixed: A / Start = Jaguar B (select), B = Jaguar C (back: level
   select -> mode menu), Y = Option, d-pad + stick move. The pause keeps InPlay on. Keyboard: Z fire, C bomb,
   X laser, Space thrust, Shift reverse. Headless: --press=F:thrust / reverse.
 - No source exists. Survey: t2k --survey=F0:F1:file (src/jagsurvey.cpp, core hooks vjHostGpuGo / vjHostBlit /
@@ -582,8 +584,16 @@ Tooling pitfalls (cost time today)
   dense layer (> 150 items of 1-2 px) single pixels only take a motion >= 20 position-only pairs share (h1 in
   MatchItems; colour-blind) and skip the mutual-nearest step; with g_period 1 new items show at once and vanished
   ones go (no half-frame fade flashes). Plus frame 2400 state: new / vanished per frame ~30 -> ~10, odd motions
-  (-38..+48) gone. 2000 mode: only big explosions differ (~1 item an update). OPEN: Plus's hills and stars are in
-  the 384 px playfield bitmap and end ~30 px short of a 16:9 window's edges (the aurora now shows below them there).
+  (-38..+48) gone. 2000 mode: only big explosions differ (~1 item an update).
+- Plus hills past the layer's edges (2026-11-21, owner: "presentation is good"): the hills are one playfield-layer
+  item as wide as the 384 px layer, which ends ~20 px short of a 16:9 window's edges. EdgeHistory measures their scroll
+  each update by the OUTLINE only (the texture is an animated surface: no shift, palette or 2-D period matches it
+  between frames) and keeps a history kEdgeM = 96 px wider each side, drawn past the trailing edge (the leading edge
+  has never been seen); columns out of the layer > 3 updates take live colours mirrored about the edge at the same
+  depth below the outline. Stars leaving across an edge carry on. The ground blends with the measured scroll (vy 0).
+  Rejects fills (2000's full-screen flashes) and ambiguous shifts; a failed measurement (~1%: explosions over the hills,
+  a jump every ~100 frames that no shift fits) restarts the history (carrying on with the last scroll was worse).
+  D2K_EDGE_LOG=1. Wide only (g_wide_on).
 - Wide screens (2026-11-19; setting d2k_widescreen, default 1, F6): the object list is built by GPU overlays the 68K
   copies into $F031C0 from RAM - layers $0B2B50 (records -> 128/256 px strips, cull 0..383, left clip by DATA),
   sprites $0A5938 (world x - camera & 4095 - 255, kept while -w < x < 384 + w, left clip). d2k.cpp kWide patches their
