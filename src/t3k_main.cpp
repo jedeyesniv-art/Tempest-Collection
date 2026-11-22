@@ -135,7 +135,10 @@ game_speed = 26
 # The light synth warp between levels (and after a lost life) at its own speed, as on the original, which drew those
 # light screens at about 60 a second while play ran slower: pictures a second (15-60), 0 = game_speed everywhere.
 warp_speed = 60
-# Seconds the speed takes to change between game_speed and warp_speed (0 = at once).
+# The menus (title, options, level select, high scores, game over) at their own speed: pictures a second (15-60),
+# 0 = game_speed there too. game_speed applies from the level's fly-in (the claw on the web) on.
+menu_speed = 30
+# Seconds each speed change takes (play / warp / menus; 0 = at once).
 warp_ramp = 0.5
 # Renderer: 1 = Remaster (every picture redrawn natively at the window's resolution: sharp, wide screens, smooth
 # motion; a picture holding an effect it can't draw yet is shown emulated, with an orange note), 0 = Emulation (the
@@ -419,17 +422,43 @@ void CheatsAfterField(bool in_play) {
 // stick_mode step / stiff: our model of the claw runs in real time (per field); the game claw follows it closed loop:
 // each picture it is asked to move by (model - game position) + one picture ahead (Follow). (A TxK-like momentum mode
 // and an "off" mode were removed 2026-11-17 by the owner; PLAN.md "Claw feel study" has the TxK measurements.)
-// Game speed (game_speed) and the warp's own speed (warp_speed, ramped over warp_ramp): after every field, the minimum
-// fields between two pictures for the core's flip cap. The warp is told from the newest picture: zoom feedback
-// (00300004) and no web surface (0011000B) - play, the level start zoom and deaths all draw the web, the menus start
-// with a fill. (Also the game over screen.) From the capture's entries, or - when the draw gate skipped the renderers,
-// so nothing was fetched - from the picture built natively.
+// The claw is an object in the game's pool ($8003C000..$80040000): which slot depends on the level ($8003E9E0 on
+// level 1, $8003EA50 on others). Words: +0 position (16.16 lanes), +4 velocity, +8 the speed scale we drive, +12
+// flags $80000401; the game keeps its position in $800DC100 too. *at = the slot last found (checked first).
+// Measured 2026-11-22 (T3K_SPEED_LOG, boot -> game over -> a second game): absent at boot and from a game's start
+// (level select) until the level's warp; present from the level's fly-in on, and after a game over it stays (title,
+// high scores) until the next game starts.
+bool FindClawSlot(const uint8_t* m, uint32_t* at) {
+  auto get = [m](uint32_t a) {
+    const uint8_t* q = m + (a & 0x7FFFFF);
+    return uint32_t(q[0]) << 24 | uint32_t(q[1]) << 16 | uint32_t(q[2]) << 8 | q[3];
+  };
+  auto is_claw = [&](uint32_t a) { return get(a + 12) == 0x80000401U && get(a) == get(0x800DC100); };
+  if (is_claw(*at)) return true;
+  for (uint32_t a = 0x8003C000; a + 16 <= 0x80040000; a += 4)
+    if (is_claw(a)) {
+      *at = a;
+      return true;
+    }
+  return false;
+}
+
+// Speeds (pictures a second): play at game_speed, the warp at warp_speed, everything else (title, options, level
+// select, high scores, game over) at menu_speed; changes ramp over warp_ramp. After every field: the minimum fields
+// between two pictures for the core's flip cap. Told from the newest picture: the warp = zoom feedback (00300004) and
+// no web surface (0011000B); play = the web surface AND the claw object (level select draws the web too, without the
+// claw; the title after a game over has the claw, without the web). Play so includes the level's fly-in and deaths.
+// From the capture's entries, or - when the draw gate skipped the renderers, so nothing was fetched - from the
+// picture built natively.
 struct SpeedControl {
   double rate = 0;        // pictures a second now
   double interval = 0;    // fields between pictures now (what the core was given)
   bool warp = false;
   bool web = false;       // the newest picture draws the web surface: play (also level start, deaths, level select)
+  bool claw = false;      // the claw object is in the pool (FindClawSlot)
+  uint32_t claw_at = 0x8003E9E0;
   uint32_t flip = 0;
+  double from = 0, to = 0;   // the ramp in progress: rate it started at, target
   void Field(const nuon::Capture* cap, const t3knative::Picture* pic = nullptr) {
     if (pic && pic->flip != flip) {
       flip = pic->flip;
@@ -450,15 +479,25 @@ struct SpeedControl {
       warp = zoom && !web;
       this->web = web;
     }
+    {
+      size_t n = 0;
+      const uint8_t* m = nuon::Memory(0, &n);
+      claw = m && n >= 0x800000 && FindClawSlot(m, &claw_at);
+    }
     const double game = std::clamp(settings::Num("game_speed", 26), 15.0, 60.0);
-    const double ws = settings::Num("warp_speed", 60);
+    const double ws = settings::Num("warp_speed", 60), ms = settings::Num("menu_speed", 30);
     const double warp_rate = ws > 0 ? std::clamp(ws, 15.0, 60.0) : game;
-    const double target = warp ? warp_rate : game;
+    const double menu_rate = ms > 0 ? std::clamp(ms, 15.0, 60.0) : game;
+    const double target = warp ? warp_rate : (web && claw) ? game : menu_rate;
     if (rate <= 0) {
-      rate = target;
-    } else if (rate != target) {   // the whole change game <-> warp takes warp_ramp seconds (a field is 1/60 s)
+      rate = from = to = target;
+    } else if (rate != target) {   // each change takes warp_ramp seconds, whatever its size (a field is 1/60 s)
+      if (target != to) {
+        from = rate;
+        to = target;
+      }
       const double ramp = settings::Num("warp_ramp", 0.5);
-      const double step = ramp > 0 ? std::max(std::fabs(warp_rate - game), 1.0) / (ramp * 60.0) : 1e9;
+      const double step = ramp > 0 ? std::max(std::fabs(to - from), 1.0) / (ramp * 60.0) : 1e9;
       rate = rate < target ? std::min(target, rate + step) : std::max(target, rate - step);
     }
     const double iv = std::max(1.0, 60.0 / rate);
@@ -494,18 +533,7 @@ struct ClawControl {
   // level 1, $8003EA50 on others). Words: +0 position (16.16 lanes), +4 velocity, +8 the speed scale we drive, +12
   // flags $80000401; the game keeps its position in $800DC100 too. claw_at = the slot last found.
   uint32_t claw_at = 0x8003E9E0;
-  static bool IsClaw(const uint8_t* m, uint32_t a) {
-    return Get(m, a + 12) == 0x80000401U && Get(m, a) == Get(m, 0x800DC100);
-  }
-  bool FindClaw(const uint8_t* m) {
-    if (IsClaw(m, claw_at)) return true;
-    for (uint32_t a = 0x8003C000; a + 16 <= 0x80040000; a += 4)
-      if (IsClaw(m, a)) {
-        claw_at = a;
-        return true;
-      }
-    return false;
-  }
+  bool FindClaw(const uint8_t* m) { return FindClawSlot(m, &claw_at); }
 
   static uint32_t Get(const uint8_t* m, uint32_t a) {
     const uint8_t* q = m + (a & 0x7FFFFF);
@@ -1346,8 +1374,11 @@ int main(int argc, char** argv) {
         if (std::getenv("T3K_SPEED_LOG") && f % 10 == 0) {   // tests: the speed control every 10 fields
           nuon::RunStats rs{};
           nuon::GetRunStats(&rs);
-          std::fprintf(stderr, "speed field %d: warp %d, %.1f pictures/s, interval %.3f, flips %u\n", f,
-                       int(speed.warp), speed.rate, speed.interval, rs.vid_flips);
+          size_t mn = 0;
+          const uint8_t* mm = nuon::Memory(0, &mn);
+          const bool claw = mm && mn >= 0x800000 && headless_claw.FindClaw(mm);
+          std::fprintf(stderr, "speed field %d: warp %d web %d claw %d, %.1f pictures/s, interval %.3f, flips %u\n", f,
+                       int(speed.warp), int(speed.web), int(claw), speed.rate, speed.interval, rs.vid_flips);
         }
       }
       if (!clawlog_path.empty() && f >= clawlog_f0 && f <= clawlog_f1) {

@@ -36,10 +36,11 @@ void Install(bool from_launcher) {
   p.Choice("Volume", "volume", {"0", "0.25", "0.5", "0.75", "1", "1.25", "1.5"},
            {"Off", "25%", "50%", "75%", "100%", "125%", "150%"})->def_value = "1";
   p.Button("Restart the game", kRestart, true);
-  p.Number("Game speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 26);
-  auto warp = [] { return settings::Num("warp_speed", 60) > 0; };
-  p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60/s (original)", "Game speed"});
-  p.Number("  Speed change (s)", "warp_ramp", 0, 2, 0.1, "%.1f", 0.5)->when = warp;
+  // play / menus / warp each at their own speed (t3k_main.cpp SpeedControl)
+  p.Number("Play speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 26);
+  p.Number("Menu speed (pictures/s)", "menu_speed", 15, 60, 1, "%.0f", 30);
+  p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60/s (original)", "Play speed"});
+  p.Number("  Speed change (s)", "warp_ramp", 0, 2, 0.1, "%.1f", 0.5);
   p.Choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
   p.Button("  Save state", menu::kSaveState)->slot_info = true;
   p.Button("  Load state", menu::kLoadState, true)->slot_info = true;

@@ -300,6 +300,11 @@ framing in play on Tempest Tubes.
   the menu) candidates: 800B2F4C 80139048 801B72AC 8024670C (untested).
 
 ## T3K game speed + warp speed (2026-11-16)
+- 2026-11-22 (owner): three speeds. Play = the web surface AND the claw object (FindClawSlot) -> game_speed (menu
+  label "Play speed"); warp -> warp_speed; everything else (title, options, level select, high scores) -> menu_speed
+  (default 30). Each change ramps over warp_ramp. T3K_SPEED_LOG prints warp / web / claw; checked boot -> game over ->
+  second game (logs/t3k/speed4). Level select draws the web without the claw; the title after a game over has the claw
+  without the web. Bonus levels not checked.
 - game_speed = pictures a second, any 15-60 (default 24, owner); replaces flip_cap (--flipcap=F still works: 60 / F).
   warp_speed (default 60, 0 = off) + warp_ramp (s, default 0.5): src/t3k_main.cpp SpeedControl sets the core's flip
   interval after every field. Warp = a picture with zoom feedback and no web surface (warps between levels and after a
