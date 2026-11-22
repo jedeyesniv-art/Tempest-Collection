@@ -5,7 +5,10 @@
 *.abs
 BigPEmu Jaguar/
 # Nested clones (own git history; pinned commits recorded in CLAUDE.md).
-third_party/virtualjaguar/
+# third_party/virtualjaguar and NuanceResurrection are vendored (tools/vendor_cores.py); their old git
+# histories live in _coregit (not published).
+third_party/_coregit/
+third_party/virtualjaguar/src/core/version.h
 third_party/SDL/
 reference/
 build/
@@ -19,7 +22,6 @@ vita_firmware/
 *.PUP
 
 Nuance_067/
-third_party/NuanceResurrection/
 build_nuance/
 build_nuance_dbg/
 build_nuance_*/
@@ -32,6 +34,17 @@ build_vita3k/
 third_party/mame-libretro/
 build_mame/
 *.zip
-art/
-third_party/libsndfile/
+# art: the source pictures stay out; what the package ships is tracked (panels, Steam art, the stings)
+art/*
+!art/panels/
+!art/steam/
+!art/sounds/
+art/panels/t81_2.png
+art/panels/t81_3.png
+art/sounds/*
+!art/sounds/*_move.wav
+!art/sounds/*_launch.wav
 third_party/realesrgan/
+
+# Python caches
+__pycache__/

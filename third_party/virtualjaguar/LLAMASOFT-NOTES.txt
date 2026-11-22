@@ -1,0 +1,7 @@
+Virtual Jaguar (libretro/virtualjaguar-libretro, GPL-3, see LICENSE), vendored for Tempest 2000 (t2k.exe).
+Source: our branch llamasoft-jaguar, commit eb83a9de (from libretro master 34696082, v3.11.0) - 9 patches:
+host port $DFFE00-$DFFEFF, line-A host traps, OP skip ranges, survey hooks (GPU go / blit / OP object read),
+GPU load / store hooks, a GPU/DSP late write-back fix, vjEepromFromSaveBuf. Changes since are in this repository's
+history. The same core is vendored in Llamasoft on the ST (Defender 2000): a core fix may belong in both.
+Trimmed to what the build needs: the website, docs, tests, CI files and the core's own app (app/ keeps cmake/
+only) were left out.

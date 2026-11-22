@@ -1,0 +1,71 @@
+From e5ab7c9f3f7308d6d5eb86a17ed41af541fb8263 Mon Sep 17 00:00:00 2001
+From: John <sniv2001@hotmail.com>
+Date: Mon, 16 Nov 2026 17:24:04 +0000
+Subject: [PATCH 3/4] llama_vita_read / llama_vita_next_range: guest memory
+ reads for the host's measurement tools
+
+---
+ vita3k/libretro/libretro_vita3k.cpp | 43 +++++++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/vita3k/libretro/libretro_vita3k.cpp b/vita3k/libretro/libretro_vita3k.cpp
+index ceb0d26..939d68e 100644
+--- a/vita3k/libretro/libretro_vita3k.cpp
++++ b/vita3k/libretro/libretro_vita3k.cpp
+@@ -47,6 +47,7 @@
+ #include <overlay/shader_precompile_progress.h>
+ #include <kernel/state.h>
+ #include <mem/functions.h>
++#include <mem/ptr.h>
+ #include <renderer/frame_host.h>
+ #include <renderer/functions.h>
+ #include <renderer/gl/state.h>
+@@ -3985,3 +3986,45 @@ RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
+     }
+     lr_log(RETRO_LOG_INFO, "Set controller port %u device %u (%s)\n", port, device, name);
+ }
++
++// llamasoft-vita: guest memory reads for the host's measurement tools (memory search, claw position).
++// llama_vita_read copies len bytes from guest address addr; pages that are unallocated or protected with no read access
++// (GPU sync) are skipped and left zero. Returns the number of bytes actually read.
++extern "C" RETRO_API size_t llama_vita_read(uint32_t addr, void *out, size_t len) {
++    if (!libretro.emuenv || !out)
++        return 0;
++    MemState &mem = libretro.emuenv->mem;
++    uint8_t *dst = static_cast<uint8_t *>(out);
++    std::memset(dst, 0, len);
++    size_t done = 0;
++    uint64_t a = addr;
++    const uint64_t end = std::min<uint64_t>(uint64_t(addr) + len, 0x100000000ull);
++    while (a < end) {
++        const uint64_t page_end = std::min<uint64_t>((a / 4096 + 1) * 4096, end);
++        const Address pa = Address(a);
++        MemPerm perm = MemPerm::ReadWrite;
++        if (pa && is_valid_addr(mem, pa) && (!is_protecting(mem, pa, &perm) || perm != MemPerm::None)) {
++            const uint8_t *src = Ptr<uint8_t>(pa).get(mem);
++            std::memcpy(dst + (a - addr), src, size_t(page_end - a));
++            done += size_t(page_end - a);
++        }
++        a = page_end;
++    }
++    return done;
++}
++
++// The next allocated guest range at or after from (page granular): its start, *len = its length; 0 = none.
++extern "C" RETRO_API uint32_t llama_vita_next_range(uint32_t from, uint32_t *len) {
++    if (!libretro.emuenv || !len)
++        return 0;
++    MemState &mem = libretro.emuenv->mem;
++    uint64_t p = from / 4096;
++    if (p == 0) p = 1;
++    const uint64_t pages = 0x100000000ull / 4096;
++    while (p < pages && !is_valid_addr(mem, Address(p * 4096))) ++p;
++    if (p >= pages) return 0;
++    uint64_t q = p;
++    while (q < pages && is_valid_addr(mem, Address(q * 4096))) ++q;
++    *len = uint32_t((q - p) * 4096);
++    return uint32_t(p * 4096);
++}
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,52 @@
+From 3c407af537b77aa828d87dfb615473228b5d3115 Mon Sep 17 00:00:00 2001
+From: John <sniv2001@hotmail.com>
+Date: Tue, 17 Nov 2026 12:28:19 +0000
+Subject: [PATCH 4/4] llama_vita_write: guest memory writes for the host's text
+ patches
+
+The frontend of the Tempest Collection rewrites a game's button prompts in guest
+memory; the counterpart of llama_vita_read (allocated, unprotected pages only).
+Host-side export, not seen from RetroArch, so no changelog entry (as for the read).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/libretro/libretro_vita3k.cpp | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/vita3k/libretro/libretro_vita3k.cpp b/vita3k/libretro/libretro_vita3k.cpp
+index 939d68e..4ffc480 100644
+--- a/vita3k/libretro/libretro_vita3k.cpp
++++ b/vita3k/libretro/libretro_vita3k.cpp
+@@ -4013,6 +4013,29 @@ extern "C" RETRO_API size_t llama_vita_read(uint32_t addr, void *out, size_t len
+     return done;
+ }
+ 
++// llama_vita_write copies len bytes to guest address addr (the host's text patches: a game's button prompts); only
++// into pages that are allocated and not protected (a protected page is skipped). Returns the number of bytes written.
++extern "C" RETRO_API size_t llama_vita_write(uint32_t addr, const void *in, size_t len) {
++    if (!libretro.emuenv || !in)
++        return 0;
++    MemState &mem = libretro.emuenv->mem;
++    const uint8_t *src = static_cast<const uint8_t *>(in);
++    size_t done = 0;
++    uint64_t a = addr;
++    const uint64_t end = std::min<uint64_t>(uint64_t(addr) + len, 0x100000000ull);
++    while (a < end) {
++        const uint64_t page_end = std::min<uint64_t>((a / 4096 + 1) * 4096, end);
++        const Address pa = Address(a);
++        MemPerm perm = MemPerm::ReadWrite;
++        if (pa && is_valid_addr(mem, pa) && !is_protecting(mem, pa, &perm)) {
++            std::memcpy(Ptr<uint8_t>(pa).get(mem), src + (a - addr), size_t(page_end - a));
++            done += size_t(page_end - a);
++        }
++        a = page_end;
++    }
++    return done;
++}
++
+ // The next allocated guest range at or after from (page granular): its start, *len = its length; 0 = none.
+ extern "C" RETRO_API uint32_t llama_vita_next_range(uint32_t from, uint32_t *len) {
+     if (!libretro.emuenv || !len)
+-- 
+2.55.0.windows.5
+

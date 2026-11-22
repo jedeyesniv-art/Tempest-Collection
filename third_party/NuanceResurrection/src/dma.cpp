@@ -1,0 +1,1882 @@
+#include "basetypes.h"
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+#include "bdma_type5.h"
+#include "bdma_type8.h"
+#include "bdma_type12.h"
+#include "byteswap.h"
+#include "dma.h"
+#include "hires.h"
+#include "fbprobe.h"
+#include "capture.h"
+#include <set>
+#include "mpe.h"
+#include "Bios.h"
+#include "NuonMemoryMap.h"
+#include "NuonEnvironment.h"
+
+extern NuonEnvironment nuonEnv;
+void UnimplementedBilinearDMAHandler(MPE& mpe, const uint32 flags, const uint32 baseaddr, const uint32 xinfo, const uint32 yinfo, const uint32 intaddr);
+
+/* DMA types:
+
+0: Z field of 16+16Z data
+1: 4-bit
+2: 16-bit
+3: 8-bit
+4: 32-bit
+5: 16+16Z
+6: 32+32Z
+7: Z field of 32-bit data
+8: 32-bit in MPE, 16 bit in DRAM
+9: 16+16Z in MPE, 16+16Z triple buffer map C in DRAM
+A: 16+16Z in MPE, 16+16Z triple buffer map B in DRAM
+B: 16+16Z in MPE, 16+16Z triple buffer map A in DRAM
+C: Z field of 16+16Z triple buffer
+D: 16+16Z in MPE, 16+16Z double buffer map B in DRAM
+E: 16+16Z in MPE, 16+16Z double buffer map A in DRAM
+F: Z field of 16+16Z double buffer
+
+When a Z-buffered is active and the Z-comparison field is set to 7 then
+the Z-value is neither compared nor updated.  In these cases the MPE data
+type is the non-Z equivalent.  Similarly when manipulating the Z-field via
+DMA types 0,7,12 and 15, the pixel data is not manipulated when the
+Z-comparision field is not equal to 7.  When the pixel type is 12 or 15,
+Z-data is always operated on as the DMA controller does not know which
+of the framebuffers holds the color data.
+*/
+
+constexpr BilinearDMAHandler BilinearDMAHandlers[] =
+{
+//Pixel Type 0: Allows Z write only of pixel type 5
+//Write
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 1: 4-bit
+//Write
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 2: 16-bit
+//Write
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 3: 8-bit
+//Write
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 4: 32-bit
+//Write
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 5: 16-bit with 16-bit Z
+//Write
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Write_0,
+  //Horizontal, A = 1, B = 0
+  BDMA_Type5_Write_1,
+  //Vertical, A = 0, B = 0
+  BDMA_Type5_Write_2,
+  //Vertical, A = 1, B = 0
+  BDMA_Type5_Write_3,
+  //Horizontal, A = 0, B = 1
+  BDMA_Type5_Write_4,
+  //Horizontal, A = 1, B = 1
+  BDMA_Type5_Write_5,
+  //Vertical, A = 0, B = 1
+  BDMA_Type5_Write_6,
+  //Vertical, A = 1, B = 1
+  BDMA_Type5_Write_7,
+//Read
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Read_0,
+  //Horizontal, A = 1, B = 0
+  BDMA_Type5_Read_1,
+  //Vertical, A = 0, B = 0
+  BDMA_Type5_Read_2,
+  //Vertical, A = 1, B = 0
+  BDMA_Type5_Read_3,
+  //Horizontal, A = 0, B = 1
+  BDMA_Type5_Read_4,
+  //Horizontal, A = 1, B = 1
+  BDMA_Type5_Read_5,
+  //Vertical, A = 0, B = 1
+  BDMA_Type5_Read_6,
+  //Vertical, A = 1, B = 1
+  BDMA_Type5_Read_7,
+//Pixel Type 6: 32-bit with 32-bit Z
+//Write
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 7: Allows Z write only of pixel type 6
+//Write
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 8: 32 bit pixels in MPE, 16 bit pixels in DRAM
+  //Horizontal, A = 0, B = 0
+  BDMA_Type8_Write_0,
+  //Horizontal, A = 1, B = 0
+  BDMA_Type8_Write_1,
+  //Vertical, A = 0, B = 0
+  BDMA_Type8_Write_2,
+  //Vertical, A = 1, B = 0
+  BDMA_Type8_Write_3,
+  //Horizontal, A = 0, B = 1
+  BDMA_Type8_Write_4,
+  //Horizontal, A = 1, B = 1
+  BDMA_Type8_Write_5,
+  //Vertical, A = 0, B = 1
+  BDMA_Type8_Write_6,
+  //Vertical, A = 1, B = 1
+  BDMA_Type8_Write_7,
+//Read
+  //Horizontal, A = 0, B = 0
+  BDMA_Type8_Read_0,
+  //Horizontal, A = 1, B = 0
+  BDMA_Type8_Read_1,
+  //Vertical, A = 0, B = 0
+  BDMA_Type8_Read_2,
+  //Vertical, A = 1, B = 0
+  BDMA_Type8_Read_3,
+  //Horizontal, A = 0, B = 1
+  BDMA_Type8_Read_4,
+  //Horizontal, A = 1, B = 1
+  BDMA_Type8_Read_5,
+  //Vertical, A = 0, B = 1
+  BDMA_Type8_Read_6,
+  //Vertical, A = 1, B = 1
+  BDMA_Type8_Read_7,
+//Pixel Type 9: 16+16Z in MPE, 16+16Z triple buffer C in DRAM (only one set of Z values)
+//Write
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Write_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Read_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 10: 16+16Z in MPE, 16+16Z triple buffer B in DRAM (only one set of Z values)
+//Write
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Write_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Read_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 11: 16+16Z in MPE, 16+16Z triple buffer A in DRAM (only one set of Z values)
+//Write
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Write_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Read_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 12: Allows Z write only of 16+16Z triple buffer in DRAM
+//Write
+  //Horizontal, A = 0, B = 0
+  BDMA_Type12_Write_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 13: 16+16Z in MPE, 16+16Z double buffer B in DRAM (only one set of Z values)
+//Write
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Write_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Read_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 14: 16+16Z in MPE, 16+16Z double buffer A in DRAM (only one set of Z values)
+//Write
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Write_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  BDMA_Type5_Read_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Pixel Type 15: Allows Z write only of 16+16Z double buffer in DRAM
+//Write
+  //Horizontal, A = 0, B = 0
+  BDMA_Type12_Write_0,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+//Read
+  //Horizontal, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 0
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Horizontal, A = 1, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 0, B = 1
+  UnimplementedBilinearDMAHandler,
+  //Vertical, A = 1, B = 1
+  UnimplementedBilinearDMAHandler
+};
+
+void UnimplementedBilinearDMAHandler(MPE& mpe, const uint32 flags, const uint32 baseaddr, const uint32 xinfo, const uint32 yinfo, const uint32 intaddr)
+{
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+  MessageBox(NULL, "UnimplementedBilinearDMAHandler", "Error", MB_OK);
+#endif
+  return;
+}
+
+static void DMALinearCopy(MPE& mpe, const uint32 flags, const uint32 baseaddr, const uint32 intaddr);
+
+void DMALinear(MPE& mpe, const uint32 flags, const uint32 baseaddr, const uint32 intaddr)
+{
+  DMALinearCopy(mpe, flags, baseaddr, intaddr);
+  CaptureDrawGate(mpe, flags, baseaddr, intaddr);   // llamasoft-nuon: native renderer draw gate
+  EntryLogLinear(mpe, flags, baseaddr, intaddr);   // llamasoft-nuon: NUANCE_ENTRYLOG
+  CaptureLinearRead(mpe, flags, baseaddr, intaddr);   // llamasoft-nuon: native renderer capture
+  if(g_hires && (flags & (1U << 13)) && !(flags & (1U << 28)))   // llamasoft-nuon: 720x480 mode fixes what was read
+    HiresLinearRead(mpe, baseaddr, (flags >> 16) & 0xFFU, intaddr);
+  else if(g_hires && !(flags & (1U << 13)) && !(flags & (1U << 28)))
+    HiresLinearWrite(mpe, baseaddr, (flags >> 16) & 0xFFU, intaddr);
+}
+
+static void DMALinearCopy(MPE& mpe, const uint32 flags, const uint32 baseaddr, const uint32 intaddr)
+{
+  const bool bRemote = flags & (1U << 28);
+  const bool bDirect = flags & (1U << 27);
+  const bool bDup = (flags & (3U << 26)); //bDup = dup | direct
+        uint32 length = (flags >> 16) & 0xFFU; //Only 1-127 is valid according to docs but field is 8 bits
+  const bool bRead = flags & (1U << 13);
+  {
+    // NUANCE_JOBLOG + NUANCE_DMALOG=1 (llamasoft-nuon): linear DMA reads from bus memory by MPE0-2 (what the
+    // renderers fetch: display lists, parameters).
+    extern FILE* g_joblog;
+    static const bool dmalog = getenv("NUANCE_DMALOG") != nullptr;
+    if(g_joblog && dmalog && mpe.mpeIndex < 3 && baseaddr >= 0x40010000U && baseaddr < 0x4010D200U)
+      fprintf(g_joblog, "f%u fbdma mpe%u %s %08X len %u words local %08X flags %08X\n",
+        SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+        mpe.mpeIndex, bRead ? "rd" : "wr", baseaddr, length, intaddr, flags);
+    if(g_joblog && dmalog && !bRead && mpe.mpeIndex < 3 && (baseaddr >> 28) >= 8)
+      fprintf(g_joblog, "f%u dmawr mpe%u dst %08X len %u words from %08X\n",
+        SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+        mpe.mpeIndex, baseaddr, length, intaddr);
+    if(g_joblog && dmalog && bRead && mpe.mpeIndex < 3 && (baseaddr >> 28) >= 4)
+      fprintf(g_joblog, "f%u dmard mpe%u src %08X len %u words to %08X\n",
+        SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+        mpe.mpeIndex, baseaddr, length, intaddr);
+  }
+
+  FbProbeLinear(mpe, flags, baseaddr);   // llamasoft-nuon: NUANCE_FBPROBE / NUANCE_CLEARTARGET
+
+  void *baseMemory;
+  if(baseaddr < 0xF0000000)
+  {
+    if((baseaddr & 0xF0700000) != MPE_CTRL_BASE) // this is the standard case here for the vast majority of linear DMAs and the only path that continues with the different copy cases below
+    {
+      baseMemory = nuonEnv.GetPointerToMemory((baseaddr >> 23) & 0x1Fu, (baseaddr & 0xFFFFFFFC));
+    }
+    else // handle control register read/write and exit
+    {
+      if (bRemote)
+        assert(((intaddr >> 23) & 0x1Fu) < 4);
+      MPE& m = bRemote ? nuonEnv.mpe[(intaddr >> 23) & 0x1Fu] : mpe;
+      if(bRead)
+      {
+        assert(((baseaddr >> 23) & 0x1Fu) < 4);
+        const uint32 directValue = SwapBytes(nuonEnv.mpe[(baseaddr >> 23) & 0x1Fu].ReadControlRegister((baseaddr & 0x207FFFFC) - MPE_CTRL_BASE, mpe.reg_union));
+        if((intaddr & MPE_CTRL_BASE) == MPE_CTRL_BASE)
+        {
+          {
+            extern FILE* g_joblog;
+            if(g_joblog && (m.mpeIndex) != mpe.mpeIndex)
+              fprintf(g_joblog, "f%u ctlw mpe%u by mpe%u reg %03X val %08X\n",
+                SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+                (unsigned)(m.mpeIndex), mpe.mpeIndex, (unsigned)((intaddr & 0x207FFFFC) - MPE_CTRL_BASE), (unsigned)(directValue));
+          }
+          m.WriteControlRegister((intaddr & 0x207FFFFC) - MPE_CTRL_BASE, directValue);
+        }
+        else
+        {
+          uint32* const intMemory = (uint32*)nuonEnv.GetPointerToMemory(bRemote ? (intaddr >> 23) & 0x1Fu : mpe.mpeIndex, (intaddr & 0x207FFFFC));
+          *intMemory = directValue;
+        }
+      }
+      else
+      {
+        uint32 directValue;
+        if(bRemote)
+        {
+          if((intaddr & 0xF0700000) == MPE_CTRL_BASE)
+            directValue = m.ReadControlRegister((intaddr & 0x207FFFFC) - MPE_CTRL_BASE, mpe.reg_union);
+          else
+          {
+            const uint32* const intMemory = (uint32*)nuonEnv.GetPointerToMemory(bRemote ? (intaddr >> 23) & 0x1Fu : mpe.mpeIndex, (intaddr & 0x207FFFFC));
+            directValue = *intMemory;
+          }
+        }
+        else
+        {
+          if((intaddr & MPE_CTRL_BASE) == MPE_CTRL_BASE)
+            directValue = m.ReadControlRegister((intaddr & 0x207FFFFC) - MPE_CTRL_BASE, mpe.reg_union);
+          else
+          {
+            const uint32* const intMemory = (uint32*)nuonEnv.GetPointerToMemory(bRemote ? (intaddr >> 23) & 0x1Fu : mpe.mpeIndex, (intaddr & 0x207FFFFC));
+            directValue = *intMemory;
+          }
+        }
+        assert(((baseaddr >> 23) & 0x1Fu) < 4);
+          {
+            extern FILE* g_joblog;
+            if(g_joblog && ((baseaddr >> 23) & 0x1Fu) != mpe.mpeIndex)
+              fprintf(g_joblog, "f%u ctlw mpe%u by mpe%u reg %03X val %08X\n",
+                SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+                (unsigned)((baseaddr >> 23) & 0x1Fu), mpe.mpeIndex, (unsigned)((baseaddr & 0x207FFFFC) - MPE_CTRL_BASE), (unsigned)(SwapBytes(directValue)));
+          }
+        nuonEnv.mpe[(baseaddr >> 23) & 0x1Fu].WriteControlRegister((baseaddr & 0x207FFFFC) - MPE_CTRL_BASE, SwapBytes(directValue));
+      }
+
+      return;
+    }
+  }
+  else // handle flashEEPROM read/write and exit
+  {
+    //internal address is: bRemote ? system address (but still in MPE memory) : local to MPE
+    uint32* const intMemory = (uint32*)nuonEnv.GetPointerToMemory(bRemote ? (intaddr >> 23) & 0x1Fu : mpe.mpeIndex, (intaddr & 0x207FFFFC));
+
+    if(bRead)
+    {
+      uint32* const pDest32 = intMemory;
+      nuonEnv.flashEEPROM.ReadData(baseaddr - 0xF0000000,pDest32);
+      SwapScalarBytes(pDest32);
+    }
+    else
+    {
+      const uint32* const pSrc32 = intMemory;
+      nuonEnv.flashEEPROM.WriteData(baseaddr - 0xF0000000, SwapBytes(*pSrc32));
+    }
+    return;
+  }
+
+  //
+  // continue with the standard case (see above), everything else returned before
+  //
+
+  const bool bFlushCache = bRead &&
+    ((intaddr & MPE_LOCAL_MEMORY_MASK) >= MPE_IRAM_BASE) &&
+    ((intaddr & MPE_LOCAL_MEMORY_MASK) < MPE_DTAGS_BASE);
+
+  // T3K special cases to optimize perf for these tiny batches (usually overall just ~1-64 values to write)
+  // Note that these could be removed again, as also handled with the 'standard' pipeline, its just a much simpler codepath/early-out
+  // Note that these obviously also work for all other apps that trigger these
+  const uint32 flags_mlength = (flags & (~(0xFFu << 16))); // mask out length
+  if(!bFlushCache
+    && (flags_mlength == 8192 // Rem 0 Dir 0 Dup 0 Read 1
+     || flags_mlength == 268443648 // Rem 1 Dir 0 Dup 0 Read 1
+     || flags_mlength == 0)) // Rem 0 Dir 0 Dup 0 Read 0
+  {
+    void* const pTmp = nuonEnv.GetPointerToMemory(bRemote ? (intaddr >> 23) & 0x1Fu : mpe.mpeIndex, (intaddr & 0x207FFFFC));
+    const uint32* pSrc32 = (uint32*)(bRead ? baseMemory : pTmp);
+    uint32* pDest32 = (uint32*)(bRead ? pTmp : baseMemory);
+    while(length--)
+    {
+      *pDest32 = *pSrc32;
+      pSrc32++;
+      pDest32++;
+    }
+
+    return;
+  }
+  // continue with more complicated non-specialized DMA cases:
+
+  //wordSize is the size of the atomic data transfer unit as a multiple of a 16-bit word: (word = 1, scalar = 2)
+
+  //source stride specifies the spacing between each atomic data item to be transferred from the source
+  //this is normally set to one to indicate contiguous items, but will be set to zero for direct data
+  //where the source pointer is not incremented between data transfers
+
+  //dest stride specifies the stride in 32-bit scalars from the start of one written data item to the next
+  //for example, alternate word write locations are spaced 32-bits apart, for a stride of one
+
+  uint32 destStride, wordSize;
+  bool bByteMode = false;
+
+  switch(flags & 0x07)
+  {
+    //Determine stride in scalars, or in words for byte mode
+    case 0:
+      //contiguous scalars
+      wordSize = 2;
+      destStride = 1;
+      break;
+    case 1:
+      //byte mode
+      bByteMode = true;
+      wordSize = 1;
+      destStride = 1;
+      break;
+    case 2:
+      //alternate scalars
+      wordSize = 2;
+      destStride = 2;
+      break;
+    case 3:
+      //alternate words
+      wordSize = 1;
+      destStride = 1;
+      break;
+    case 4:
+      //every fourth scalar
+      wordSize = 2;
+      destStride = 4;
+      break;
+    case 5:
+      //every fourth word
+      wordSize = 1;
+      destStride = 2;
+      break;
+    case 6:
+      //every eighth scalar
+      wordSize = 2;
+      destStride = 8;
+      break;
+    case 7:
+      //every eighth word
+      wordSize = 1;
+      destStride = 4;
+      break;
+  }
+
+  uint32 srcStride = 1;
+  const void* pSrc;
+  void* pDest;
+  uint32 directValue;
+
+  if(bRead)
+  {
+    //Read: base -> internal
+    pSrc = baseMemory;
+
+    if(bRemote)
+    {
+      //internal address is system address (but still in MPE memory)
+      pDest = nuonEnv.GetPointerToMemory((intaddr >> 23) & 0x1Fu, (intaddr & 0x207FFFFC));
+      if(bFlushCache)
+      {
+        //Maintain cache coherency!  This assumes that code will not be
+        //dynamically created in the dtrom/dtram section, bypassing the need
+        //to flush the cache on data writes.
+
+        /*
+        Critical TO DO: Many games such as T3K switch between overlays on a very frequent basis because they cannot fit all of the needed
+        code into a single overlay.  For example, T3K switches overlays several times per frame with each overlay rendering a different
+        set of playfield objects.  Not only does this cause an unyielding barage of requests to invalidate the interpreter cache and
+        native code cache but it also means that the native code cache will fill up with multiple copies of overlay code that is compiled
+        and then forgotten when an invalidation occurs.  This causes additional code cache flushes.  In T3K, the code cache is being
+        flushed almost non-stop.  This is a serious, serious bottleneck. T3K flushes the cache at an unnerving pace.
+        */
+
+        //LARGE_INTEGER timeStart, timeEnd, timeFreq, timeOverhead;
+        //QueryPerformanceCounter(&timeStart);
+        //QueryPerformanceCounter(&timeEnd);
+
+        //timeOverhead.QuadPart = timeEnd.QuadPart - timeStart.QuadPart;
+
+        //QueryPerformanceFrequency(&timeFreq);
+        //QueryPerformanceCounter(&timeStart);
+        assert(((intaddr >> 23) & 0x1Fu) < 4);
+        //nuonEnv.mpe[(intaddr >> 23) & 0x1FU].InvalidateICacheRegion((intaddr & 0xF07FFFFF), (intaddr & 0xF07FFFFF) + (length << 2) - 1);
+        //nuonEnv.mpe[(intaddr >> 23) & 0x1FU].InvalidateICache();
+        //nuonEnv.mpe[(intaddr >> 23) & 0x1FU].nativeCodeCache->FlushRegion(intaddr & 0xF07FFFFF, (intaddr & 0xF07FFFFF) + (length << 2) - 1);
+
+        nuonEnv.mpe[(intaddr >> 23) & 0x1FU].UpdateInvalidateRegion(intaddr & MPE_LOCAL_MEMORY_MASK, length*2*wordSize);
+        {
+          extern void AotCollectCodeLoad(uint32 target, uint32 src, uint32 dst, uint32 bytes);
+          AotCollectCodeLoad((intaddr >> 23) & 0x1FU, baseaddr, intaddr, length*2*wordSize);
+          EntryLogCodeLoad((intaddr >> 23) & 0x1FU, baseaddr, intaddr);
+          extern FILE* g_joblog;
+          if(g_joblog)
+            fprintf(g_joblog, "f%u codeload mpe%u by mpe%u src %08X dst %08X len %u\n",
+              SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+              (intaddr >> 23) & 0x1FU, mpe.mpeIndex, baseaddr, intaddr, length*2*wordSize);
+        }
+        //nuonEnv.mpe[(intaddr >> 23) & 0x1FU].UpdateInvalidateRegion(MPE_IRAM_BASE, MPE::overlayLengths[(intaddr >> 23) & 0x1FU]);
+        //nuonEnv.mpe[(intaddr >> 23) & 0x1FU].nativeCodeCache->FlushRegion(0x20300000, (intaddr & 0xF07FFFFF) + ((length - 1) << 2));
+        //QueryPerformanceCounter(&timeEnd);
+        //char tempBuf[128];
+        //sprintf(tempBuf,"DMA caused cache invalidations: %lf seconds wasted.",((double)(timeEnd.QuadPart - timeStart.QuadPart - timeOverhead.QuadPart)) / ((double)timeFreq.QuadPart));
+        //MessageBox(NULL,tempBuf,"DMALinear",MB_OK);
+      }
+    }
+    else
+    {
+      //internal address is local to MPE
+      pDest = nuonEnv.GetPointerToMemory(mpe.mpeIndex, (intaddr & 0x207FFFFC), false);
+      if(bFlushCache)
+      {
+        //Maintain cache coherency!  This assumes that code will not be
+        //dynamically created in the dtrom/dtram section, bypassing the need
+        //to flush the cache on data writes.
+        //mpe.InvalidateICacheRegion(intaddr, intaddr + (length << 2) - 1);
+        //mpe.InvalidateICache();
+        //mpe.nativeCodeCache->FlushRegion(intaddr, intaddr + (length << 2) - 1);
+        mpe.UpdateInvalidateRegion(intaddr & MPE_LOCAL_MEMORY_MASK, length*2*wordSize);
+        {
+          extern void AotCollectCodeLoad(uint32 target, uint32 src, uint32 dst, uint32 bytes);
+          AotCollectCodeLoad(mpe.mpeIndex, baseaddr, intaddr, length*2*wordSize);
+          EntryLogCodeLoad(mpe.mpeIndex, baseaddr, intaddr);
+          extern FILE* g_joblog;
+          if(g_joblog)
+            fprintf(g_joblog, "f%u codeload mpe%u by mpe%u src %08X dst %08X len %u\n",
+              SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+              mpe.mpeIndex, mpe.mpeIndex, baseaddr, intaddr, length*2*wordSize);
+        }
+        //mpe.UpdateInvalidateRegion(MPE_IRAM_BASE,MPE::overlayLengths[mpe.mpeIndex]);
+        //mpe.nativeCodeCache->FlushRegion(0x20300000, intaddr + ((length - 1) << 2));
+      }
+    }
+  }
+  else
+  {
+    //Write: internal -> base
+    pDest = baseMemory;
+
+    if(bDup)
+    {
+      //change srcStride to 0 to keep pSrc pointed at directValue
+      srcStride = 0;
+
+      if(bDirect)
+      {
+        directValue = SwapBytes(intaddr);
+#ifndef NUANCE_LITTLE_ENDIAN
+        if(wordSize == 1)
+          directValue >>= 16;
+#endif
+        pSrc = (void *)&directValue;
+      }
+      else
+      {
+        //Dup but not Direct: read scalar from memory, no need to swap
+        //internal address is: bRemote ? system address (but still in MPE memory) : local to MPE
+        directValue = *((uint32 *)nuonEnv.GetPointerToMemory(bRemote ? (intaddr >> 23) & 0x1Fu : mpe.mpeIndex, (intaddr & 0x207FFFFC)));
+
+#ifndef NUANCE_LITTLE_ENDIAN
+        if(wordSize == 1)
+        {
+          directValue >>= 16;
+          pSrc = (void *)((uint8 *)&directValue + 2);
+        }
+        else
+#endif
+        pSrc = (void *)&directValue;
+      }
+    }
+    else
+    {
+      //internal address is: bRemote ? system address (but still in MPE memory) : local to MPE
+      pSrc = nuonEnv.GetPointerToMemory(bRemote ? (intaddr >> 23) & 0x1Fu : mpe.mpeIndex, (intaddr & 0x207FFFFC));
+    }
+  }
+
+  const bool cw = (((flags >> 3) & 0x3) == 3); //Contiguous words
+
+  if(!bByteMode || cw)
+  {
+    if(wordSize == 2)
+    {
+      const uint32* pSrc32 = (uint32*)pSrc;
+      uint32* pDest32 = (uint32*)pDest;
+      while(length--)
+      {
+        *pDest32 = *pSrc32;
+        pSrc32 += srcStride;
+        pDest32 += destStride;
+      }
+    }
+    else
+    {
+      const uint16* pSrc16 = (uint16*)pSrc;
+      uint16* pDest16 = (uint16*)pDest;
+      while(length--)
+      {
+        *pDest16 = *pSrc16;
+        pSrc16 += srcStride;
+        pDest16 += destStride;
+      }
+    }
+  }
+  else
+  {
+    uint16 mask;
+
+    switch((flags >> 3) & 0x3)
+    {
+      case 0: //illegal, but fall through to case 1 anyway
+        assert(false);
+      case 1: //Byte 1 only (LSB bits [7:0] of each word)
+#ifdef NUANCE_LITTLE_ENDIAN
+        mask = 0xFF00;
+#else
+        mask = 0x00FF;
+#endif
+        break;
+      case 2: //Byte 0 only (MSB bits [15:8] of each word)
+#ifdef NUANCE_LITTLE_ENDIAN
+        mask = 0x00FF;
+#else
+        mask = 0xFF00;
+#endif
+        break;
+      //case 3: //Contiguous words (handled above)
+      //  mask = 0xFFFF;
+      //  break;
+    }
+
+    const uint16* pSrc16 = (uint16*)pSrc;
+    uint16* pDest16 = (uint16*)pDest;
+    while(length--)
+    {
+       *pDest16 = (*pDest16 & ~mask) | (*pSrc16 & mask);
+       pSrc16 += srcStride;
+       pDest16 += destStride;
+    }
+  }
+}
+
+void DMALinear(MPE &mpe)
+{
+  const uint32 flags = mpe.regs[0];
+  const uint32 baseaddr = mpe.regs[1];
+  const uint32 intaddr = mpe.regs[2];
+
+  //For the BIOS call, simulate the latency of the call assuming
+  //40 cycles of setup time (copying to command buffer, determining
+  //which bus to write to, etc) plus one cycle per long transferred
+  nuonEnv.cycleCounter += (40 + ((flags >> 16) & 0xFF)); //Only 1-127 is valid according to docs but field is 8 bits
+
+  DMALinear(mpe,flags,baseaddr,intaddr);
+}
+
+void DMABiLinear(MPE &mpe, const uint32 flags, uint32 baseaddr, const uint32 xinfo, const uint32 yinfo, const uint32 intaddr)
+{
+  baseaddr = HiresRemapBase(baseaddr);   // llamasoft-nuon: 720x480 mode
+  FbProbeBiLinear(mpe, flags, baseaddr, xinfo, yinfo, intaddr);
+  CaptureBiLinear(mpe, flags, baseaddr);   // llamasoft-nuon: native renderer capture (ground truth buffer)   // llamasoft-nuon: NUANCE_FBPROBE / NUANCE_CLEARTARGET
+  {
+    // NUANCE_PIXLOG=x,y (llamasoft-nuon, investigations): log every pixel write DMA whose rectangle covers (x, y).
+    extern FILE* g_joblog;
+    static int px = -2, py = -1;
+    if(px == -2)
+    {
+      px = -1;
+      if(const char* s = getenv("NUANCE_PIXLOG"))
+        sscanf(s, "%d,%d", &px, &py);
+    }
+    // NUANCE_BASELOG=1 (+ NUANCE_JOBLOG): each new (MPE, base, flags) combination of pixel DMA, once.
+    static const bool baselog = getenv("NUANCE_BASELOG") != nullptr;
+    if(baselog && g_joblog)
+    {
+      static std::set<uint64> seen;
+      const uint64 key = ((uint64)mpe.mpeIndex << 62) ^ ((uint64)baseaddr << 32) ^ flags;
+      if(seen.insert(key).second)
+        fprintf(g_joblog, "f%u base mpe%u %08X flags %08X %s\n",
+          SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+          mpe.mpeIndex, baseaddr, flags, (flags & (1U << 13)) ? "rd" : "wr");
+    }
+    // NUANCE_RECTLOG=<field> (+ NUANCE_JOBLOG): every pixel DMA rectangle in that field.
+    static const uint32 rectField = getenv("NUANCE_RECTLOG") ? (uint32)atoi(getenv("NUANCE_RECTLOG")) : 0xFFFFFFFFU;
+    if(g_joblog && rectField != 0xFFFFFFFFU &&
+       SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])) == rectField)
+      fprintf(g_joblog, "rect mpe%u pc %08X %s base %08X x %d+%d y %d+%d\n", mpe.mpeIndex, mpe.pcexec,
+        (flags & (1U << 13)) ? "rd" : "wr", baseaddr, xinfo & 0x7FF, (xinfo >> 16) & 0x3FF, yinfo & 0x7FF, (yinfo >> 16) & 0x3FF);
+    if(px >= 0 && !(flags & (1U << 13)))
+    {
+      const int x0 = xinfo & 0x7FF, xl = (xinfo >> 16) & 0x3FF, y0 = yinfo & 0x7FF, yl = (yinfo >> 16) & 0x3FF;
+      if(px >= x0 && px < x0 + xl && py >= y0 && py < y0 + yl)
+        fprintf(g_joblog ? g_joblog : stderr, "pix f%u mpe%u pc %08X base %08X x %d+%d y %d+%d flags %08X\n",
+          SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+          mpe.mpeIndex, mpe.pcexec, baseaddr, x0, xl, y0, yl, flags);
+    }
+  }
+  // T3K special cases to optimize perf for these tiny batches (usually overall just ~16-64 values to write)
+  // Note that these could be removed again, as also handled with the 'standard' pipeline, its just a much simpler codepath/early-out
+  // Note that these obviously also work for all other apps that trigger these
+  const uint32 flags_mxsize = (flags & (~(0x7F8U << 13))); // mask out xsize
+  if (flags_mxsize == 67160128 || flags_mxsize == 51264 || flags_mxsize == 59456)
+  {
+    const uint32 mpeBase = intaddr & 0x7FFFFFFCU;
+    //internal address is local to MPE
+    void* const intMemory = nuonEnv.GetPointerToMemory(mpe.mpeIndex, mpeBase, false);
+    const uint32 sdramBase = baseaddr & 0x7FFFFFFEU;
+    void* const baseMemory = nuonEnv.GetPointerToMemory((sdramBase >> 23) & 0x1Fu, sdramBase, false);
+
+    const uint32 xlen = (xinfo >> 16) & 0x3FFU;
+    const uint32 xpos = xinfo & 0x7FFU;
+          uint32 ylen = (yinfo >> 16) & 0x3FFU;
+    const uint32 ypos = yinfo & 0x7FFU;
+    const uint32 xsize = (flags >> 13) & 0x7F8U;
+
+    uint32* const pTmp = (uint32*)baseMemory + (ypos * xsize + xpos);
+
+    if (flags_mxsize == 67160128) // whichroutine = 64 => 4, Rem 0 Dir 0 Dup 1 Read 0 xs 360 zc 0 pix 4 bva 0, wordsize 2
+    {
+      //Dup but not Direct: read scalar from memory, no need to swap
+      const uint32 directValue = *(uint32 *)intMemory;
+      uint32* __restrict pDest32 = pTmp;
+
+      while (ylen--)
+      {
+        for (uint32 A = 0; A < xlen; ++A)
+          pDest32[A] = directValue;
+
+        pDest32 += xsize;
+      }
+    }
+    else //if (flags_mxsize == 51264) // whichroutine = 64 => 4, Rem 0 Dir 0 Dup 0 Read 0 xs 360 zc 0 pix 4 bva 0, wordsize 2
+         //|| (flags_mxsize == 59456) // whichroutine = 72 => 4, Rem 0 Dir 0 Dup 0 Read 1 xs 360 zc 0 pix 4 bva 0, wordsize 2
+    {
+      const bool f51264 = (flags_mxsize == 51264);
+      const uint32* pSrc32 = f51264 ? (uint32*)intMemory : pTmp;
+      uint32* pDest32 = f51264 ? pTmp : (uint32*)intMemory;
+
+      while (ylen--)
+      {
+        for (uint32 A = 0; A < xlen; ++A)
+          pDest32[A] = pSrc32[A];
+
+        pSrc32 += f51264 ? xlen : xsize;
+        pDest32 += f51264 ? xsize : xlen;
+      }
+    }
+
+    return;
+  }
+  // continue with non-special-optimized DMA path:
+
+  uint32 whichRoutine =
+
+  //pixel flags + backwards flag a (PPPP):(xxxA) 
+    (flags & 0xF1u)
+  //read flag (PPPP):(RxxA)
+    | ((flags >> (13 - 3)) & 0x08u)
+  //vertical flag and backwards flag b (PPPP):(RBVA)
+    | ((flags >> (9 - 2)) & 0x06u);
+
+  switch(whichRoutine >> 4)
+  {
+    case 0:
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+      MessageBox(NULL,"whichRoutine>>4 not found","DMABiLinear Error",MB_OK);
+#endif
+      //whichRoutine = 0;
+      return;
+      break;
+    case 1:
+      whichRoutine = 0;
+      //return;
+      break;
+    case 2:
+      whichRoutine = 0;
+      break;
+    case 3:
+      whichRoutine = 0;
+      //return;
+      break;
+    case 4:
+      switch(whichRoutine & 0x0FU)
+      {
+        case 0:
+        case 8:
+          break;
+        default:
+          whichRoutine = 0;
+          break;
+      }
+      break;
+    case 5:
+      switch(whichRoutine & 0x0FU)
+      {
+        case 0:
+        case 8:
+          BilinearDMAHandlers[whichRoutine](mpe,flags,baseaddr,xinfo,yinfo,intaddr);
+          return;
+          break;
+        default:
+          whichRoutine = 0;
+          break;
+      }
+      break;
+    case 6:
+      BilinearDMAHandlers[whichRoutine](mpe,flags,baseaddr,xinfo,yinfo,intaddr);
+      return;
+      break;
+    case 8:
+      BilinearDMAHandlers[whichRoutine](mpe,flags,baseaddr,xinfo,yinfo,intaddr);
+      return;
+      break;
+    case 9:
+    case 10:
+    case 11:
+      BilinearDMAHandlers[whichRoutine](mpe,flags,baseaddr,xinfo,yinfo,intaddr);
+      return;
+      break;
+    case 12:
+      BilinearDMAHandlers[whichRoutine](mpe,flags,baseaddr,xinfo,yinfo,intaddr);
+      return;
+      break;
+    case 13:
+    case 14:
+      BilinearDMAHandlers[whichRoutine](mpe,flags,baseaddr,xinfo,yinfo,intaddr);
+      return;
+      break;
+    case 15:
+      BilinearDMAHandlers[whichRoutine](mpe,flags,baseaddr,xinfo,yinfo,intaddr);
+      return;
+      break;
+    default:
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+      MessageBox(NULL,"whichRoutine>>4 not found","DMABiLinear Error",MB_OK);
+#endif
+      //whichRoutine = 0;
+      return;
+      break;
+  }
+
+  //const bool bBatch = flags & (1U << 30);
+  const bool bChain = flags & (1U << 29);
+
+  if(bChain)
+  {
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+    MessageBox(NULL,"Chained DMA not supported","DMABiLinear Error",MB_OK);
+#endif
+    return;
+  }
+
+  const bool bRemote = flags & (1U << 28);
+  const bool bDirect = flags & (1U << 27);
+  const bool bDup = flags & (3U << 26); //bDup = dup | direct
+  //const bool bTrigger = flags & (1U << 25);
+  const bool bRead = flags & (1U << 13);
+        int32 xsize = (flags >> 13) & 0x7F8U;
+  //const uint32 type = (flags >> 14) & 0x03U;
+  //const uint32 mode = flags & 0xFFFU;
+  const uint32 zcompare = (flags >> 1) & 0x07U;
+  const uint32 pixtype = (flags >> 4) & 0x0FU;
+  const uint32 bva = ((flags >> 7) & 0x06U) | (flags & 0x01U);
+  const uint32 sdramBase = baseaddr & 0x7FFFFFFEU;
+  const uint32 mpeBase = intaddr & 0x7FFFFFFCU;
+        uint32 xlen = (xinfo >> 16) & 0x3FFU;
+        uint32 xpos = xinfo & 0x7FFU;
+  const uint32 ylen = (yinfo >> 16) & 0x3FFU;
+  const uint32 ypos = yinfo & 0x7FFU;
+        bool bCompareZ = false;
+        bool bUpdateZ = false;
+
+  uint32 wordsize/*, pixsize*/;
+  switch(pixtype)
+  {
+    //4 bit, 8 bit, 16 bit, and 16 bit Z-field only modes
+    case 0:
+      //16 bit Z field only
+      wordsize = 1;
+      break;
+    case 1:
+      //4 bit
+      wordsize = 1;
+      //pixsize = 1;
+      xlen >>= 2;
+      xsize >>= 2;
+      xpos >>= 2;
+      break;
+    case 2:
+      //16 bit
+      wordsize = 1;
+      //pixsize = 1;
+      break;
+    case 3:
+      //8 bit
+      wordsize = 1;
+      //pixsize = 1;
+      xlen >>= 1;
+      xsize >>= 1;
+      xpos >>= 1;
+      break;
+    //32 bit, 32 bit + 32 bit Z, and 32 bit Z-field only modes
+    case 4:
+      wordsize = 2;
+      //pixsize = 2;
+      break;
+    case 5:
+    {
+      wordsize = 2;
+      //pixsize = 1;
+
+      bUpdateZ = (zcompare != 7);
+      if(bUpdateZ)
+      {
+        //pixel+Z write (16 + 16Z)
+        bCompareZ = (zcompare != 0);
+      }
+      else
+      {
+        //pixel only write (16 bit)
+        bCompareZ = false;
+      }
+      break;
+    }
+    case 6:
+    {
+      wordsize = 2;
+      //pixsize = 2;
+
+      bUpdateZ = (zcompare != 7);
+      if(bUpdateZ)
+      {
+        //pixel+Z write (32 + 32Z)
+        bCompareZ = (zcompare != 0);
+      }
+      else
+      {
+        //pixel only write (32 bit)
+        bCompareZ = false;
+      }
+      break;
+    }
+    case 7:
+      wordsize = 2;
+      break;
+    //16 bit + 16 bit Z, single, double and triple buffer modes
+    case 8:
+      wordsize = 1;
+      //pixsize = 1;
+      break;
+    case 9:
+    {
+      wordsize = 2;
+      //pixsize = 1;
+
+      bUpdateZ = (zcompare != 7);
+      if(bUpdateZ)
+      {
+        //pixel+Z write (16 + 16Z)
+        bCompareZ = (zcompare != 0);
+      }
+      else
+      {
+        //pixel only write (16 bit)
+        bCompareZ = false;
+      }
+      break;
+    }
+    case 10:
+    {
+      wordsize = 2;
+      //pixsize = 1;
+
+      bUpdateZ = (zcompare != 7);
+      if(bUpdateZ)
+      {
+        //pixel+Z write (16 + 16Z)
+        bCompareZ = (zcompare != 0);
+      }
+      else
+      {
+        //pixel only write (16 bit)
+        bCompareZ = false;
+      }
+      break;
+    }
+    case 11:
+    {
+      wordsize = 2;
+      //pixsize = 1;
+
+      bUpdateZ = (zcompare != 7);
+      if(bUpdateZ)
+      {
+        //pixel+Z write (16 + 16Z)
+        bCompareZ = (zcompare != 0);
+      }
+      else
+      {
+        //pixel only write (16 bit)
+        bCompareZ = false;
+      }
+      break;
+    }
+    case 12:
+      wordsize = 1;
+      //pixsize = 1;
+      break;
+    case 13:
+    {
+      wordsize = 2;
+      //pixsize = 1;
+
+      bUpdateZ = (zcompare != 7);
+      if(bUpdateZ)
+      {
+        //pixel+Z write (16 + 16Z)
+        bCompareZ = (zcompare != 0);
+      }
+      else
+      {
+        //pixel only write (16 bit)
+        bCompareZ = false;
+      }
+      break;
+    }
+    case 14:
+    {
+      wordsize = 2;
+
+      bUpdateZ = (zcompare != 7);
+      if(bUpdateZ)
+      {
+        //pixel+Z write (16 + 16Z)
+        bCompareZ = (zcompare != 0);
+      }
+      else
+      {
+        bCompareZ = false;
+      }
+      break;
+    }
+    case 15:
+      wordsize = 1;
+      //pixsize = 1;
+      break;
+  }
+
+  //internal address is: bRemote ? system address (but still in MPE memory) : local to MPE
+  void* const intMemory = nuonEnv.GetPointerToMemory(bRemote ? (mpeBase >> 23) & 0x1Fu : mpe.mpeIndex, mpeBase & 0x207FFFFF, false);
+
+  //base address is always a system address (absolute)
+
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+  if((sdramBase < 0x40000000) || (sdramBase > 0x407FFFFF))
+  {
+    char msgBuf[512];
+    sprintf_s(msgBuf, sizeof(msgBuf), "sdramBase is out of range on MPE%u: 0x%lx\n",mpe.mpeIndex,sdramBase);
+    MessageBox(NULL,msgBuf,"DMABiLinear error",MB_OK);
+  }
+  //else
+  //{
+  //}
+#endif
+
+  void* const baseMemory = nuonEnv.GetPointerToMemory((sdramBase >> 23) & 0x1Fu, sdramBase, false);
+
+  uint32 srcAStart, srcBStart, destAStart, destBStart, aCountInit, bCount, srcOffset, destOffset;
+  int32 srcAStep, srcBStep, destAStep, destBStep;
+
+  uint32 directValue = intaddr;
+  const void* pSrc;
+  void* pDest;
+
+  if(bRead)
+  {
+    pSrc = baseMemory;
+    pDest = intMemory;
+    srcOffset = ypos * (uint32)xsize + xpos;
+    destOffset = 0;
+
+    destAStart = 0;
+    destAStep = 1;
+    destBStart = 0;
+    destBStep = xlen;
+
+    switch(bva)
+    {
+      case 0:
+        //BVA = 000 (horizontal DMA, x increment, y increment)
+        srcAStart = 0;
+        srcAStep = 1;
+        srcBStart = 0;
+        srcBStep = xsize;
+        aCountInit = xlen;
+        bCount = ylen;
+        break;
+      case 1:
+        //BVA = 001 (horizontal DMA, x decrement, y increment)
+        srcAStart = xlen - 1;
+        srcAStep = -1;
+        srcBStart = 0;
+        srcBStep = xsize;
+        aCountInit = xlen;
+        bCount = ylen;
+        break;
+      case 2:
+        //BVA = 010 (vertical DMA, y increment, x increment)
+        srcAStart = 0;
+        srcAStep = xsize;
+        srcBStart = 0;
+        srcBStep = 1;
+        aCountInit = ylen;
+        bCount = xlen;
+        break;
+      case 3:
+        //BVA = 011 (vertical DMA, y decrement, x increment)
+        srcAStart = (ylen - 1) * xsize;
+        srcAStep = -xsize;
+        srcBStart = 0;
+        srcBStep = 1;
+        aCountInit = ylen;
+        bCount = xlen;
+        break;
+      case 4:
+        //BVA = 100 (horizontal DMA, x increment, y decrement)
+        srcAStart = 0;
+        srcAStep = 1;
+        srcBStart = (ylen - 1) * xsize;
+        srcBStep = -xsize;
+        aCountInit = xlen;
+        bCount = ylen;
+        break;
+      case 5:
+        //BVA = 101 (horizontal DMA, x decrement, y decrement)
+        srcAStart = xlen - 1;
+        srcAStep = -1;
+        srcBStart = (ylen - 1) * xsize;
+        srcBStep = -xsize;
+        aCountInit = xlen;
+        bCount = ylen;
+        break;
+      case 6:
+        //BVA = 110 (vertical DMA, y increment, x decrement)
+        srcAStart = 0;
+        srcAStep = xsize;
+        srcBStart = xlen - 1;
+        srcBStep = -1;
+        aCountInit = ylen;
+        bCount = xlen;
+        break;
+      case 7:
+        //BVA = 111 (vertical DMA, y decrement, x decrement)
+        srcAStart = (ylen - 1) * xsize;
+        srcAStep = -xsize;
+        srcBStart = xlen - 1;
+        srcBStep = -1;
+        aCountInit = ylen;
+        bCount = xlen;
+        break;
+    }
+  }
+  else
+  {
+    pSrc = intMemory;
+    pDest = baseMemory;
+
+    if(bDup)
+    {
+      if(bDirect)
+      {
+        //Direct and Dup: intaddr is data.
+        directValue = SwapBytes(intaddr);
+      }
+      else
+      {
+        //Dup but not Direct: read scalar from memory, no need to swap
+        directValue = *(uint32 *)intMemory;
+      }
+#ifndef NUANCE_LITTLE_ENDIAN
+      if(wordsize == 1)
+        directValue >>= 16;
+#endif
+
+      pSrc = (void *)&directValue;
+      srcAStep = 0;
+      srcBStep = 0;
+    }
+    else
+    {
+      srcAStep = 1;
+      srcBStep = xlen;
+    }
+
+    srcAStart = 0;
+    srcBStart = 0;
+    srcOffset = 0;
+    destOffset = ypos * (uint32)xsize + xpos;
+
+    switch(bva)
+    {
+      case 0:
+        //BVA = 000 (horizontal DMA, x increment, y increment)
+        destAStart = 0;
+        destAStep = 1;
+        destBStart = 0;
+        destBStep = xsize;
+        aCountInit = xlen;
+        bCount = ylen;
+        break;
+      case 1:
+        //BVA = 001 (horizontal DMA, x decrement, y increment)
+        destAStart = xlen - 1;
+        destAStep = -1;
+        destBStart = 0;
+        destBStep = xsize;
+        aCountInit = xlen;
+        bCount = ylen;
+        break;
+      case 2:
+        //BVA = 010 (vertical DMA, y increment, x increment)
+        destAStart = 0;
+        destAStep = xsize;
+        destBStart = 0;
+        destBStep = 1;
+        aCountInit = ylen;
+        bCount = xlen;
+        break;
+      case 3:
+        //BVA = 011 (vertical DMA, y decrement, x increment)
+        destAStart = (ylen - 1) * xsize;
+        destAStep = -xsize;
+        destBStart = 0;
+        destBStep = 1;
+        aCountInit = ylen;
+        bCount = xlen;
+        break;
+      case 4:
+        //BVA = 100 (horizontal DMA, x increment, y decrement)
+        destAStart = 0;
+        destAStep = 1;
+        destBStart = (ylen - 1) * xsize;
+        destBStep = -xsize;
+        aCountInit = xlen;
+        bCount = ylen;
+        break;
+      case 5:
+        //BVA = 101 (horizontal DMA, x decrement, y decrement)
+        destAStart = xlen - 1;
+        destAStep = -1;
+        destBStart = (ylen - 1) * xsize;
+        destBStep = -xsize;
+        aCountInit = xlen;
+        bCount = ylen;
+        break;
+      case 6:
+        //BVA = 110 (vertical DMA, y increment, x decrement)
+        destAStart = 0;
+        destAStep = xsize;
+        destBStart = xlen - 1;
+        destBStep = -1;
+        aCountInit = ylen;
+        bCount = xlen;
+        break;
+      case 7:
+        //BVA = 111 (vertical DMA, y decrement, x decrement)
+        destAStart = (ylen - 1) * xsize;
+        destAStep = -xsize;
+        destBStart = xlen - 1;
+        destBStep = -1;
+        aCountInit = ylen;
+        bCount = xlen;
+        break;
+    }
+  }
+
+  if(wordsize == 2)
+  {
+    /*if(!bRead)
+    {
+      if((GetPixBaseAddr(sdramBase,destOffset,2) >= nuonEnv.mainChannelLowerLimit) && (GetPixBaseAddr(sdramBase,destOffset,2) <= nuonEnv.mainChannelUpperLimit) ||
+         (GetPixBaseAddr(sdramBase,(destOffset+((xsize - 1)*ylen)+xlen),2) >= nuonEnv.mainChannelLowerLimit) && (GetPixBaseAddr(sdramBase,(destOffset+((xsize - 1)*ylen)+xlen),2) <= nuonEnv.mainChannelUpperLimit))
+      {
+        nuonEnv.bMainBufferModified = true;
+      }
+      else if((GetPixBaseAddr(sdramBase,destOffset,2) >= nuonEnv.overlayChannelLowerLimit) && (GetPixBaseAddr(sdramBase,destOffset,2) <= nuonEnv.overlayChannelUpperLimit) ||
+         (GetPixBaseAddr(sdramBase,(destOffset+((xsize - 1)*ylen)+xlen),2) >= nuonEnv.overlayChannelLowerLimit) && (GetPixBaseAddr(sdramBase,(destOffset+((xsize - 1)*ylen)+xlen),2) <= nuonEnv.overlayChannelUpperLimit))
+      {
+        nuonEnv.bOverlayBufferModified = true;
+      }
+    }*/
+
+    const uint32* pSrc32 = ((uint32*)pSrc) + (srcOffset+srcAStart+srcBStart);
+    uint32* pDest32 = ((uint32*)pDest) + (destOffset+destAStart+destBStart);
+
+    const bool bCompareZ2 = bCompareZ && (zcompare > 0) && (zcompare < 7);
+
+    while(bCount--)
+    {
+      uint32 srcA = 0;
+      uint32 destA = 0;
+      uint32 aCount = aCountInit;
+
+      if(!bCompareZ2)
+      {
+      while(aCount--)
+      {
+        pDest32[destA] = pSrc32[srcA];
+
+        srcA += srcAStep;
+        destA += destAStep;
+      }
+      }
+      else
+      while(aCount--)
+      {
+        bool bZTestResult = false;
+
+        //if(bCompareZ2)
+        {
+          const uint16 ztarget = SwapBytes(((uint16 *)&pDest32[destA])[1]);
+          const uint16 ztransfer = SwapBytes(((uint16 *)&pSrc32[srcA])[1]);
+
+          switch(zcompare)
+          {
+            //case 0x0:
+              //bZTestResult = false;
+              //break;
+            case 0x1:
+              bZTestResult = (ztarget < ztransfer);
+              break;
+            case 0x2:
+              bZTestResult = (ztarget == ztransfer);
+              break;
+            case 0x3:
+              bZTestResult = (ztarget <= ztransfer);
+              break;
+            case 0x4:
+              bZTestResult = (ztarget > ztransfer);
+              break;
+            case 0x5:
+              bZTestResult = (ztarget != ztransfer);
+              break;
+            case 0x6:
+              bZTestResult = (ztarget >= ztransfer);
+              break;
+            //case 0x7:
+              //bZTestResult = false;
+              //break;
+          }
+        }
+
+        if(!bZTestResult)
+          pDest32[destA] = pSrc32[srcA];
+
+        srcA += srcAStep;
+        destA += destAStep;
+      }
+
+      pSrc32 += srcBStep;
+      pDest32 += destBStep;
+    }
+  }
+  else
+  {
+    /*if(!bRead)
+    {
+      if((GetPixBaseAddr(sdramBase,destOffset,1) >= nuonEnv.mainChannelLowerLimit) && (GetPixBaseAddr(sdramBase,destOffset,1) <= nuonEnv.mainChannelUpperLimit) ||
+         (GetPixBaseAddr(sdramBase,(destOffset+((xsize - 1)*ylen)+xlen),1) >= nuonEnv.mainChannelLowerLimit) && (GetPixBaseAddr(sdramBase,(destOffset+((xsize - 1)*ylen)+xlen),1) <= nuonEnv.mainChannelUpperLimit))
+      {
+        nuonEnv.bMainBufferModified = true;
+      }
+      else if((GetPixBaseAddr(sdramBase,destOffset,1) >= nuonEnv.overlayChannelLowerLimit) && (GetPixBaseAddr(sdramBase,destOffset,1) <= nuonEnv.overlayChannelUpperLimit) ||
+         (GetPixBaseAddr(sdramBase,(destOffset+((xsize - 1)*ylen)+xlen),2) >= nuonEnv.overlayChannelLowerLimit) && (GetPixBaseAddr(sdramBase,(destOffset+((xsize - 1)*ylen)+xlen),1) <= nuonEnv.overlayChannelUpperLimit))
+      {
+        nuonEnv.bOverlayBufferModified = true;
+      }
+    }*/
+
+    const uint16* pSrc16 = ((uint16*)pSrc) + (srcOffset+srcAStart+srcBStart);
+    uint16* pDest16 = ((uint16*)pDest) + (destOffset+destAStart+destBStart);
+
+    while(bCount--)
+    {
+      uint32 srcA = 0;
+      uint32 destA = 0;
+      uint32 aCount = aCountInit;
+
+      while(aCount--)
+      {
+        pDest16[destA] = pSrc16[srcA];
+
+        srcA += srcAStep;
+        destA += destAStep;
+      }
+
+      pSrc16 += srcBStep;
+      pDest16 += destBStep;
+    }
+  }
+}
+
+void DMABiLinear(MPE &mpe)
+{
+  const uint32 flags = mpe.regs[0];
+  const uint32 baseaddr = mpe.regs[1];
+  const uint32 xinfo = mpe.regs[2];
+  const uint32 yinfo = mpe.regs[3];
+  const uint32 intaddr = mpe.regs[4];
+
+  //For the BIOS call, simulate the latency of the call assuming
+  //25 cycles of setup time plus 1 cycle per pixel transferred (xlen * ylen)
+  nuonEnv.cycleCounter += (25 + (((xinfo >> 16) & 0x3FFU) * ((yinfo >> 16) & 0x3FFU)));
+
+  DMABiLinear(mpe,flags,baseaddr,xinfo,yinfo,intaddr);
+}
+
+void DMADo(MPE &mpe)
+{
+  const uint32 ctrl = mpe.regs[0];
+  const uint32 cmdBlock = mpe.regs[1] & 0x3FFFFFF0U;
+  //const uint32 waitFlag = mpe.regs[2];
+
+  if(ctrl == 0x20500500U)
+  {
+    mpe.odmacptr = cmdBlock;
+
+    if(mpe.odmactl & 0x60U)
+    {
+      //other bus DMA is enabled so do it!
+      const uint32* const cmdptr = (uint32 *)nuonEnv.GetPointerToMemory(mpe.mpeIndex,cmdBlock);
+            uint32 dmaflags = SwapBytes(cmdptr[0]);
+      const uint32 baseaddr = SwapBytes(cmdptr[1]);
+      const uint32 intaddr = SwapBytes(cmdptr[2]);
+      //clear all bits except bits 13, 16 - 23, and 28
+      dmaflags &= ((1U << 13) | (0xFFU << 16) | (1U << 28));
+      DMALinear(mpe,dmaflags,baseaddr,intaddr);
+    }
+  }
+  else if(ctrl == 0x20500600)
+  {
+    //mdmacptr
+    mpe.mdmacptr = cmdBlock;
+
+    while(true) {
+    const uint32* const cmdptr = (uint32 *)nuonEnv.GetPointerToMemory(mpe.mpeIndex,cmdBlock,false);
+    const uint32 dmaflags = SwapBytes(cmdptr[0]);
+    const uint32 baseaddr = SwapBytes(cmdptr[1]);
+          uint32 intaddr = SwapBytes(cmdptr[2]);
+
+    switch((dmaflags >> 14) & 0x03U)
+    {
+      case 0:
+        //linear DMA
+        DMALinear(mpe,dmaflags,baseaddr,intaddr);
+        break;
+      case 3:
+      {
+        //bilinear pixel DMA
+        const uint32 xptr = intaddr;
+        const uint32 yptr = SwapBytes(cmdptr[3]);
+        intaddr = SwapBytes(cmdptr[4]);
+        DMABiLinear(mpe,dmaflags,baseaddr,xptr,yptr,intaddr);
+        break;
+      }
+      default:
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+        MessageBox(NULL, "(dmaflags >> 14) & 0x03U not found", "DMADo Error", MB_OK);
+#endif
+        return;
+    }
+
+    if(dmaflags & (1U << 30)) // batch? -> repeat the loop
+      mpe.mdmacptr += 16;
+    else
+      return;
+    }
+  }
+  else
+    MessageBox(NULL,"Unhandled DMADo", "DMADo Error", MB_OK);
+}
+
+// as none of the games seem to use waitFlag == 0 above, AND all DMA emulation code is immediate at the moment, just do nothing
+void DMAWait(MPE &mpe)
+{
+}

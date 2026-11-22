@@ -1,0 +1,1140 @@
+#include "basetypes.h"
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+#include <objbase.h>
+
+#include "GLWindow.h"
+#include "audio.h"
+#include "Bios.h"
+#include "file.h"
+#include "mpe.h"
+#include "timer.h"
+#include "video.h"
+#include "joystick.h"
+#include "NuonEnvironment.h"
+#include "NuonMemoryMap.h"
+#include "byteswap.h"
+
+#ifndef LIBRETRO
+// Standalone only: in the libretro core RetroArch owns audio output, retro_run
+// drains the ring itself, and no playback device is ever opened. Including it
+// would also drag miniaudio's Objective-C backends into a C++ translation unit
+// on iOS, which is where this became more than dead weight.
+#include "miniaudio.h"
+#endif
+
+extern GLWindow display;
+
+extern VidDisplay structMainDisplay;
+
+  inline void ConvertNuonAudioData(const uint8 * const __restrict pNuonAudioBuffer, uint8 * const __restrict pPCAudioBuffer, const uint32 numBytes)
+  {
+    assert((numBytes % 4) == 0); //!! only handles 16bit stereo at the moment
+
+    // Byte-reverse each 16-bit sample (big-endian Nuon -> little-endian ring).
+    // Ring stays little-endian regardless of host endianness - which is what DrainAudioRing assumes
+    const uint16 * const __restrict src = (const uint16*)pNuonAudioBuffer;
+    uint16 * const __restrict dst = (uint16*)pPCAudioBuffer;
+    const uint32 n = numBytes >> 1;
+    uint32 i = 0;
+#ifdef NUANCE_BYTESWAP_USE_PSHUFB
+    if(SSSE3_supported)
+    {
+      const __m128i bswap16 = _mm_set_epi8(14,15, 12,13, 10,11, 8,9, 6,7, 4,5, 2,3, 0,1);
+      // 8 samples per SSSE3 shuffle
+      for(; i + 8 <= n; i += 8)
+        _mm_storeu_si128((__m128i*)(dst + i), _mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(src + i)), bswap16));
+    }
+#endif
+    for(; i < n; i++)
+      dst[i] = _byteswap_ushort(src[i]);
+  }
+
+#ifndef LIBRETRO
+  void NuonEnvironment::MiniAudioDataCallback(ma_device* pDevice, void* pOutput, const void* /*pInput*/, ma_uint32 frameCount)
+  {
+    NuonEnvironment* const nuonEnv = (NuonEnvironment*)pDevice->pUserData;
+    const ma_uint32 bytesNeeded = frameCount * 4; // s16 stereo = 4 bytes/frame
+    uint8* const ring = nuonEnv->audioRing;
+    const uint32 ringSize = nuonEnv->audioRingSize;
+
+    if(!ring || ringSize == 0)
+    {
+      memset(pOutput, 0, bytesNeeded);
+      return;
+    }
+
+    // SPSC ring drain: read latest producer position with acquire, our own one with relaxed
+    const uint32 r = nuonEnv->audioRingReadPos.load(std::memory_order_relaxed);
+    const uint32 w = nuonEnv->audioRingWritePos.load(std::memory_order_acquire);
+    const uint32 avail = w - r; // unsigned wrap is fine: gap is bounded by ringSize
+    const ma_uint32 toCopy = (bytesNeeded < avail) ? bytesNeeded : avail;
+
+    if(toCopy > 0)
+    {
+      const uint32 ringStart = r % ringSize;
+      const uint32 firstChunk = (ringStart + toCopy <= ringSize) ? toCopy : (ringSize - ringStart);
+      if(nuonEnv->audioMuted.load(std::memory_order_relaxed))
+        memset(pOutput, 0, toCopy); // still drain the ring, but emit silence
+      else
+      {
+        memcpy(pOutput, ring + ringStart, firstChunk);
+        if(firstChunk < toCopy)
+          memcpy((uint8*)pOutput + firstChunk, ring, toCopy - firstChunk);
+      }
+      nuonEnv->audioRingReadPos.store(r + toCopy, std::memory_order_release);
+    }
+
+    if(toCopy < bytesNeeded)
+      memset((uint8*)pOutput + toCopy, 0, bytesNeeded - toCopy); // true underrun (producer behind)
+  }
+#endif
+
+//InitAudio: Initialize miniaudio device for s16 stereo playback
+//Playback rate is the initially requested one (to avoid a resampling step), or 48000 Hz if exceeding supported ones,
+//Format is signed 16 bit stereo samples (for now, due to most apps using NISE)
+//Nuon sound samples must be byte-swapped for use by libraries which require
+//little-endian byte ordering (handled in ConvertNuonAudioData)
+
+void NuonEnvironment::InitAudio()
+{
+  if(nuonAudioPlaybackRate == 0 || nuonAudioBufferSize == 0) // delay init until SetAudioPlaybackRate and AudioSetChannelMode have been called, so we can configure rate/buffer here (also avoids one resampling step)
+    return;
+
+#ifdef LIBRETRO
+  // Libretro core: RetroArch owns audio output - retro_run drains the ring via
+  // DrainAudioRing() and hands it to audio_batch_cb. We must NOT open our own
+  // miniaudio playback device here, or it would be a second consumer of the
+  // single-producer/single-consumer ring. Just (re)allocate the ring; reinit
+  // only when the period size or playback rate actually changes (this is called
+  // again from SetAudioPlaybackRate on every rate set, since audioDevice stays
+  // null in the libretro build).
+  {
+    const uint32 newPeriodBytes = nuonAudioBufferSize >> 1;
+    if(audioRing && audioRingPeriodBytes == newPeriodBytes && audioDeviceRate == nuonAudioPlaybackRate)
+      return;
+    audioRingPeriodBytes = newPeriodBytes;
+    audioRingSize        = AUDIO_RING_SLOTS * audioRingPeriodBytes;
+    delete[] audioRing;
+    audioRing = new uint8[audioRingSize];
+    audioRingWritePos.store(0, std::memory_order_relaxed);
+    audioRingReadPos.store(0, std::memory_order_relaxed);
+    audioDeviceRate = nuonAudioPlaybackRate; // also serves as the "initialized" sentinel
+  }
+  return;
+#else
+
+  if(audioDevice)
+    ma_device_uninit(audioDevice);
+  else
+    audioDevice = new ma_device;
+
+  // (Re)allocate the SPSC ring sized for the current Nuon period
+  audioRingPeriodBytes = nuonAudioBufferSize >> 1;
+  audioRingSize        = AUDIO_RING_SLOTS * audioRingPeriodBytes;
+  delete[] audioRing;
+  audioRing = new uint8[audioRingSize];
+  audioRingWritePos.store(0, std::memory_order_relaxed);
+  audioRingReadPos.store(0, std::memory_order_relaxed);
+
+  // both should never happen
+  audioDeviceRate = nuonAudioPlaybackRate;
+  if (audioDeviceRate > 96000)
+    audioDeviceRate = 96000;
+  else if (audioDeviceRate < 16000)
+    audioDeviceRate = 16000;
+
+  ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+  cfg.playback.format    = ma_format_s16;
+  cfg.playback.channels  = 2;
+  cfg.sampleRate         = audioDeviceRate;                // all tested games so far are actually using 32k due to NISE
+  cfg.periodSizeInFrames = (nuonAudioBufferSize >> 1) / 4; // bytes per period -> frames (4 bytes/frame)
+  cfg.dataCallback       = MiniAudioDataCallback;
+  cfg.pUserData          = this;
+
+  if(ma_device_init(NULL, &cfg, audioDevice) != MA_SUCCESS)
+  {
+    delete audioDevice;
+    audioDevice = nullptr;
+    audioDeviceRate = 0;
+    return;
+  }
+
+  ma_device_set_master_volume(audioDevice, audioVolume);
+  MuteAudio(false);
+
+  if(ma_device_start(audioDevice) != MA_SUCCESS)
+  {
+    ma_device_uninit(audioDevice);
+    delete audioDevice;
+    audioDevice = nullptr;
+    audioDeviceRate = 0;
+    return;
+  }
+#endif // LIBRETRO
+}
+
+// Reset audio + MPE state to a "fresh boot", before loading a new game.
+// Without this, the next game(s) inherit stale audio rate/mode/buffer
+// from the first; AudioSetSampleRate/ChannelMode short-circuit when the
+// new game requests the same values, so the device is never re-inited, and
+// pNuonAudioBuffer points at the previous game's memory.
+void NuonEnvironment::ResetForReload()
+{
+  // Drop audio device, the new game's BIOS calls will lazily re-create it
+  CloseAudio();
+
+  // see Init()
+  pNuonAudioBuffer = nullptr;
+  oldNuonAudioChannelMode = nuonAudioChannelMode = 0;
+  nuonAudioPlaybackRate = 0;
+  nuonAudioBufferSize = 0;
+  audioInterruptCycleCount = cyclesPerAudioInterrupt;
+  whichAudioInterrupt = false;
+  audioMuted.store(false, std::memory_order_relaxed);
+
+  // Reset all MPEs
+  for(uint32 i = 0; i < 4; i++)
+    mpe[i].Reset();
+  pendingCommRequests = 0;
+
+  // Re-install BIOS dispatch tables
+  InitBios();
+}
+
+void NuonEnvironment::CloseAudio()
+{
+#ifndef LIBRETRO
+  if(audioDevice)
+  {
+    MuteAudio(true);
+    ma_device_uninit(audioDevice); // joins audio thread; safe to free ring after this
+    delete audioDevice;
+    audioDevice = nullptr;
+    audioDeviceRate = 0;
+  }
+#endif
+  delete[] audioRing;
+  audioRing = nullptr;
+  audioRingSize = 0;
+  audioRingPeriodBytes = 0;
+  audioRingWritePos.store(0, std::memory_order_relaxed);
+  audioRingReadPos.store(0, std::memory_order_relaxed);
+}
+
+void NuonEnvironment::MuteAudio(const bool mute)
+{
+  //!! should this also disable audio interrupts?!
+  audioMuted.store(mute, std::memory_order_relaxed);
+}
+
+void NuonEnvironment::SetAudioPlaybackRate()
+{
+  if (nuonAudioChannelMode & ENABLE_SAMP_INT)
+    cyclesPerAudioInterrupt = 54000000 / nuonAudioPlaybackRate;
+
+  if(!audioDevice)
+    InitAudio();
+  else if(audioDeviceRate != nuonAudioPlaybackRate)
+  {
+    // miniaudio has no real-time sample-rate change like the old FMOD FSOUND_SetFrequency.
+    // Reopen the device at the new rate. This causes a brief audio glitch, but matches
+    // FMOD's observable behavior of "audio now plays at the new rate".
+    RestartAudio();
+  }
+}
+
+void NuonEnvironment::RestartAudio()
+{
+  //Stop audio and restart it
+  CloseAudio();
+  InitAudio();
+}
+
+void NuonEnvironment::StopAudio()
+{
+#ifndef LIBRETRO
+  if(audioDevice)
+    ma_device_stop(audioDevice);
+#endif
+}
+
+void NuonEnvironment::SetAudioVolume(uint32 volume)
+{
+  if(volume > 255)
+    volume = 255;
+  audioVolume = (float)volume / 255.0f;
+#ifndef LIBRETRO
+  if(audioDevice)
+    ma_device_set_master_volume(audioDevice, audioVolume);
+#endif
+}
+
+bool NuonEnvironment::TryPushAudioPeriod()
+{
+  if(!pNuonAudioBuffer || !audioRing)
+    return false;
+
+  const uint32 periodBytes = audioRingPeriodBytes;
+  const uint32 ringSize    = audioRingSize;
+  const uint32 w           = audioRingWritePos.load(std::memory_order_relaxed);
+  const uint32 r           = audioRingReadPos.load(std::memory_order_acquire);
+  if((w - r) + periodBytes > ringSize) // ring is full - back-pressure
+    return false;
+
+  // Compute which half of the Nuon DMA buffer to consume from the CURRENT
+  // channel-mode bits at push time. NISE writes the *enable* bits to name
+  // the boundary it's currently armed for: ENABLE_HALF_INT set means "armed
+  // for the half-buffer interrupt = waiting for first-half-played event",
+  // so the host must simulate that by pushing the first half. ENABLE_WRAP_INT
+  // set means "armed for wrap = waiting for second-half-played event", push
+  // second half. The previous formulation stored this for the *next* push,
+  // which was off by one cycle in T3K's HALF<->WRAP ping-pong pattern and
+  // thus played the inverted half at every push.
+  const uint32 offsetThisPush = (nuonAudioChannelMode & ENABLE_HALF_INT) ? 0 : (nuonAudioBufferSize >> 1); //!! check if Tetris would sound better with ENABLE_WRAP_INT here! (as previously the inversion was better for Tetris)
+
+  // Copy + byte-swap one Nuon period into the ring slot.
+  ConvertNuonAudioData(pNuonAudioBuffer + offsetThisPush,
+                       audioRing + (w % ringSize),
+                       periodBytes);
+  audioRingWritePos.store(w + periodBytes, std::memory_order_release);
+
+  oldNuonAudioChannelMode = nuonAudioChannelMode;
+  TriggerAudioInterrupt();
+  return true;
+}
+
+uint32 NuonEnvironment::DrainAudioRing(int16_t* dst, uint32 maxFrames)
+{
+  if(!audioRing || audioRingSize == 0 || maxFrames == 0)
+    return 0;
+
+  const uint32 w = audioRingWritePos.load(std::memory_order_acquire);
+  const uint32 r = audioRingReadPos.load(std::memory_order_relaxed);
+  uint32 available = w - r; // bytes
+  const uint32 maxBytes = maxFrames * 4; // 2ch * 2B per frame
+  if(available > maxBytes) available = maxBytes;
+  const uint32 toCopy = available & (~3u); // align to whole frame (4 bytes)
+  if(toCopy == 0)
+    return 0;
+
+  // Ring holds little-endian 16-bit samples (ConvertNuonAudioData byte-swaps the big-endian Nuon data on the way in).
+  // Ring read/write positions are 4-byte aligned, so the copy splits into at most two
+  // frame-aligned contiguous chunks across the wrap boundary
+  uint8* const out = (uint8*)dst;
+  const uint32 ringStart = r % audioRingSize;
+  const uint32 firstChunk = (ringStart + toCopy <= audioRingSize) ? toCopy : (audioRingSize - ringStart);
+#ifdef NUANCE_LITTLE_ENDIAN
+  // Host = little-endian: ring bytes match, just copy them (matches MiniAudioDataCallback)
+  memcpy(out, audioRing + ringStart, firstChunk);
+  if(firstChunk < toCopy)
+    memcpy(out + firstChunk, audioRing, toCopy - firstChunk);
+#else
+  // Host = big-endian: int16 needs the bytes swapped back from the little-endian based ring
+  ConvertNuonAudioData(audioRing + ringStart, out, firstChunk);
+  if(firstChunk < toCopy)
+    ConvertNuonAudioData(audioRing, out + firstChunk, toCopy - firstChunk);
+#endif
+  audioRingReadPos.store(r + toCopy, std::memory_order_release);
+  return toCopy / 4;
+}
+
+void *NuonEnvironment::GetPointerToMemory(const uint32 mpe_idx, const uint32 address, const bool bCheckAddress)
+{
+  if(address < MPE_ADDR_SPACE_BASE)
+  {
+    //The reserved area from $00000000 to $1FFFFFFF might always return zero
+    //Freefall has a routine which will purposely read from $0 instead of skipping directly to
+    //the epilogue code
+    static const __m128 zero = _mm_setzero_ps(); //!! meh, should be the full area :/
+    return (void*)&zero;
+  }
+  else if(address < MAIN_BUS_BASE)
+  {
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+    if(bCheckAddress && ((address < MPE_ADDR_SPACE_BASE) || (address >= MPE1_ADDR_BASE)))
+    {
+      char textBuf[1024];
+      sprintf_s(textBuf, sizeof(textBuf),"MPE%u Illegal Memory Address Operand (MAIN) %8.8X\nMPE0 pcexec: %8.8X\nMPE1 pcexec: %8.8X\nMPE2 pcexec: %8.8X\nMPE3 pcexec: %8.8X\n",
+        mpe_idx, address, mpe[0].pcexec, mpe[1].pcexec, mpe[2].pcexec, mpe[3].pcexec);
+      MessageBox(NULL, textBuf, "GetPointerToMemory error", MB_OK);
+    }
+#endif
+    assert(mpe_idx < 4);
+    return &mpe[mpe_idx].dtrom[address & MPE_VALID_MEMORY_MASK];
+  }
+  else if(address < SYSTEM_BUS_BASE)
+  {
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+    if(bCheckAddress && ((address > (MAIN_BUS_BASE + MAIN_BUS_VALID_MEMORY_MASK))))
+    {
+      char textBuf[1024];
+      sprintf_s(textBuf, sizeof(textBuf), "Illegal Memory Address Operand (SYSTEM) %8.8X\nMPE0 pcexec: %8.8X\nMPE1 pcexec: %8.8X\nMPE2 pcexec: %8.8X\nMPE3 pcexec: %8.8X\n",
+        address, mpe[0].pcexec, mpe[1].pcexec, mpe[2].pcexec, mpe[3].pcexec);
+      MessageBox(NULL, textBuf, "GetPointerToMemory error", MB_OK);
+    }
+#endif
+    return &mainBusDRAM[address & MAIN_BUS_VALID_MEMORY_MASK];
+  }
+  else if(address < ROM_BIOS_BASE)
+  {
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+    if(bCheckAddress && ((address > (SYSTEM_BUS_BASE + SYSTEM_BUS_VALID_MEMORY_MASK))))
+    {
+      char textBuf[1024];
+      sprintf_s(textBuf, sizeof(textBuf), "Illegal Memory Address Operand (ROM_BIOS) %8.8X\nMPE0 pcexec: %8.8X\nMPE1 pcexec: %8.8X\nMPE2 pcexec: %8.8X\nMPE3 pcexec: %8.8X\n",
+        address, mpe[0].pcexec, mpe[1].pcexec, mpe[2].pcexec, mpe[3].pcexec);
+      MessageBox(NULL, textBuf, "GetPointerToMemory error", MB_OK);
+    }
+#endif
+    return &systemBusDRAM[address & SYSTEM_BUS_VALID_MEMORY_MASK];
+  }
+  else
+    return flashEEPROM.GetBasePointer() + ((address - ROM_BIOS_BASE) & (DEFAULT_EEPROM_SIZE - 1));
+}
+
+// copy of above, specialized to not need a MPE
+void *NuonEnvironment::GetPointerToSystemMemory(const uint32 address, const bool bCheckAddress)
+{
+  if(address < MAIN_BUS_BASE)
+  {
+    assert(false);
+    return nullptr;
+  }
+  else if(address < SYSTEM_BUS_BASE)
+  {
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+    if(bCheckAddress && ((address > (MAIN_BUS_BASE + MAIN_BUS_VALID_MEMORY_MASK))))
+    {
+      char textBuf[1024];
+      sprintf_s(textBuf,sizeof(textBuf),"Illegal Memory Address Operand (SYSTEM) %8.8X\n",address);
+      MessageBox(NULL, textBuf, "GetPointerToSystemMemory error", MB_OK);
+    }
+#endif
+    return &mainBusDRAM[address & MAIN_BUS_VALID_MEMORY_MASK];
+  }
+  else if(address < ROM_BIOS_BASE)
+  {
+    assert(false);
+    return nullptr;
+  }
+  else
+  {
+    assert(false);
+    return nullptr;
+  }
+}
+
+
+void NuonEnvironment::WriteFile(MPE &MPE, uint32 fd, uint32 buf, uint32 len)
+{
+  char * const pBuf = (char *)GetPointerToMemory(MPE.mpeIndex, buf, false);
+  const char tempChar = pBuf[len];
+  pBuf[len] = '\0';
+
+  switch(fd)
+  {
+    case NUON_FD_STDOUT:
+      //if(!pStdOutEdit)
+      //{
+      //    return;
+      //}
+      //int windowTextLength = pStdOutEdit->length();
+      //if((windowTextLength != 0) && ((windowTextLength + len) < 65536))
+      //{
+      //    pStdOutEdit->append(QString(pBuf));
+      //}
+      //else
+      //{
+        //pStdOutEdit->setText(QString(pBuf));
+      //}
+      break;
+    case NUON_FD_STDERR:
+      //if(!pStdErrEdit)
+      //{
+      //    return;
+      //}
+      //int windowTextLength = pStdErrEdit->length();
+      //if((windowTextLength != 0) && ((windowTextLength + len) < 65536))
+      //{
+        //pStdErrEdit->append(QString(pBuf));
+      //}
+      //else
+      //{
+        //pStdErrEdit->setText(QString(pBuf));
+      //}
+      break;
+    default:
+      break;
+  }
+
+  pBuf[len] = tempChar;
+}
+
+void NuonEnvironment::Init()
+{
+  init_nuon_mem(mainBusDRAM, MAIN_BUS_ALLOC_SIZE);
+  init_nuon_mem(systemBusDRAM, SYSTEM_BUS_SIZE);
+
+  dvdBase = new char[1];
+  dvdBase[0] = 0;
+  bAudioInterruptsEnabled = true;
+
+  bAutomaticLoadPopup = true;
+
+  bUseCRTshader = true;
+
+  trigger_render_video = false;
+
+  timer_rate[0] = -1;
+  timer_rate[1] = -1;
+  timer_rate[2] = -1;
+
+  schedule_intsrc = 0;
+
+  for(uint32 i = 0; i < 4; i++)
+    mpe[i].Init(i, mainBusDRAM, systemBusDRAM, flashEEPROM.GetBasePointer());
+
+  //mpe[0].mpeStartAddress = 0x20000000;
+  //mpe[0].mpeEndAddress = 0x207FFFFF;
+  //mpe[1].mpeStartAddress = 0x20800000;
+  //mpe[1].mpeEndAddress = 0x20FFFFFF;
+  //mpe[2].mpeStartAddress = 0x21000000;
+  //mpe[2].mpeEndAddress = 0x217FFFFF;
+  //mpe[3].mpeStartAddress = 0x21800000;
+  //mpe[3].mpeEndAddress = 0x21FFFFFF;
+
+  bProcessorStartStopChange = false;
+  pendingCommRequests = 0;
+
+  memset(&structMainDisplay,0,sizeof(VidDisplay));
+  structMainDisplay.dispwidth = VIDEO_WIDTH;
+  structMainDisplay.dispheight = VIDEO_HEIGHT;
+
+  bInterlaced = false;
+  InitializeColorSpaceTables();
+  mainChannelLowerLimit = 0;
+  overlayChannelLowerLimit = 0;
+  mainChannelUpperLimit = 0;
+  overlayChannelUpperLimit = 0;
+
+  //TIMER RELATED INITIALIZATION: chooses the timing method used in TimeElapsed
+  //and initializes the boot timestamp
+  InitializeTimingMethod();
+
+  pNuonAudioBuffer = nullptr;
+  oldNuonAudioChannelMode = nuonAudioChannelMode = 0;
+  nuonAudioPlaybackRate = 0; //!! was 32000
+  nuonAudioBufferSize = 0; //!! was 1024
+  nuonSupportedPlaybackRates =
+    RATE_16_KHZ |
+    RATE_32_KHZ |
+    RATE_64_KHZ |
+    RATE_22_05_KHZ |
+    RATE_44_1_KHZ |
+    RATE_88_2_KHZ |
+    RATE_24_KHZ |
+    RATE_48_KHZ |
+    RATE_96_KHZ;
+
+  cyclesPerAudioInterrupt = 1728000;
+  audioInterruptCycleCount = cyclesPerAudioInterrupt;
+  videoDisplayCycleCount = 120000;
+  whichAudioInterrupt = false;
+
+  cfgFileName = "nuance.cfg";
+
+  FILE* configFile;
+  if (fopen_s(&configFile, cfgFileName.c_str(), "r") != 0)
+  {
+    char tmp[1024];
+    GetModuleFileName(NULL, tmp, 1024);
+    string tmps(tmp);
+    size_t idx = tmps.find_last_of('\\');
+    if (idx != string::npos)
+      tmps = tmps.substr(0, idx+1);
+    cfgFileName = tmps + cfgFileName;
+  }
+  else
+    fclose(configFile);
+
+  LoadConfigFile(cfgFileName);
+
+  if (debugLogFile)
+  {
+    fclose(debugLogFile);
+    debugLogFile = nullptr;
+  }
+
+  if (debugLogFileName)
+  {
+    if (fopen_s(&debugLogFile, debugLogFileName, "at") != 0)
+    {
+      MessageBox(NULL, "Failed to open debug log file", "Failure", MB_OK);
+    }
+  }
+
+  kprintRingBuffer = new char*[KPRINT_RING_SIZE];
+  kprintBuffer = new char[(KPRINT_LINE_LENGTH + 1) * KPRINT_RING_SIZE];
+
+  for (size_t i = 0; i < KPRINT_RING_SIZE; i++)
+  {
+    kprintRingBuffer[i] = &kprintBuffer[(KPRINT_LINE_LENGTH + 1) * i];
+    kprintRingBuffer[i][0] = '\0';
+  }
+
+  kprintCurrentLine = 0;
+  kprintCurrentChar = 0;
+  kprintUpdated = false;
+
+  cycleCounter = 0;
+
+  //Initialize the BIOS
+  InitBios();
+}
+
+uint32 NuonEnvironment::GetBufferSize(uint32 channelMode)
+{
+  // was very initially (unconfirmed if it matches HW, most likely not):
+  //return ((channelMode & BUFFER_SIZE_64K) == 0) ? 8192 : 512U << (((channelMode & BUFFER_SIZE_64K) >> 5) & 0x7U);
+
+  // BUFFER_SIZE_* is a 3-bit field at 5-7
+  switch (channelMode & 0xE0)
+  {
+    case BUFFER_SIZE_1K:  return 1024;
+    case BUFFER_SIZE_2K:  return 2048;
+    case BUFFER_SIZE_4K:  return 4096;
+    case BUFFER_SIZE_8K:  return 8192;
+    case BUFFER_SIZE_16K: return 16384;
+    case BUFFER_SIZE_32K: return 32768;
+    case BUFFER_SIZE_64K: return 65536;
+  }
+  return 0;
+}
+
+void NuonEnvironment::InitBios()
+{
+  ::InitBios(mpe[3]);
+}
+
+NuonEnvironment::~NuonEnvironment()
+{
+  //Stop the processor thread
+  for (uint32 i = 0; i < 4; i++)
+    mpe[i].Halt();
+
+  //Close stream and shut down audio library
+  CloseAudio();
+
+  //Free up string memory
+  delete[] dvdBase;
+
+  DeInitTimingMethod();
+  if (debugLogFile)
+  {
+    fclose(debugLogFile);
+    debugLogFile = nullptr;
+  }
+
+  delete[] kprintRingBuffer;
+  delete[] kprintBuffer;
+
+  delete[] debugLogFileName;
+  debugLogFileName = nullptr;
+}
+
+constexpr char CONFIG_COMMENT_CHAR = ';';
+constexpr char CONFIG_VARIABLE_START_CHAR = '[';
+constexpr char CONFIG_VARIABLE_FINISH_CHAR = ']';
+
+void ReplaceNewline(char * const line, const char replaceChar, const uint32 maxIndex)
+{
+  uint32 index = 0;
+
+  while(index <= maxIndex)
+  {
+    if(line[index] == '\n')
+      break;
+
+    index++;
+  }
+
+  line[index] = replaceChar;
+}
+
+void NuonEnvironment::SetDVDBaseFromFileName(const char * const filename)
+{
+  delete [] dvdBase;
+  int i = (int)strlen(filename);
+  dvdBase = new char[i+1];
+  strcpy_s(dvdBase,i+1,filename);
+  while(i >= 0)
+  {
+     if(dvdBase[i] == '\\' || dvdBase[i] == '/')
+       break;
+   
+     dvdBase[i] = '\0';
+     i--;
+  }
+
+  if(dvdBase[0] == '\0')
+  {
+    dvdBase[0] = '.';
+    dvdBase[1] = '/';
+    dvdBase[2] = '\0';
+  }
+}
+
+
+static void TrimWhitespace(char *buf, size_t bufLength)
+{
+  const char* firstReal = buf;
+  const char* lastReal = buf + strlen(buf);
+  while (*firstReal && isspace(*firstReal)) firstReal++;
+  while ((lastReal > firstReal) && isspace(*(lastReal - 1))) lastReal--;
+  if (firstReal != buf)
+  {
+    memmove_s(buf, bufLength, firstReal, (lastReal + 1) - firstReal);
+  }
+  buf[lastReal - firstReal] = '\0';
+}
+
+bool NuonEnvironment::StrToCtrlrBitnum(const char* str, unsigned int* bitnum)
+{
+#define CHECK_STR(s0, s1, i) \
+do { \
+  if (!_stricmp((s0), (s1))) \
+  { \
+    *bitnum = (i); \
+    return true; \
+  } \
+} while (0)
+
+  if (!_strnicmp(str, "CPAD_", sizeof("CPAD_") - 1))
+  {
+    const char* dir = str + sizeof("CPAD_") - 1;
+    CHECK_STR(dir, "UP", CTRLR_BITNUM_BUTTON_C_UP);
+    CHECK_STR(dir, "DOWN", CTRLR_BITNUM_BUTTON_C_DOWN);
+    CHECK_STR(dir, "LEFT", CTRLR_BITNUM_BUTTON_C_LEFT);
+    CHECK_STR(dir, "RIGHT", CTRLR_BITNUM_BUTTON_C_RIGHT);
+  }
+  else if (!_strnicmp(str, "DPAD_", sizeof("DPAD_") - 1))
+  {
+    const char* dir = str + sizeof("DPAD_") - 1;
+    CHECK_STR(dir, "UP", CTRLR_BITNUM_DPAD_UP);
+    CHECK_STR(dir, "DOWN", CTRLR_BITNUM_DPAD_DOWN);
+    CHECK_STR(dir, "LEFT", CTRLR_BITNUM_DPAD_LEFT);
+    CHECK_STR(dir, "RIGHT", CTRLR_BITNUM_DPAD_RIGHT);
+  }
+  else
+  {
+    CHECK_STR(str, "A", CTRLR_BITNUM_BUTTON_A);
+    CHECK_STR(str, "B", CTRLR_BITNUM_BUTTON_B);
+    CHECK_STR(str, "L", CTRLR_BITNUM_BUTTON_L);
+    CHECK_STR(str, "R", CTRLR_BITNUM_BUTTON_R);
+    CHECK_STR(str, "NUON", CTRLR_BITNUM_BUTTON_NUON);
+    CHECK_STR(str, "START", CTRLR_BITNUM_BUTTON_START);
+  }
+
+  return false;
+}
+
+// Format is <CPAD_[UP,DOWN,LEFT,RIGHT]>|<DPAD_[UP,DOWN,LEFT,RIGHT]>|<A,B,L,R,NUON,START> = <JOYBUT,JOYAXIS,JOYPOV>_<idx>_<subIdx>
+bool NuonEnvironment::ParseJoyButtonConf(char buf[1025], unsigned int *bitnum, ControllerButtonMapping *mapping)
+{
+  char tmpBuf[1025];
+
+  // strtok is destructive. Don't harm the original string.
+  strcpy_s(tmpBuf, buf);
+
+  // Split on the equals sign.
+  char *ctx = nullptr;
+  char *nuonName = strtok_s(tmpBuf, "=", &ctx);
+
+  if (!nuonName) return false;
+
+  char* mappingName = strtok_s(NULL, "=", &ctx);
+
+  if (!mappingName) return false;
+
+  // Trim any whitespace
+  TrimWhitespace(nuonName, strlen(nuonName) + 1);
+  TrimWhitespace(mappingName, strlen(mappingName) + 1);
+
+  if (!StrToCtrlrBitnum(nuonName, bitnum)) return false;
+
+  return ControllerButtonMapping::fromString(mappingName, mapping);
+}
+
+ConfigTokenType NuonEnvironment::ReadConfigLine(FILE *file, char buf[1025])
+{
+  while (true)
+  {
+    if (feof(file))
+      return ConfigTokenType::CONFIG_EOF;
+
+    // Get a whitespace-trimmed line from the file. Note this logic is broken
+    // for lines longer than 1025 characters, but that's way better than the
+    // previous logic, which was broken for lines containing spaces.
+    fgets(buf, 1025, file);
+    TrimWhitespace(buf, 1025);
+
+    const char firstChar = buf[0];
+
+    if (firstChar == '\0')
+      continue; // Skip empty lines
+    else if (firstChar == CONFIG_COMMENT_CHAR)
+      return ConfigTokenType::CONFIG_COMMENT;
+    else if (firstChar == CONFIG_VARIABLE_START_CHAR)
+      return ConfigTokenType::CONFIG_VARIABLE_START;
+    else if (firstChar == CONFIG_VARIABLE_FINISH_CHAR)
+      return ConfigTokenType::CONFIG_VARIABLE_FINISH;
+    else if ((firstChar == '<') || (firstChar == '>') || (firstChar == '"'))
+      return ConfigTokenType::CONFIG_RESERVED;
+    else
+      return ConfigTokenType::CONFIG_STRING;
+  }
+}
+
+bool NuonEnvironment::SaveConfigFile(const char* const fileName)
+{
+  FILE* configFile;
+
+  if (fopen_s(&configFile, fileName ? fileName : cfgFileName.c_str(), "w") != 0)
+    return false;
+
+  // Don't save DVDBase. AFAICT, it is always overriden when loading a file, so no point in saving/loading it.
+  //fprintf_s(configFile, "[DVDBase]\n");
+  //fprintf_s(configFile, "%s\n\n", dvdBase);
+
+  fprintf_s(configFile, "[AudioInterrupts]\n");
+  fprintf_s(configFile, "%s\n\n", bAudioInterruptsEnabled ? "Enabled" : "Disabled");
+
+  fprintf_s(configFile, "[DynamicCompiler]\n");
+  fprintf_s(configFile, "%s\n\n", compilerOptions.bAllowCompile ? "Enabled" : "Disabled");
+
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+  fprintf_s(configFile, "[DumpCompiledBlocks]\n");
+  fprintf_s(configFile, "%s\n\n", compilerOptions.bDumpBlocks ? "Enabled" : "Disabled");
+#endif
+
+  fprintf_s(configFile, "[CompilerDeadCodeElimination]\n");
+  fprintf_s(configFile, "%s\n\n", compilerOptions.bDeadCodeElimination ? "Enabled" : "Disabled");
+
+  fprintf_s(configFile, "[CompilerConstantPropagation]\n");
+  fprintf_s(configFile, "%s\n\n", compilerOptions.bConstantPropagation ? "Enabled" : "Disabled");
+
+  fprintf_s(configFile, "[MPE3PacketHack]\n");
+  fprintf_s(configFile, "%s\n\n", compilerOptions.bMPE3PacketHack ? (compilerOptions.bMPE3PacketHack == 2 ? "T3K" : "Enabled") : "Disabled");
+
+  fprintf_s(configFile, "[AutomaticLoadPopup]\n");
+  fprintf_s(configFile, "%s\n\n", bAutomaticLoadPopup ? "Enabled" : "Disabled");
+
+  fprintf_s(configFile, "[UseCRTshader]\n");
+  fprintf_s(configFile, "%s\n\n", bUseCRTshader ? "Enabled" : "Disabled");
+
+  if (debugLogFileName)
+  {
+    fprintf_s(configFile, "[DebugLogFile]\n");
+    fprintf_s(configFile, "%s\n\n", debugLogFileName);
+  }
+
+  fprintf_s(configFile, "[Controller1Mappings]\n");
+  for (size_t i = 0; i < _countof(controller1Mapping); i++)
+  {
+    const char* ctrlrStr;
+
+    switch (i)
+    {
+    case CTRLR_BITNUM_BUTTON_C_UP:
+      ctrlrStr = "CPAD_UP";
+      break;
+    case CTRLR_BITNUM_BUTTON_C_RIGHT:
+      ctrlrStr = "CPAD_RIGHT";
+      break;
+    case CTRLR_BITNUM_BUTTON_C_DOWN:
+      ctrlrStr = "CPAD_DOWN";
+      break;
+    case CTRLR_BITNUM_BUTTON_C_LEFT:
+      ctrlrStr = "CPAD_LEFT";
+      break;
+    case CTRLR_BITNUM_DPAD_UP:
+      ctrlrStr = "DPAD_UP";
+      break;
+    case CTRLR_BITNUM_DPAD_RIGHT:
+      ctrlrStr = "DPAD_RIGHT";
+      break;
+    case CTRLR_BITNUM_DPAD_DOWN:
+      ctrlrStr = "DPAD_DOWN";
+      break;
+    case CTRLR_BITNUM_DPAD_LEFT:
+      ctrlrStr = "DPAD_LEFT";
+      break;
+    case CTRLR_BITNUM_BUTTON_A:
+      ctrlrStr = "A";
+      break;
+    case CTRLR_BITNUM_BUTTON_B:
+      ctrlrStr = "B";
+      break;
+    case CTRLR_BITNUM_BUTTON_L:
+      ctrlrStr = "L";
+      break;
+    case CTRLR_BITNUM_BUTTON_R:
+      ctrlrStr = "R";
+      break;
+    case CTRLR_BITNUM_BUTTON_NUON:
+      ctrlrStr = "NUON";
+      break;
+    case CTRLR_BITNUM_BUTTON_START:
+      ctrlrStr = "START";
+      break;
+    case CTRLR_BITNUM_UNUSED_1:
+      // Fall through
+    case CTRLR_BITNUM_UNUSED_2:
+      //Fall through
+    default:
+      continue;
+    }
+
+    char mappingStr[ControllerButtonMapping::MAPPING_STRING_SIZE];
+    controller1Mapping[i].toString(mappingStr, _countof(mappingStr));
+    fprintf_s(configFile, "%s = %s\n", ctrlrStr, mappingStr);
+  }
+  fprintf_s(configFile, "\n");
+
+  fprintf_s(configFile, "[Controller1GUID]\n");
+
+#ifdef _WIN32
+  LPOLESTR guidWStr;
+  char guidStr[100];
+  StringFromCLSID(controller1Di8Dev, &guidWStr);
+  size_t convSize;
+  wcstombs_s(&convSize, guidStr, _countof(guidStr), guidWStr, _countof(guidStr) - 1);
+  CoTaskMemFree(guidWStr);
+#else
+  char guidStr[100];
+  snprintf(guidStr, sizeof(guidStr), "{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+    controller1Di8Dev.Data1, controller1Di8Dev.Data2, controller1Di8Dev.Data3,
+    controller1Di8Dev.Data4[0], controller1Di8Dev.Data4[1], controller1Di8Dev.Data4[2],
+    controller1Di8Dev.Data4[3], controller1Di8Dev.Data4[4], controller1Di8Dev.Data4[5],
+    controller1Di8Dev.Data4[6], controller1Di8Dev.Data4[7]);
+#endif
+
+  fprintf_s(configFile, "%s\n", guidStr);
+
+  fclose(configFile);
+  return true;
+}
+
+bool NuonEnvironment::LoadConfigFile(const std::string& fileName)
+{
+  FILE* configFile;
+  if (fopen_s(&configFile, fileName.c_str(), "r") != 0)
+    return false;
+
+
+  bool useExistingLine = false;
+  ConfigTokenType tokenType;
+
+  while(!feof(configFile))
+  {
+    char line[1025];
+    if (!useExistingLine)
+    {
+      tokenType = ReadConfigLine(configFile, line);
+    }
+    else
+    {
+      useExistingLine = false;
+    }
+
+    switch(tokenType)
+    {
+      case ConfigTokenType::CONFIG_COMMENT:
+        break;
+      case ConfigTokenType::CONFIG_VARIABLE_START:
+        if(_strnicmp(&line[1],"DVDBase]",sizeof("DVDBase]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          ReplaceNewline(line,0,1024);
+          delete [] dvdBase;
+          size_t i = strlen(line);
+          dvdBase = new char[i+1];
+          strcpy_s(dvdBase,i+1,line);
+        }
+        else if(_strnicmp(&line[1],"AudioInterrupts]",sizeof("AudioInterrupts]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          bAudioInterruptsEnabled = !_stricmp(line,"Enabled");
+        }
+        else if(_strnicmp(&line[1],"DynamicCompiler]",sizeof("DynamicCompiler]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          compilerOptions.bAllowCompile = !_stricmp(line,"Enabled") && !getenv("NUANCE_NOJIT");   // llamasoft-nuon
+        }
+#ifdef ENABLE_EMULATION_MESSAGEBOXES
+        else if(_strnicmp(&line[1],"DumpCompiledBlocks]",sizeof("DumpCompiledBlocks]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          compilerOptions.bDumpBlocks = !_stricmp(line,"Enabled");
+        }
+#endif
+        else if(_strnicmp(&line[1],"CompilerDeadCodeElimination]",sizeof("CompilerDeadCodeElimination]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          compilerOptions.bDeadCodeElimination = !_stricmp(line,"Enabled");
+        }
+        else if(_strnicmp(&line[1],"CompilerConstantPropagation]",sizeof("CompilerConstantPropagation]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          compilerOptions.bConstantPropagation = !_stricmp(line,"Enabled");
+        }
+        else if(_strnicmp(&line[1],"MPE3PacketHack]",sizeof("MPE3PacketHack]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          compilerOptions.bMPE3PacketHack = !_stricmp(line,"Enabled") ? 1 : (!_stricmp(line, "T3K") ? 2 : 0);
+        }
+        else if(_strnicmp(&line[1],"AutomaticLoadPopup]",sizeof("AutomaticLoadPopup]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          bAutomaticLoadPopup = !_stricmp(line,"Enabled");
+        }
+        else if(_strnicmp(&line[1],"UseCRTshader]",sizeof("UseCRTshader]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          bUseCRTshader = !_stricmp(line,"Enabled");
+        }
+        else if (_strnicmp(&line[1],"DebugLogFile]",sizeof("DebugLogFile]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile,line);
+          ReplaceNewline(line, 0, 1024);
+          delete[] debugLogFileName;
+          size_t i = strlen(line);
+          debugLogFileName = new char[i+1];
+          strcpy_s(debugLogFileName, i+1, line);
+        }
+        else if(_strnicmp(&line[1],"Controller1Mappings]",sizeof("Controller1Mappings]")) == 0)
+        {
+          while (true)
+          {
+            ControllerButtonMapping mapping;
+            unsigned int bitnum;
+            tokenType = ReadConfigLine(configFile, line);
+            if (tokenType == ConfigTokenType::CONFIG_COMMENT) continue;
+
+            if ((tokenType == ConfigTokenType::CONFIG_STRING) &&
+              ParseJoyButtonConf(line, &bitnum, &mapping))
+            {
+              controller1Mapping[bitnum] = mapping;
+            }
+            else
+            {
+              useExistingLine = true;
+              break;
+            }
+          }
+        }
+        else if (_strnicmp(&line[1], "Controller1GUID]", sizeof("Controller1GUID]")) == 0)
+        {
+          tokenType = ReadConfigLine(configFile, line);
+#ifdef _WIN32
+          wchar_t guidStr[100];
+          size_t convLen;
+          mbstowcs_s(&convLen, guidStr, line, _countof(guidStr) - 1);
+          CLSIDFromString(guidStr, &controller1Di8Dev);
+#else
+          // Parse GUID from string on Linux
+          memset(&controller1Di8Dev, 0, sizeof(controller1Di8Dev));
+          sscanf(line, "{%8x-%4hx-%4hx-%2hhx%2hhx-%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx}",
+            &controller1Di8Dev.Data1, &controller1Di8Dev.Data2, &controller1Di8Dev.Data3,
+            &controller1Di8Dev.Data4[0], &controller1Di8Dev.Data4[1],
+            &controller1Di8Dev.Data4[2], &controller1Di8Dev.Data4[3],
+            &controller1Di8Dev.Data4[4], &controller1Di8Dev.Data4[5],
+            &controller1Di8Dev.Data4[6], &controller1Di8Dev.Data4[7]);
+#endif
+        }
+
+#if defined(_WIN64) && !defined(USE_ASMJIT) // 64-bit Windows builds without asmjit cannot generate native x64 code, so force interpreter
+        compilerOptions.bAllowCompile = false;
+#endif
+        break;
+      default:
+        break;
+    }
+  }
+
+  fclose(configFile);
+  return true;
+}
+
+void NuonEnvironment::SetController1Joystick(const GUID& guid)
+{
+  controller1Di8Dev = guid;
+}
+
+void NuonEnvironment::SetControllerButtonMapping(unsigned int ctrlrBitnum, const ControllerButtonMapping& mapping)
+{
+  if (ctrlrBitnum < 16)
+  {
+    controller1Mapping[ctrlrBitnum] = mapping;
+  }
+}
+const GUID& NuonEnvironment::GetController1Joystick() const
+{
+  return controller1Di8Dev;
+}
+
+int NuonEnvironment::GetCTRLRBitnumFromMapping(const ControllerButtonMapping& mapping) const
+{
+  InputManager* im = display.GetInputManager();
+  size_t numJoysticks;
+  im->EnumJoysticks(&numJoysticks);
+
+  for (int i = 0; i < (int)_countof(controller1Mapping); i++)
+  {
+    const ControllerButtonMapping* cbm = (numJoysticks == 0 && controller1Mapping[i].type != InputManager::KEY) ? controllerDefaultMapping : controller1Mapping; // if no joypad/joystick connected, but button is configured, fall back to default key mapping
+    if (cbm[i] == mapping) return i;
+  }
+
+  return -1;
+}
+
+const ControllerButtonMapping& NuonEnvironment::GetMappingForCTRLRBitnum(unsigned int bitnum) const
+{
+  static const ControllerButtonMapping invalidMapping(InputManager::JOYBUT, INT_MAX, INT_MAX);
+
+  if (bitnum >= _countof(controller1Mapping)) return invalidMapping;
+
+  return controller1Mapping[bitnum];
+}
+
+bool ControllerButtonMapping::fromString(char* strIn, ControllerButtonMapping* mapping)
+{
+  // Split the button mapping into three parts on '_'
+  char* ctx = nullptr;
+  const char* type = strtok_s(strIn, "_", &ctx);
+
+  if (!type) return false;
+
+  const char* idxStr = strtok_s(NULL, "_", &ctx);
+
+  if (!idxStr) return false;
+
+  const char* subIdxStr = strtok_s(NULL, "_", &ctx);
+
+  if (!subIdxStr) return false;
+
+  // Convert each part to its appropriate mapping field
+  if (!InputManager::StrToInputType(type, &mapping->type)) return false;
+
+  char* endConv;
+  errno = 0;
+  mapping->idx = strtoul(idxStr, &endConv, 10);
+  if ((errno != 0) || (*endConv != '\0')) return false;
+  mapping->subIdx = strtoul(subIdxStr, &endConv, 10);
+  if ((errno != 0) || (*endConv != '\0')) return false;
+
+  return true;
+}

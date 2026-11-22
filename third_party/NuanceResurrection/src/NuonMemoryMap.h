@@ -1,0 +1,62 @@
+#ifndef NUONMEMORYMAP_H
+#define NUONMEMORYMAP_H
+
+#define MPE_ADDR_SPACE_BASE (0x20000000U)
+#define MPE_DTROM_BASE (0x20000000U)
+#define MPE_DTRAM_BASE (0x20100000U)
+#define MPE_IROM_BASE (0x20200000U)
+#define MPE_IRAM_BASE (0x20300000U)
+#define MPE_DTAGS_BASE (0x20400000U)
+#define MPE_ITAGS_BASE (0x20480000U)
+#define MPE_CTRL_BASE (0x20500000U)
+#define MPE_RESV_BASE (0x20600000U)
+#define MPE1_ADDR_BASE (0x20800000U)
+#define MPE4_ADDR_BASE (0x22000000U)
+#define MAIN_BUS_BASE (0x40000000U)
+#define SYSTEM_BUS_BASE (0x80000000U)
+#define BIOS_JUMPTABLE_START (0x80000000U) // 64K used for jump tables, BIOS internal data structures, and a few user-visible data structures (up to 0x8000FFFFU)
+#define BIOS_JUMPTABLE_END (0x800002FFU)
+#define HAL_JUMPTABLE_START (0x80006000U)
+#define HAL_JUMPTABLE_END (0x80007FFFU)
+#define DVD_JUMPTABLE_START (0x80008000U)
+#define DVD_JUMPTABLE_END (0x8000AFFFU)
+#define PE_ADDR_BASE (0x804E0000U) // 3200K-640K for DVD Video Presentation Engine memory, WHEN activated (up to BIOS_FUNCTIONS_BASE) // Hitchhikers.pdf says 0x804A0000U
+#define BIOS_FUNCTIONS_BASE (0x80760000U) // 640K of other ram-resident BIOS code and data, as well as a memory arena for downloaded device drivers and other required memory allocation (up to 0x807FFFFFU)
+#define SRAM_0_BASE (0x90000000U)
+#define SRAM_1_BASE (0xA0000000U)
+#define ROM_BIOS_BASE (0xF0000000U)
+#define ROM_PE_BASE (0xF0008000U)
+
+//Presentation Engine Jumptables
+#define SVC_API_JUMPTABLE_START (0x80008000U)
+#define AUDIO_API_JUMPTABLE_START (0x80008400U)
+#define CDA_API_JUMPTABLE_START (0x80008800U)
+#define DVD_API_JUMPTABLE_START (0x80008C00U)
+#define DVDA_API_JUMPTABLE_START (0x80009000U)
+#define NTC_API_JUMPTABLE_START (0x80009200U)
+#define SVR_API_JUMPTABLE_START (0x80009400U)
+#define VCD_API_JUMPTABLE_START (0x80009800U)
+#define VIDEO_API_JUMPTABLE_START (0x80009C00U)
+#define PTR_API_JUMPTABLE_START (0x8000A000U)
+
+#define MPE_LOCAL_MEMORY_SIZE (8U*1024U*1024U)
+#define MAIN_BUS_SIZE (8U*1024U*1024U)
+// llamasoft-nuon: the emulated main bus is backed by 16 MB (the game still sees and allocates 8 MB); the upper
+// half holds the 720x480 frame buffers of the high-resolution mode (hires.cpp).
+#define MAIN_BUS_ALLOC_SIZE (16U*1024U*1024U)
+#define SYSTEM_BUS_SIZE (8U*1024U*1024U)
+#define BIOS_FUNCTIONS_SIZE (640U*1024U)
+#define BIOS_LOWMEM_SIZE (64U*1024U)
+
+#define MPE_DTROM_OFFSET (0x00000000U)
+#define MPE_DTRAM_OFFSET (0x00100000U)
+#define MPE_IROM_OFFSET (0x00200000U)
+#define MPE_IRAM_OFFSET (0x00300000U)
+#define MPE_CTRL_REG_OFFSET (0x00500000U)
+#define MPE_RESERVED_MEM_OFFSET (0x00600000U)
+#define MPE_LOCAL_MEMORY_MASK (0x207FFFFFU)
+#define MPE_VALID_MEMORY_MASK (0x007FFFFFU) //8 MEG WRAPAROUND
+#define MAIN_BUS_VALID_MEMORY_MASK (0x00FFFFFFU) //16 MEG WRAPAROUND (llamasoft-nuon: was 8)
+#define SYSTEM_BUS_VALID_MEMORY_MASK (0x007FFFFFU) //8 MEG WRAPAROUND
+
+#endif

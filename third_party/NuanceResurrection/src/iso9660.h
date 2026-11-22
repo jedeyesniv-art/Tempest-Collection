@@ -1,0 +1,216 @@
+// Minimal ISO9660 reader - reads files from ISO image without mounting
+// Supports reading from a file within a FUSE-mounted ZIP
+#ifndef ISO9660_H
+#define ISO9660_H
+
+#include <cstdio>
+#include <cerrno>
+
+#ifdef _MSC_VER
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#define strncasecmp _strnicmp
+#define strcasecmp _stricmp
+#define logout(x) MessageBox(NULL,x,ERROR,MB_ICONWARNING)
+#else
+#define logout(x) fprintf(stderr,x)
+#endif
+
+#if defined(_MSC_VER)
+#define ISO_FOPEN fopen
+#define ISO_FSEEK(f, off, w) _fseeki64(f, (__int64)(off), w)
+#elif defined(__i386__) || defined(_M_IX86)
+#define ISO_FOPEN fopen64
+#define ISO_FSEEK(f, off, w) fseeko64(f, (off64_t)(off), w)
+#else
+#define ISO_FOPEN fopen
+#define ISO_FSEEK(f, off, w) fseeko(f, (off_t)(off), w)
+#endif
+#include <cstring>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include <cstddef>
+
+#include "disc_image.h" // llamasoft-nuon: plain ISO or compressed NUZ
+
+using ssize_type = std::make_signed_t<size_t>;
+
+struct ISO9660Entry {
+    std::string name;
+    uint32_t lba;      // logical block address
+    uint32_t size;
+    bool isDir;
+};
+
+class ISO9660Reader final {
+    DiscImage img;
+    uint32_t rootLBA;
+    uint32_t rootSize;
+
+    static uint32_t read32le(const uint8_t* p) { return p[0]|(p[1]<<8)|(p[2]<<16)|(p[3]<<24); }
+
+    std::vector<ISO9660Entry> readDir(uint32_t lba, uint32_t size) {
+        std::vector<ISO9660Entry> entries;
+        std::vector<uint8_t> buf(size);
+        img.read((uint64_t)lba * 2048, buf.data(), size);
+
+        uint32_t pos = 0;
+        while (pos < size) {
+            uint8_t recLen = buf[pos];
+            if (recLen == 0) { pos = ((pos / 2048) + 1) * 2048; continue; }
+            if (pos + recLen > size) break;
+
+            uint8_t nameLen = buf[pos + 32];
+            uint32_t eLBA = read32le(&buf[pos + 2]);
+            uint32_t eSize = read32le(&buf[pos + 10]);
+            bool isDir = (buf[pos + 25] & 0x02) != 0;
+
+            char name[256] = {};
+            memcpy(name, &buf[pos + 33], nameLen);
+
+            // Skip . and ..
+            if (nameLen == 1 && (name[0] == 0 || name[0] == 1)) { pos += recLen; continue; }
+
+            // Remove ;1 version suffix
+            char* semi = strchr(name, ';');
+            if (semi) *semi = '\0';
+            // Remove trailing dot only if no extension (e.g. "DIRNAME.")
+            size_t nlen = strlen(name);
+            if (nlen > 0 && name[nlen-1] == '.' && !strchr(name, '.')) name[nlen-1] = '\0';
+
+            //char o[1024];
+            //sprintf(o, "ISO9660 readDir: entry '%s' (len=%u, bytes=%02x%02x%02x%02x) lba=%u size=%u dir=%d\n",
+            //    name, nameLen, (uint8_t)name[0], nameLen>1?(uint8_t)name[1]:0, nameLen>2?(uint8_t)name[2]:0, nameLen>3?(uint8_t)name[3]:0,
+            //    eLBA, eSize, isDir);
+            //logout(o);
+            entries.push_back({name, eLBA, eSize, isDir});
+            pos += recLen;
+        }
+        return entries;
+    }
+
+public:
+    ISO9660Reader() : rootLBA(0), rootSize(0) {}
+    ~ISO9660Reader() { close(); }
+
+    bool open(const char* isoPath) {
+        if (!img.open(isoPath)) { char o[1024]; sprintf(o, "ISO9660: cannot open %s (errno=%d)\n", isoPath, errno); logout(o); return false; }
+
+        // Read primary volume descriptor at sector 16
+        uint8_t pvd[2048];
+        if (img.read(16 * 2048, pvd, 2048) != 2048) { char o[1024]; sprintf(o, "ISO9660: cannot read PVD\n"); logout(o); close(); return false; }
+        if (pvd[0] != 1 || memcmp(&pvd[1], "CD001", 5) != 0) { char o[1024]; sprintf(o, "ISO9660: invalid PVD signature\n"); logout(o); close(); return false; }
+
+        // Root directory record at offset 156
+        rootLBA = read32le(&pvd[156 + 2]);
+        rootSize = read32le(&pvd[156 + 10]);
+        //char o[1024];
+        //sprintf(o, "ISO9660: opened, root LBA=%u size=%u\n", rootLBA, rootSize);
+        //logout(o);
+        return true;
+    }
+
+    void close() { img.close(); }
+
+    // Find a file by path (case-insensitive), return true and fill lba/size
+    bool findFile(const char* path, uint32_t& outLBA, uint32_t& outSize) {
+        if (!img.isOpen()) return false;
+
+        uint32_t curLBA = rootLBA, curSize = rootSize;
+        std::string spath(path);
+
+        // Split path by /
+        size_t start = 0;
+        while (start < spath.size()) {
+            if (spath[start] == '/') { start++; continue; }
+            size_t end = spath.find('/', start);
+            if (end == std::string::npos) end = spath.size();
+            std::string component = spath.substr(start, end - start);
+
+            auto entries = readDir(curLBA, curSize);
+            //char o[1024];
+            //sprintf(o, "ISO9660: findFile looking for '%s' in dir (LBA=%u, %zu entries)\n",
+            //    component.c_str(), curLBA, entries.size());
+            //logout(o);
+            bool found = false;
+            for (auto& e : entries) {
+                int cmpResult = strcasecmp(e.name.c_str(), component.c_str());
+                //sprintf(o, "ISO9660:   cmp '%s' vs '%s' = %d\n", e.name.c_str(), component.c_str(), cmpResult);
+                //logout(o);
+                if (cmpResult == 0) {
+                    if (end >= spath.size()) {
+                        // Last component - this is the file
+                        outLBA = e.lba;
+                        outSize = e.size;
+                        return true;
+                    }
+                    if (!e.isDir) return false;
+                    curLBA = e.lba;
+                    curSize = e.size;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+            start = end;
+        }
+        return false;
+    }
+
+    // Extract a file to disk
+    bool extractFile(const char* isoPath, const char* destPath) {
+        //fprintf(stderr, "ISO9660: extractFile '%s' -> '%s'\n", isoPath, destPath); fflush(stderr);
+        uint32_t lba, size;
+        if (!findFile(isoPath, lba, size)) { char o[1024]; sprintf(o, "ISO9660: file not found\n"); logout(o); return false; }
+        //fprintf(stderr, "ISO9660: found at LBA=%u size=%u, writing...\n", lba, size); fflush(stderr);
+
+        FILE* out = fopen(destPath, "wb");
+        if (!out) { char o[1024]; sprintf(o, "ISO9660: cannot create %s\n", destPath); logout(o); return false; }
+
+        uint64_t pos = (uint64_t)lba * 2048;
+        ssize_type remaining = size;
+        std::vector<uint8_t> buf(65536);
+        while (remaining > 0) {
+            ssize_type chunk = remaining < (ssize_type)buf.size() ? remaining : (ssize_type)buf.size();
+            size_t rd = img.read(pos, buf.data(), (size_t)chunk);
+            if (rd == 0) break;
+            fwrite(buf.data(), 1, rd, out);
+            remaining -= rd;
+            pos += rd;
+        }
+        fclose(out);
+        return remaining == 0;
+    }
+
+    // List root or given directory
+    std::vector<ISO9660Entry> listDir(const char* dirPath = nullptr) {
+        if (!img.isOpen()) return {};
+        if (!dirPath || dirPath[0] == '\0' || strcmp(dirPath, "/") == 0)
+            return readDir(rootLBA, rootSize);
+
+        // Navigate to directory
+        uint32_t curLBA = rootLBA, curSize = rootSize;
+        std::string spath(dirPath);
+        size_t start = 0;
+        while (start < spath.size()) {
+            if (spath[start] == '/') { start++; continue; }
+            size_t end = spath.find('/', start);
+            if (end == std::string::npos) end = spath.size();
+            std::string comp = spath.substr(start, end - start);
+            auto entries = readDir(curLBA, curSize);
+            bool found = false;
+            for (auto& e : entries) {
+                if (strcasecmp(e.name.c_str(), comp.c_str()) == 0 && e.isDir) {
+                    curLBA = e.lba; curSize = e.size; found = true; break;
+                }
+            }
+            if (!found) return {};
+            start = end;
+        }
+        return readDir(curLBA, curSize);
+    }
+};
+
+#endif

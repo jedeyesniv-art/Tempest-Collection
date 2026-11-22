@@ -1,0 +1,305 @@
+#include "mpe.h"
+#include "SuperBlockConstants.h"
+
+void PropagateConstants_PacketStart(SuperBlockConstants &constants)
+{
+}
+
+void PropagateConstants_PacketEnd(SuperBlockConstants &constants)
+{
+  constants.CommitConstants();
+}
+
+bool SuperBlockConstants::EvaluateBranchCondition(const uint32 whichCondition, bool &branchResult)
+{
+  bool bIsConstant = false;
+
+  switch(whichCondition & 0x1FU)
+  {
+    case 0:
+      if(IsMiscRegisterConstant(CONSTANT_REG_Z))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_Z) == 0);
+      }
+      break;
+    case 1:
+      if(IsMiscRegisterConstant(CONSTANT_REG_C0Z))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_C0Z) != 0);
+      }
+      break;
+    case 2:
+      if(IsMiscRegisterConstant(CONSTANT_REG_C1Z))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_C1Z) != 0);
+      }
+      break;
+    case 3:
+      if(IsMiscRegisterConstant(CONSTANT_REG_C))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_C) == 0);
+      }
+      break;
+    case 4:
+      if(IsMiscRegisterConstant(CONSTANT_REG_Z))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_Z) != 0);
+      }
+      break;
+    case 5:
+      if(IsMiscRegisterConstant(CONSTANT_REG_C))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_C) != 0);
+      }
+      break;
+    case 6:
+      if(IsMiscRegisterConstant(CONSTANT_REG_V))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_V) == 0);
+      }
+      break;
+    case 7:
+      if(IsMiscRegisterConstant(CONSTANT_REG_V))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_V) != 0);
+      }
+      break;
+    case 8:
+      //N.~V + ~N.V: both N and V must be constant
+      if(IsMiscRegisterConstant(CONSTANT_REG_N) && IsMiscRegisterConstant(CONSTANT_REG_V))
+      {
+        bIsConstant = true;
+        const uint32 flag1 = GetMiscRegisterConstant(CONSTANT_REG_N);
+        const uint32 flag2 = GetMiscRegisterConstant(CONSTANT_REG_V);
+        branchResult = ((flag1 ^ flag2) != 0);
+      }
+      break;
+    case 9:
+      if(IsMiscRegisterConstant(CONSTANT_REG_MV))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_MV) == 0);
+      }
+      break;
+    case 10:
+      if(IsMiscRegisterConstant(CONSTANT_REG_MV))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_MV) != 0);
+      }
+      break;
+    case 11:
+      //!(C + Z) (hi): true iff both C and Z are clear.
+      //If either is constant and SET, the branch is not taken.
+      //If both are constant and CLEAR, the branch IS taken.
+      //Otherwise (some operand unknown but not yet pinned down), bail.
+      if(IsMiscRegisterConstant(CONSTANT_REG_C) && (GetMiscRegisterConstant(CONSTANT_REG_C) != 0))
+      {
+        bIsConstant = true;
+        branchResult = false;
+      }
+      else if(IsMiscRegisterConstant(CONSTANT_REG_Z) && (GetMiscRegisterConstant(CONSTANT_REG_Z) != 0))
+      {
+        bIsConstant = true;
+        branchResult = false;
+      }
+      else if(IsMiscRegisterConstant(CONSTANT_REG_C) && IsMiscRegisterConstant(CONSTANT_REG_Z))
+      {
+        //Both C and Z are constant 0 here -> hi is true.
+        bIsConstant = true;
+        branchResult = true;
+      }
+      break;
+    case 12:
+      //Z + N.~V + ~N.V (le): true iff Z is set OR (N XOR V).
+      //Mirrors case 16 (gt): check Z first, then fall back to N XOR V when Z is constant 0.
+      //The previous code evaluated (N XOR V) whenever N and V were constant, ignoring
+      //Z=1 (which makes le true regardless) - that mishandled e.g. cmp x,x => le must fire.
+      if(IsMiscRegisterConstant(CONSTANT_REG_Z))
+      {
+        if(GetMiscRegisterConstant(CONSTANT_REG_Z) != 0)
+        {
+          bIsConstant = true;
+          branchResult = true;
+        }
+        else if(IsMiscRegisterConstant(CONSTANT_REG_N) && IsMiscRegisterConstant(CONSTANT_REG_V))
+        {
+          bIsConstant = true;
+          const uint32 flag1 = GetMiscRegisterConstant(CONSTANT_REG_N);
+          const uint32 flag2 = GetMiscRegisterConstant(CONSTANT_REG_V);
+          //N(~V) || (~N)V
+          branchResult = ((flag1 ^ flag2) != 0);
+        }
+      }
+      break;
+    case 13:
+      //C + Z: if either of C or Z is constant and true, the condition is constant and the branch is taken,
+      //otherwise both flags must be constant
+      if(IsMiscRegisterConstant(CONSTANT_REG_C))
+      {
+        if(GetMiscRegisterConstant(CONSTANT_REG_C))
+        {
+          bIsConstant = true;
+          branchResult = true;
+        }
+        else if(IsMiscRegisterConstant(CONSTANT_REG_Z))
+        {
+          bIsConstant = true;
+          branchResult = (GetMiscRegisterConstant(CONSTANT_REG_Z) != 0);
+        }
+      }
+      else if(IsMiscRegisterConstant(CONSTANT_REG_Z))
+      {
+        if(GetMiscRegisterConstant(CONSTANT_REG_Z))
+        {
+          bIsConstant = true;
+          branchResult = true;
+        }
+      }
+      break;
+    case 14:
+      if(IsMiscRegisterConstant(CONSTANT_REG_N))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_N) == 0);
+      }
+      break;
+    case 15:
+      if(IsMiscRegisterConstant(CONSTANT_REG_N))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_N) != 0);
+      }
+      break;
+    case 16:
+      //~Z.(NV + ~N.~V)
+      //If Z is constant and true, the condition is constant and the branch is not taken,
+      //otherwise N, Z and V must all be constant
+      if(IsMiscRegisterConstant(CONSTANT_REG_Z))
+      {
+        if(GetMiscRegisterConstant(CONSTANT_REG_Z) != 0)
+        {
+          bIsConstant = true;
+          branchResult = false;
+        }
+        else if(IsMiscRegisterConstant(CONSTANT_REG_N) && IsMiscRegisterConstant(CONSTANT_REG_V))
+        {
+          bIsConstant = true;
+          const uint32 flag1 = GetMiscRegisterConstant(CONSTANT_REG_N);
+          const uint32 flag2 = GetMiscRegisterConstant(CONSTANT_REG_V);
+          //(~N)(~V) || NV
+          branchResult = ((flag1 ^ flag2) == 0);
+        }
+      }
+      break;
+    case 17:
+      //T
+      bIsConstant = true;
+      branchResult = true;
+      break;
+    case 18:
+      if(IsMiscRegisterConstant(CONSTANT_REG_MODMI))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_MODMI) != 0);
+      }
+      break;
+    case 19:
+      if(IsMiscRegisterConstant(CONSTANT_REG_MODMI))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_MODMI) == 0);
+      }
+      break;
+    case 20:
+      //Both N and V must be constant
+      if(IsMiscRegisterConstant(CONSTANT_REG_N) && IsMiscRegisterConstant(CONSTANT_REG_V))
+      {
+        bIsConstant = true;
+        const uint32 flag1 = GetMiscRegisterConstant(CONSTANT_REG_N);
+        const uint32 flag2 = GetMiscRegisterConstant(CONSTANT_REG_V);
+        //(~N)(~V) || NV
+        branchResult = ((flag1 ^ flag2) == 0);
+      }
+      break;
+    case 21:
+      if(IsMiscRegisterConstant(CONSTANT_REG_MODGE))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_MODGE) != 0);
+      }
+      break;
+    case 22:
+      if(IsMiscRegisterConstant(CONSTANT_REG_MODGE))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_MODGE) == 0);
+      }
+      break;
+    case 23:
+       //The condition is always constant and the branch is never taken
+       bIsConstant = true;
+       branchResult = false;
+       break;
+    case 24:
+      if(IsMiscRegisterConstant(CONSTANT_REG_C0Z))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_C0Z) == 0);
+      }
+      break;
+    case 25:
+       bIsConstant = true;
+       branchResult = false;
+       break;
+    case 26:
+       bIsConstant = true;
+       branchResult = false;
+       break;
+    case 27:
+      if(IsMiscRegisterConstant(CONSTANT_REG_CP0))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_CP0) == 0);
+      }
+      break;
+    case 28:
+      if(IsMiscRegisterConstant(CONSTANT_REG_C1Z))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_C1Z) == 0);
+      }
+      break;
+    case 29:
+      if(IsMiscRegisterConstant(CONSTANT_REG_CP0))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_CP0) != 0);
+      }
+      break;
+    case 30:
+      if(IsMiscRegisterConstant(CONSTANT_REG_CP1))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_CP1) == 0);
+      }
+      break;
+    case 31:
+      if(IsMiscRegisterConstant(CONSTANT_REG_CP1))
+      {
+        bIsConstant = true;
+        branchResult = (GetMiscRegisterConstant(CONSTANT_REG_CP1) != 0);
+      }
+      break;
+  }
+
+  return bIsConstant;
+}

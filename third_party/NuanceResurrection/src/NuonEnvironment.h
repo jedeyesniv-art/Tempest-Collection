@@ -1,0 +1,315 @@
+#ifndef NuonEnvironmentH
+#define NuonEnvironmentH
+
+#include "basetypes.h"
+#include <climits>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <string>
+#include <cstdio>
+#include <atomic>
+#include "audio.h"
+#include "mpe.h"
+#include "InputManager.h"
+#include "NuonMemoryManager.h"
+#include "SuperBlock.h"
+#include "FlashEEPROM.h"
+
+struct ma_device; // to avoid including miniaudio.h
+
+enum class ConfigTokenType
+{
+  CONFIG_EOF,
+  CONFIG_UNKNOWN,
+  CONFIG_RESERVED,
+  CONFIG_COMMENT,
+  CONFIG_VARIABLE_START,
+  CONFIG_VARIABLE_FINISH,
+  CONFIG_STRING
+};
+
+class ControllerButtonMapping final
+{
+public:
+  ControllerButtonMapping(InputManager::InputType t = InputManager::JOYBUT, int i = 0, int si = 0) :
+    type(t), idx(i), subIdx(si) {}
+
+  InputManager::InputType type;
+  int idx;
+  int subIdx;
+
+  bool operator==(const ControllerButtonMapping& o) const { return (type == o.type) && (idx == o.idx) && (subIdx == o.subIdx); }
+
+  // Longest type name is "JOYAXIS" = 7 chars + 2 underscores + 2 ints + terminator
+  static const size_t MAPPING_STRING_SIZE = 7 + 2 + (2 * 10) + 1;
+  void toString(char* strOut, size_t len) const
+  {
+    sprintf_s(strOut, len, "%s_%d_%d", InputManager::InputTypeToStr(type), idx, subIdx);
+  }
+
+  static bool fromString(char* strIn, ControllerButtonMapping* mapping);
+};
+
+class NuonEnvironment final
+{
+public:
+  NuonEnvironment() : dvdBase(nullptr), audioDevice(nullptr), audioDeviceRate(0), audioMuted(false), audioVolume(1.0f),
+    audioRing(nullptr), audioRingSize(0), audioRingPeriodBytes(0), audioRingWritePos(0), audioRingReadPos(0),
+    debugLogFile(0), debugLogFileName(0),
+    controllerDefaultMapping{ // Note that the default mapping should always map to keyboard as it will also be used if no other joypad/stick is connected!
+        // Original key mappings included with Nuance
+        ControllerButtonMapping(InputManager::KEY, 'R', 0), // CTRLR_BITNUM_BUTTON_C_RIGHT
+        ControllerButtonMapping(InputManager::KEY, '3', 0), // CTRLR_BITNUM_BUTTON_C_UP
+        ControllerButtonMapping(InputManager::KEY, 'W', 0), // CTRLR_BITNUM_BUTTON_C_LEFT
+        ControllerButtonMapping(InputManager::KEY, 'F', 0), // CTRLR_BITNUM_BUTTON_B
+        ControllerButtonMapping(InputManager::KEY, 'T', 0), // CTRLR_BITNUM_BUTTON_R
+        ControllerButtonMapping(InputManager::KEY, 'Q', 0), // CTRLR_BITNUM_BUTTON_L
+        ControllerButtonMapping(InputManager::JOYBUT, INT_MAX, INT_MAX), // CTRLR_BITNUM_UNUSED_1
+        ControllerButtonMapping(InputManager::JOYBUT, INT_MAX, INT_MAX), // CTRLR_BITNUM_UNUSED_2
+        ControllerButtonMapping(InputManager::KEY, VK_RIGHT, 0), // CTRLR_BITNUM_DPAD_RIGHT 8
+        ControllerButtonMapping(InputManager::KEY, VK_UP, 0), // CTRLR_BITNUM_DPAD_UP
+        ControllerButtonMapping(InputManager::KEY, VK_LEFT, 0), // CTRLR_BITNUM_DPAD_LEFT
+        ControllerButtonMapping(InputManager::KEY, VK_DOWN, 0), // CTRLR_BITNUM_DPAD_DOWN
+        ControllerButtonMapping(InputManager::KEY, 'S', 0), // CTRLR_BITNUM_BUTTON_NUON
+        ControllerButtonMapping(InputManager::KEY, 'A', 0), // CTRLR_BITNUM_BUTTON_START
+        ControllerButtonMapping(InputManager::KEY, 'D', 0), // CTRLR_BITNUM_BUTTON_A
+        ControllerButtonMapping(InputManager::KEY, 'E', 0), // CTRLR_BITNUM_BUTTON_C_DOWN
+
+        // Mapping to a Jag-Dapter with non-pro-controller.
+        // Uses Keypad 2/6/8/4 for C-Pad U/R/D/L and l/3 for L/R.
+        /*ControllerButtonMapping(InputManager::JOYBUT, 13, 0), // CTRLR_BITNUM_BUTTON_C_RIGHT
+        ControllerButtonMapping(InputManager::JOYBUT,  9, 0), // CTRLR_BITNUM_BUTTON_C_UP
+        ControllerButtonMapping(InputManager::JOYBUT, 11, 0), // CTRLR_BITNUM_BUTTON_C_LEFT
+        ControllerButtonMapping(InputManager::JOYBUT,  1, 0), // CTRLR_BITNUM_BUTTON_B
+        ControllerButtonMapping(InputManager::JOYBUT, 10, 0), // CTRLR_BITNUM_BUTTON_R
+        ControllerButtonMapping(InputManager::JOYBUT,  8, 0), // CTRLR_BITNUM_BUTTON_L
+        ControllerButtonMapping(InputManager::JOYBUT, INT_MAX, INT_MAX), // CTRLR_BITNUM_UNUSED_1
+        ControllerButtonMapping(InputManager::JOYBUT, INT_MAX, INT_MAX), // CTRLR_BITNUM_UNUSED_2
+        ControllerButtonMapping(InputManager::JOYAXIS, 0, 1), // CTRLR_BITNUM_DPAD_RIGHT
+        ControllerButtonMapping(InputManager::JOYAXIS, 1, 0), // CTRLR_BITNUM_DPAD_UP
+        ControllerButtonMapping(InputManager::JOYAXIS, 0, 0), // CTRLR_BITNUM_DPAD_LEFT
+        ControllerButtonMapping(InputManager::JOYAXIS, 1, 1), // CTRLR_BITNUM_DPAD_DOWN
+        ControllerButtonMapping(InputManager::JOYBUT,  4, 0), // CTRLR_BITNUM_BUTTON_NUON
+        ControllerButtonMapping(InputManager::JOYBUT,  3, 0), // CTRLR_BITNUM_BUTTON_START
+        ControllerButtonMapping(InputManager::JOYBUT,  2, 0), // CTRLR_BITNUM_BUTTON_A
+        ControllerButtonMapping(InputManager::JOYBUT, 15, 0), // CTRLR_BITNUM_BUTTON_C_DOWN*/
+    }
+  {
+    for (size_t i = 0; i < _countof(controller1Mapping); i++)
+      controller1Mapping[i] = controllerDefaultMapping[i];
+  }
+
+  void Init();
+  void ResetForReload();
+  ~NuonEnvironment();
+
+  void WriteFile(MPE &mpe, uint32 fd, uint32 buf, uint32 len);
+  void *GetPointerToMemory(const uint32 mpe_idx, const uint32 address, const bool bCheckAddress = true);
+  void *GetPointerToSystemMemory(const uint32 address, const bool bCheckAddress = true);
+  void InitBios();
+  void InitAudio();
+  void CloseAudio();
+  void MuteAudio(const bool mute);
+  void StopAudio();
+  void RestartAudio();
+  void SetAudioVolume(uint32 volume);
+  void SetAudioPlaybackRate();
+
+  // Push the current Nuon DMA half into the host audio ring (byte-swapped), advance the
+  // half pointer, ack the channel-mode toggle, fire INT_AUDIO. Returns true if a period
+  // was pushed. Returns false if the ring isn't ready or has no free slot - caller should
+  // try again on the next loop iteration
+  bool TryPushAudioPeriod();
+
+  // Drain up to maxFrames stereo frames from the host audio ring into dst
+  // (already little-endian int16 interleaved L/R). Returns the number of frames
+  // written. Used by the libretro core's audio_batch_cb path; the standalone
+  // build consumes the same ring from its miniaudio callback.
+  uint32 DrainAudioRing(int16_t* dst, uint32 maxFrames);
+
+  bool IsAudioHalfInterruptEnabled() const
+  {
+    return (nuonAudioChannelMode & ENABLE_HALF_INT);
+  }
+  bool IsAudioWrapInterruptEnabled() const
+  {
+    return (nuonAudioChannelMode & ENABLE_WRAP_INT);
+  }
+  bool IsAudioSampleInterruptEnabled() const
+  {
+    return (nuonAudioChannelMode & ENABLE_SAMP_INT);
+  }
+
+  // Wall-clock duration, in microseconds, that one pushed audio period
+  // (audioRingPeriodBytes = half the Nuon DMA buffer) represents when played
+  // back at the real Nuon rate. The host must pace pushes at this interval, NOT
+  // at the video-field rate: a period is half the DMA buffer, whose size the
+  // game picks freely (1K..64K), so "one period per 60Hz field" only happens to
+  // approximate 32kHz for ~4K buffers. Larger buffers overproduce (RetroArch's
+  // audio_sync then throttles the whole frontend); smaller ones underrun.
+  uint64 AudioPeriodIntervalUs() const
+  {
+    if(nuonAudioPlaybackRate == 0 || audioRingPeriodBytes == 0)
+      return 0;
+    const uint32 framesPerPeriod = audioRingPeriodBytes >> 2; // 4 bytes/frame (s16 stereo)
+    return ((uint64)framesPerPeriod * 1000000ull) / nuonAudioPlaybackRate;
+  }
+
+  char *GetDVDBase() const
+  {
+    return dvdBase;
+  }
+
+  void TriggerAudioInterrupt()
+  {
+    if(bAudioInterruptsEnabled) {
+      ScheduleInterrupt(INT_AUDIO);
+    }
+  }
+
+  void TriggerVideoInterrupt()
+  {
+    ScheduleInterrupt(INT_VIDTIMER);
+  }
+
+  LONG schedule_intsrc;
+
+  inline void ScheduleInterrupt(const uint32 which)
+  {
+    _InterlockedOr(&schedule_intsrc,(LONG)which);
+  }
+
+  inline void TriggerScheduledInterrupts()
+  {
+    if(*(volatile LONG*)&schedule_intsrc == 0) // common case: nothing scheduled, skip the locked exchange
+      return;
+    const uint32 which = _InterlockedExchange(&schedule_intsrc,(LONG)0);
+    if(which)
+    {
+      for(int i = 0; i < 4; ++i)
+        mpe[i].TriggerInterrupt(which);
+    }
+  }
+
+  void SetDVDBaseFromFileName(const char* const filename);
+
+  void SetController1Joystick(const GUID& guid);
+  void SetControllerButtonMapping(unsigned int ctrlrBitnum, const ControllerButtonMapping& mapping);
+  const GUID& GetController1Joystick() const;
+  int GetCTRLRBitnumFromMapping(const ControllerButtonMapping& mapping) const;
+  const ControllerButtonMapping& GetMappingForCTRLRBitnum(unsigned int bitnum) const;
+  const ControllerButtonMapping& GetDefaultMappingForCTRLRBitnum(unsigned int bitnum) const
+  { return controllerDefaultMapping[bitnum & 0xF]; }
+
+  bool SaveConfigFile(const char* const filename);
+
+  // Accessors for the otherwise-private AudioInterrupts flag so the in-game
+  // settings UI can read / write it.
+  bool GetAudioInterruptsEnabled() const { return bAudioInterruptsEnabled; }
+  // save states (llamasoft-nuon): the host audio ring's fill gates the audio interrupts (TryPushAudioPeriod), so it
+  // is part of what the game sees
+  template <class S> void AudioRingState(S& s)
+  {
+    uint32 size = audioRingSize, w = audioRingWritePos.load(), r = audioRingReadPos.load();
+    s.pod(size); s.pod(w); s.pod(r);
+    if(s.loading && size != audioRingSize) InitAudio();   // (a fresh boot has no ring until the game sets audio up)
+    if(s.loading && size != audioRingSize) { s.ok = false; return; }
+    if(size && audioRing) s.raw(audioRing, size);
+    if(s.loading) { audioRingWritePos.store(w); audioRingReadPos.store(r); }
+  }
+  void SetAudioInterruptsEnabled(bool v) { bAudioInterruptsEnabled = v; }
+
+  MPE mpe[4];
+  NuonMemoryManager nuonMemoryManager;
+
+  uint8 mainBusDRAM[MAIN_BUS_ALLOC_SIZE];
+  uint8 systemBusDRAM[SYSTEM_BUS_SIZE];
+  FlashEEPROM flashEEPROM;
+
+  uint32 cycleCounter;
+  uint32 pendingCommRequests;
+  uint32 mainChannelUpperLimit, mainChannelLowerLimit;
+  uint32 overlayChannelUpperLimit, overlayChannelLowerLimit;
+
+  //Last accepted value stored using _AudioSetChannelMode
+  uint32 nuonAudioChannelMode;
+  uint32 oldNuonAudioChannelMode;
+  //Nuon audio buffer size in bytes
+  //Supported values are 1K/2K/4K/8K/16K/32K/64K
+  uint32 nuonAudioBufferSize;
+  //PC pointer to Nuon audio buffer in main bus or system bus DRAM
+  uint8 * volatile pNuonAudioBuffer;
+  //Bitflag value passed back as return value in _AudioQuerySampleRates
+  //The constructor initializes this variable.  Supported rates are
+  //16000/22050/24000/32000/44100/48000/64000/88200/96000
+  uint32 nuonSupportedPlaybackRates;
+  //Selected playback rate stored as (channel) samples per second
+  uint32 nuonAudioPlaybackRate;
+
+  bool bInterlaced;
+  bool bProcessorStartStopChange;
+  bool whichAudioInterrupt;
+
+  volatile bool trigger_render_video;
+
+  uint32 cyclesPerAudioInterrupt;
+  uint32 audioInterruptCycleCount;
+  uint64 videoDisplayCycleCount;
+  uint32 GetBufferSize(uint32 channelMode);
+  CompilerOptions compilerOptions;
+
+  uint32 MPE3wait_fieldCounter; // tells how many vsyncs the MPE3 emulation is stalled due to a VidSync call
+  int32 timer_rate[3]; // sysTimer0, sysTimer1 and vidTimer
+
+  bool bAutomaticLoadPopup;
+
+  bool bUseCRTshader;
+
+  FILE *debugLogFile;
+
+  char** kprintRingBuffer;
+  size_t kprintCurrentLine;
+  size_t kprintCurrentChar;
+  bool kprintUpdated;
+
+  static constexpr size_t KPRINT_RING_SIZE = 32;
+  static constexpr size_t KPRINT_LINE_LENGTH = 100;
+
+private:
+  bool StrToCtrlrBitnum(const char* str, unsigned int *bitnum);
+  bool ParseJoyButtonConf(char buf[1025], unsigned int* bitnum, ControllerButtonMapping* mapping);
+  ConfigTokenType ReadConfigLine(FILE *file, char buf[1025]);
+  bool LoadConfigFile(const std::string& fileName);
+
+  // miniaudio device callback - static so miniaudio can call it as a C function pointer
+  // member so it can see the private ring/mute state via the userdata pointer
+  static void MiniAudioDataCallback(struct ma_device* pDevice, void* pOutput, const void* pInput, unsigned int frameCount);
+
+  std::string cfgFileName;
+  char *dvdBase;
+  char *debugLogFileName;
+  char* kprintBuffer;
+  bool bAudioInterruptsEnabled;
+
+  ControllerButtonMapping controllerDefaultMapping[16]; // Indixed by CTRLR_BITNUM_* macros from joystick.h
+  ControllerButtonMapping controller1Mapping[16];       // dto.
+  GUID controller1Di8Dev;
+
+  // miniaudio backend (opaque pointer; full type lives in miniaudio.h, included only by NuonEnvironment.cpp and the impl TU)
+  ma_device* audioDevice;
+  uint32 audioDeviceRate;       // sample rate the device was last initialized at (0 if no device)
+  std::atomic<bool> audioMuted; // read by audio thread, written by main thread
+  float audioVolume;            // 0.0..1.0
+
+  // SPSC ring of pre-byte-swapped audio bytes. Producer = main loop (push one Nuon period at a time)
+  // consumer = audio callback (drain whatever miniaudio asks for). Decouples Nuon-side period size
+  // from miniaudio's callback chunk size, so neither silence padding nor re-reads happen in the steady state
+  static constexpr uint32 AUDIO_RING_SLOTS = 4;
+  uint8* audioRing;                      // sized AUDIO_RING_SLOTS * (nuonAudioBufferSize >> 1)
+  uint32 audioRingSize;                  // total bytes (multiple of period bytes, never zero when ring is alive)
+  uint32 audioRingPeriodBytes;           // (nuonAudioBufferSize >> 1) at allocation time
+  std::atomic<uint32> audioRingWritePos; // monotonic byte counter, written by main thread, read with acquire by audio thread
+  std::atomic<uint32> audioRingReadPos;  // monotonic byte counter, written by audio thread, read with acquire by main thread
+};
+
+#endif

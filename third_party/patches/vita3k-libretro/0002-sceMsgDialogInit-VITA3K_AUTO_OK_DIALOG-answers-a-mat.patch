@@ -1,0 +1,65 @@
+From 45757105203de1bb0570bb72c6fe8c3edd081a5f Mon Sep 17 00:00:00 2001
+From: John <sniv2001@hotmail.com>
+Date: Sat, 14 Nov 2026 23:32:54 +0000
+Subject: [PATCH 2/4] sceMsgDialogInit: VITA3K_AUTO_OK_DIALOG answers a
+ matching OK-only message at once (TxK's offline network notice)
+
+---
+ .../SceCommonDialog/SceCommonDialog.cpp       | 33 +++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/vita3k/modules/SceCommonDialog/SceCommonDialog.cpp b/vita3k/modules/SceCommonDialog/SceCommonDialog.cpp
+index 1bdd87a..be3c961 100644
+--- a/vita3k/modules/SceCommonDialog/SceCommonDialog.cpp
++++ b/vita3k/modules/SceCommonDialog/SceCommonDialog.cpp
+@@ -42,7 +42,27 @@
+ #include <util/tracy.h>
+ TRACY_MODULE_NAME(SceCommonDialog);
+ 
++#ifdef _WIN32
++extern "C" __declspec(dllimport) unsigned long __stdcall GetEnvironmentVariableA(const char *name, char *buffer, unsigned long size);
++#endif
++
+ namespace {
++// llamasoft-vita: VITA3K_AUTO_OK_DIALOG, read from the live process environment (the frontend sets it before loading
++// the core; on Windows the C runtime's getenv copy may predate that).
++const char *auto_ok_dialog_text() {
++    static const std::string text = [] {
++#ifdef _WIN32
++        char buf[512] = {};
++        const unsigned long n = GetEnvironmentVariableA("VITA3K_AUTO_OK_DIALOG", buf, sizeof(buf));
++        return (n > 0 && n < sizeof(buf)) ? std::string(buf, n) : std::string();
++#else
++        const char *v = getenv("VITA3K_AUTO_OK_DIALOG");
++        return v ? std::string(v) : std::string();
++#endif
++    }();
++    return text.c_str();
++}
++
+ void complete_trophy_setup_dialog(DialogState &dialog) {
+     std::lock_guard<std::recursive_mutex> lock(dialog.mutex);
+     if (dialog.type != TROPHY_SETUP_DIALOG || dialog.status != SCE_COMMON_DIALOG_STATUS_RUNNING)
+@@ -487,6 +507,19 @@ EXPORT(int, sceMsgDialogInit, const Ptr<SceMsgDialogParam> param) {
+         break;
+     }
+ 
++    // llamasoft-vita: VITA3K_AUTO_OK_DIALOG=<text> - a user message with only an OK button whose text contains <text>
++    // is answered OK at once and never shown (TxK's "Network features are disabled" notice, which offline is always
++    // there and otherwise wants a tap on the touch screen).
++    if (const char *auto_ok = auto_ok_dialog_text(); *auto_ok
++        && p->mode == SCE_MSG_DIALOG_MODE_USER_MSG && emuenv.common_dialog.msg.btn_num == 1
++        && emuenv.common_dialog.msg.btn_val[0] == SCE_MSG_DIALOG_BUTTON_ID_OK
++        && emuenv.common_dialog.msg.message.find(auto_ok) != std::string::npos) {
++        LOG_INFO("Message dialog answered OK without showing it: {}", emuenv.common_dialog.msg.message);
++        emuenv.common_dialog.msg.status = SCE_MSG_DIALOG_BUTTON_ID_OK;
++        emuenv.common_dialog.result = SCE_COMMON_DIALOG_RESULT_OK;
++        emuenv.common_dialog.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
++    }
++
+     return 0;
+ }
+ 
+-- 
+2.55.0.windows.5
+

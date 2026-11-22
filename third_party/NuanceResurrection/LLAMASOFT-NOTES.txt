@@ -1,0 +1,8 @@
+Nuance Resurrection (andkrau/NuanceResurrection, see License.txt: the original author's terms for his code, BSD-3-Clause
+for the open-source contributions), vendored for Tempest 3000 (t3k.exe, nuance_libretro.dll).
+Source: our branch llamasoft-nuon (from upstream 12ece855): the libretro host additions, the capture of each picture's
+display list for our native renderer, the draw gate, run-ahead snapshots, the compressed disc image (.nuz, disc_image.cpp
++ stb_vorbis), .mdf discs, high-resolution patches, save states. Changes since are in this repository's history.
+external/asmjit: the asmjit submodule (zlib licence) at 0bd5787b, its files included.
+Trimmed to what the build reads: upstream's debugging dumps, Visual Studio projects, docs and CI were left out.
+bios.cof / minibios*.cof are Nuance's own BIOS replacement (no VM Labs code).

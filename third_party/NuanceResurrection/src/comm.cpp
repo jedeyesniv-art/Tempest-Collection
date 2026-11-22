@@ -1,0 +1,183 @@
+#include "basetypes.h"
+#include <cstdio>
+#include "byteswap.h"
+#include "mpe.h"
+#include "comm.h"
+#include "Bios.h"
+#include "NuonEnvironment.h"
+
+extern NuonEnvironment nuonEnv;
+extern uint32 vdgCLUT[];
+
+#ifdef LOG_COMM
+FILE *commLogFile;
+#endif
+FILE* g_joblog = nullptr;
+// Job log: the 64 bytes a system-bus pointer points at (a render job's descriptor), as 16 big-endian words.
+void JobLogDescriptor(FILE* f, uint32 ptr)
+{
+  if(!f || (ptr >> 23) != (0x80000000U >> 23))
+    return;
+  const uint8* p = &nuonEnv.systemBusDRAM[ptr & SYSTEM_BUS_VALID_MEMORY_MASK];
+  fprintf(f, "    desc %08X:", ptr);
+  for(int i = 0; i < 16; ++i)
+    fprintf(f, " %02X%02X%02X%02X", p[4 * i], p[4 * i + 1], p[4 * i + 2], p[4 * i + 3]);
+  fprintf(f, "\n");
+}
+   // NUANCE_JOBLOG=<file> (llamasoft-nuon): comm packets, MPE starts / halts, overlays
+
+void DoCommBusController(void)
+{
+  static uint32 currentTransmitID = 0;
+
+  bool bLocked = false;
+  bool bPending = false;
+
+  if(!(nuonEnv.mpe[currentTransmitID].commctl & COMM_LOCKED_BIT))
+  {
+    for(uint32 i = 0; i < 4; i++)
+    {
+      const uint32 idx = (currentTransmitID + i) & 0x03U;
+      if(nuonEnv.mpe[idx].commctl & COMM_XMIT_BUFFER_FULL_BIT)
+      {
+        currentTransmitID = idx;
+        bPending = true;
+        break;
+      }
+    }
+  }
+  else
+  {
+    bLocked = true;
+    bPending = (nuonEnv.mpe[currentTransmitID].commctl & COMM_XMIT_BUFFER_FULL_BIT);
+  }
+
+  if(!bPending)
+    return;
+
+  const uint32 target = nuonEnv.mpe[currentTransmitID].commctl & COMM_TARGET_ID_BITS;
+
+  if(target < 4) // target is a MPE?
+  {
+    if(!(nuonEnv.mpe[target].commctl & (COMM_DISABLED_BITS | COMM_RECV_BUFFER_FULL_BIT)))
+    {
+      nuonEnv.mpe[currentTransmitID].commctl &= ~(COMM_XMIT_BUFFER_FULL_BIT);
+      nuonEnv.mpe[target].commrecv[0] = nuonEnv.mpe[currentTransmitID].commxmit[0];
+      nuonEnv.mpe[target].commrecv[1] = nuonEnv.mpe[currentTransmitID].commxmit[1];
+      nuonEnv.mpe[target].commrecv[2] = nuonEnv.mpe[currentTransmitID].commxmit[2];
+      nuonEnv.mpe[target].commrecv[3] = nuonEnv.mpe[currentTransmitID].commxmit[3];
+      nuonEnv.mpe[target].comminfo &= 0xFFU;
+      nuonEnv.mpe[target].comminfo |= (nuonEnv.mpe[currentTransmitID].comminfo << 16);
+      nuonEnv.mpe[target].commctl &= ~(COMM_SOURCE_ID_BITS);
+      nuonEnv.mpe[target].commctl |= (COMM_RECV_BUFFER_FULL_BIT | (currentTransmitID << 16));
+
+      nuonEnv.mpe[currentTransmitID].TriggerInterrupt(INT_COMMXMIT);
+      nuonEnv.mpe[target].TriggerInterrupt(INT_COMMRECV);
+      nuonEnv.pendingCommRequests--;
+      if(g_joblog)
+        fprintf(g_joblog, "f%u comm %u>%u %08X %08X %08X %08X info %08X\n", SwapBytes(*((uint32*)&nuonEnv.systemBusDRAM[VIDEO_FIELD_COUNTER_ADDRESS & SYSTEM_BUS_VALID_MEMORY_MASK])),
+          currentTransmitID, target, nuonEnv.mpe[target].commrecv[0], nuonEnv.mpe[target].commrecv[1],
+          nuonEnv.mpe[target].commrecv[2], nuonEnv.mpe[target].commrecv[3], nuonEnv.mpe[currentTransmitID].comminfo);
+      if(g_joblog)
+        JobLogDescriptor(g_joblog, nuonEnv.mpe[target].commrecv[3]);
+
+#ifdef LOG_COMM
+      fprintf(commLogFile,"Comm packet sent: MPE%ld->MPE%ld, packet contents = {$%lx,$%lx,$%lx,$%lx, comminfo = $%lx\n",
+        currentTransmitID,
+        target,
+        nuonEnv.mpe[currentTransmitID].commxmit[0],
+        nuonEnv.mpe[currentTransmitID].commxmit[1],
+        nuonEnv.mpe[currentTransmitID].commxmit[2],
+        nuonEnv.mpe[currentTransmitID].commxmit[3],
+        nuonEnv.mpe[currentTransmitID].comminfo);
+      fflush(commLogFile);
+#endif
+    }
+    else
+    {
+      //xmit failed
+      if(nuonEnv.mpe[currentTransmitID].commctl & COMM_XMIT_RETRY_BIT)
+      {
+#ifdef LOG_COMM
+        fprintf(commLogFile,"Comm packet failed: MPE%ld->MPE%ld, will retry\n",currentTransmitID,target);
+#endif
+      }
+      else
+      {
+        //No Retry
+
+        //Set Transmit Failed bit
+        nuonEnv.mpe[currentTransmitID].commctl |= COMM_XMIT_FAILED_BIT;
+        //Clear Transmit Buffer full bit
+        nuonEnv.mpe[currentTransmitID].commctl &= ~(COMM_XMIT_BUFFER_FULL_BIT);
+        nuonEnv.pendingCommRequests--;
+
+#ifdef LOG_COMM
+        fprintf(commLogFile,"Comm packet failed: MPE%ld->MPE%ld, no retry\n",currentTransmitID,target);
+#endif
+      }
+    }
+  }
+  else
+  {
+    //Reserved MPE ID or hardware target (eg audio)
+
+    //Pretend the device received the packet
+    nuonEnv.mpe[currentTransmitID].commctl &= (~COMM_XMIT_BUFFER_FULL_BIT);
+    nuonEnv.mpe[currentTransmitID].TriggerInterrupt(INT_COMMXMIT);
+
+    if (target < 64) // target is a MPE? (on future HW)
+    {
+        // Ballistic triggers this case on the title screen
+#ifdef LOG_COMM
+        fprintf(commLogFile,"Comm invalid MPE target: MPE%ld->MPE%ld\n",currentTransmitID,target);
+#endif
+    }
+    else if(target == COMM_ID_AUDIO)
+    {
+      //audio target
+      uint32 cmdValue = nuonEnv.mpe[currentTransmitID].commxmit[0];
+      switch(cmdValue >> 31)
+      {
+        case 0:
+          break;
+        case 1:
+          cmdValue &= 0x7FFFFFFF;
+          if(cmdValue == 0x2C)
+          {
+            //write channel mode register: update NuonEnviroment variable only for now
+            //!! TODO modify SetChannelMode to recreate the sound buffer only if the new
+            //channel mode buffer size differs from the previous value.
+            assert((nuonEnv.mpe[currentTransmitID].commxmit[1] & ~(ENABLE_WRAP_INT | ENABLE_HALF_INT)) == (nuonEnv.nuonAudioChannelMode & ~(ENABLE_WRAP_INT | ENABLE_HALF_INT))); // for now we only support a change in these two flags
+            nuonEnv.nuonAudioChannelMode = nuonEnv.mpe[currentTransmitID].commxmit[1];
+          }
+          break;
+      }
+    }
+    else if(target == COMM_ID_VDG)
+    {
+      //vdg target
+      uint32 cmdValue = nuonEnv.mpe[currentTransmitID].commxmit[0];
+      switch(cmdValue >> 31)
+      {
+        case 0:
+          break;
+        case 1:
+          cmdValue &= 0x7FFFFFFF;
+          if((cmdValue >= 0x200) && (cmdValue < 0x300))
+          {
+            //write VDG clut entry
+            vdgCLUT[cmdValue - 0x200] = SwapBytes(nuonEnv.mpe[currentTransmitID].commxmit[1]);
+          }
+          break;
+      }
+    }
+
+    nuonEnv.pendingCommRequests--;
+  }
+
+  if(!bLocked)
+  {
+    currentTransmitID = ((currentTransmitID + 1) & 0x03U);
+  }
+}
