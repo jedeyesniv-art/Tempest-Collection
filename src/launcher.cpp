@@ -522,6 +522,34 @@ HWND FindProcessWindow(DWORD pid) {
   return want.hwnd;
 }
 
+// Brings our window to the front even when Windows' foreground lock refuses a plain SetForegroundWindow (after a
+// Steam game exits, Steam's own window has the front, so the pad drives Steam - its UI sounds - not us). Joins the
+// foreground window's input queue for the call; if that is still refused, a synthetic Alt tap makes us the
+// process that received the last input, which the lock allows. Returns true when we have the front.
+bool ForceForeground(HWND me) {
+  if (!me) return false;
+  if (GetForegroundWindow() == me) return true;
+  if (IsIconic(me)) ShowWindow(me, SW_RESTORE);
+  const HWND fg = GetForegroundWindow();
+  const DWORD fg_thread = fg ? GetWindowThreadProcessId(fg, nullptr) : 0;
+  const DWORD my_thread = GetCurrentThreadId();
+  const bool attached = fg_thread && fg_thread != my_thread && AttachThreadInput(my_thread, fg_thread, TRUE);
+  BringWindowToTop(me);
+  SetForegroundWindow(me);
+  SetActiveWindow(me);
+  SetFocus(me);
+  if (attached) AttachThreadInput(my_thread, fg_thread, FALSE);
+  if (GetForegroundWindow() != me) {
+    INPUT in[2]{};
+    in[0].type = in[1].type = INPUT_KEYBOARD;
+    in[0].ki.wVk = in[1].ki.wVk = VK_MENU;
+    in[1].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(2, in, sizeof(INPUT));
+    SetForegroundWindow(me);
+  }
+  return GetForegroundWindow() == me;
+}
+
 // Starts a game program next to the launcher; returns its process handle (nullptr on failure).
 HANDLE StartProgram(const fs::path& exe) {
   AllowSetForegroundWindow(ASFW_ANY);   // we have the foreground, so the game may take it
@@ -1020,7 +1048,29 @@ int main(int argc, char** argv) {
   }
   HWND me = static_cast<HWND>(
       SDL_GetPointerProperty(SDL_GetWindowProperties(win), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+  // After a game exits: keep taking the front back for a few seconds (Steam raises its own window just after its
+  // game closes), until we have held it for a moment.
+  uint64_t reclaim_until = 0, reclaim_last = 0, front_since = 0;
+  auto reclaim_front = [&] {
+    reclaim_until = SDL_GetTicksNS() + 6000000000ull;
+    reclaim_last = front_since = 0;
+  };
   while (running) {
+    if (reclaim_until && !child && !steam_wait) {
+      const uint64_t now = SDL_GetTicksNS();
+      if (now > reclaim_until) {
+        reclaim_until = 0;
+      } else if (GetForegroundWindow() == me) {
+        if (!front_since) front_since = now;
+        else if (now - front_since > 1500000000ull) reclaim_until = 0;   // held: done
+      } else if (now - reclaim_last > 250000000ull) {
+        front_since = 0;
+        reclaim_last = now;
+        SDL_RaiseWindow(win);
+        const bool ok = ForceForeground(me);
+        if (autostart >= 0) std::fprintf(stderr, "launcher: taking the front back: %s\n", ok ? "ok" : "refused");
+      }
+    }
     if (steam_wait && !child) {   // Steam is starting a game: wait for its program (60 s; Esc gives up)
       SDL_Delay(100);
       bool give_up = SDL_GetTicksNS() - steam_wait_start > 60000000000ull;
@@ -1051,9 +1101,8 @@ int main(int argc, char** argv) {
         starting.clear();
         reload_games();
         SDL_RaiseWindow(win);
-        if (auto* me = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(win),
-                                                                SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr)))
-          SetForegroundWindow(me);
+        ForceForeground(me);
+        reclaim_front();
         ignore_until = SDL_GetTicksNS() + 400000000ull;
       } else {
         // Its window to the front when it appears, and once more a second later (after it goes fullscreen).
@@ -1099,7 +1148,8 @@ int main(int argc, char** argv) {
         message.clear();
         reload_games();
         SDL_RaiseWindow(win);
-        if (me) SetForegroundWindow(me);
+        ForceForeground(me);
+        reclaim_front();
         ignore_until = SDL_GetTicksNS() + 400000000ull;
         if (autostart >= 0) std::fprintf(stderr, "launcher: Steam game ended, launcher to the front\n");
       } else if (!deck_seen && SDL_GetTicksNS() - deck_start > 90000000000ull) {
