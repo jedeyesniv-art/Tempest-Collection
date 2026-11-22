@@ -1382,29 +1382,4 @@ Open, roughly in order:
    model for behaviour and features (settings screen, Steam shortcut).
 8. Then (owner's order): Neon Mode, Defender 2000.
 
-## Defender 2000 (started 2026-11-18)
-- No public source (mwenge has T2K and VLM only); no byte-identical code shared with T2K. Work from the ROM.
-- Runs in t2k.exe as is (the T2K hooks refuse it). Route: b at 300 / 600 / 900 / 1200 -> D2K mode play by ~1300.
-- Survey tool: t2k --survey=F0:F1:file (src/jagsurvey.cpp; core hooks vjHostGpuGo / vjHostBlit / vjHostOpObject).
-- First findings: one resident GPU program (10 GPU starts in 3700 frames); the 68K blits code overlays into GPU RAM
-  ($F031C0) ~8x a frame. The play picture is OP bitmaps: 16-bit pre-rendered sprites, parallax rock layers (the pillar
-  = one 128x229 bitmap), an 8-bit 384x264 layer, the scanner (256x32). OP lists double-buffered at $C000 / $E000.
-- The game updates at exactly 30 Hz in play (1199 of 1200 updates last 2 frames); at speed the layers jump 22-29 px
-  per update. Objects are already placed past the right edge (x up to ~640).
-- 2026-11-18 later: native renderer + interpolation done (CLAUDE.md "Defender 2000 renderer"). Next candidates: what is
-  drawn into the 8-bit playfield bitmap (30 Hz still), widescreen (the game culls at the edges: needs the world's
-  objects past them), the owner's look at it in the window, then stick controls and the Classic / Plus modes.
-- 2026-11-19: shots / particles / stars smooth (the playfield layer cut into matched items) and wide screens (the
-  game's two list-building GPU overlays patched in RAM; mirrored layer ends). CLAUDE.md "Defender 2000 renderer".
-  Next candidates: the owner's look in the window (motion, wide), a D2K menu page (own settings: native, smooth
-  motion, wide, filter), HUD to the corners on wide windows, stars / shots past line-buffer 0..383 on wide windows,
-  stick controls, Classic / Plus modes.
-- 2026-11-19 later: standalone build\d2k.exe (owner: not in the collection for now) with its own menu page, arcade
-  Thrust / Reverse buttons, loudness levelled. Next: the owner's play test (feel of Reverse / Thrust, wide, motion).
-- 2026-11-19 later: high-res art - art dump + census (434 pictures, ~0.95 Mpx), Real-ESRGAN 4x pack (build\d2k_art),
-  loader in d2k.cpp (setting d2k_hires, F4). Next: the owner's look in play; then maybe the edge fringe on small
-  sprites (black baked into their edges), the 28 recoloured pictures (per-colouring replacements), Classic's pixel art
-  (a pixel-art scaler?), text / HUD redrawn by us.
-- 2026-11-19 later: no pop-in at wide edges (the layer builder covers a tile past each edge), the ground carries on to
-  the window's edges, smoothed mountain ridges. Found: Plus mode's nebula clouds + radar landscape line are missing
-  from our renderer (GPU-drawn? to investigate); Classic differs a little too.
+## Defender 2000: moved to C:/LlamatronRecomp (2026-11-22; its D2K.md has this section)
