@@ -18,10 +18,10 @@ const int kBit[kFnCount] = {-1, nuon::A, nuon::B, nuon::Y, nuon::X, nuon::L2, nu
 
 void Install(bool from_launcher) {
   // The owner's layout (from their Nuance setup): A = A, B = B, X = C-left, Y = C-up, LB / RB = L / R, LT / L-stick
-  // click = C-down, RT / R-stick click = C-right, Start = Start. Back opens this menu, so the Nuon button starts
-  // unbound (bind it here if a screen needs it).
-  //                                             a   b   x       y     lb  rb  lt      rt       start   ls      rs
-  const int defaults[controls::kButtonCount] = {kA, kB, kCLeft, kCUp, kL, kR, kCDown, kCRight, kStart, kCDown, kCRight};
+  // click = C-down, RT = R too (R = the jump in play, owner 2026-11-22), R-stick click = C-right, Start = Start.
+  // Back opens this menu, so the Nuon button starts unbound (bind it here if a screen needs it).
+  //                                             a   b   x       y     lb  rb  lt      rt  start   ls      rs
+  const int defaults[controls::kButtonCount] = {kA, kB, kCLeft, kCUp, kL, kR, kCDown, kR, kStart, kCDown, kCRight};
   controls::Setup({{"a", "A"}, {"b", "B"}, {"c_left", "C-left"}, {"c_up", "C-up"}, {"c_down", "C-down"},
                    {"c_right", "C-right"}, {"l", "L"}, {"r", "R"}, {"start", "Start"}, {"nuon", "Nuon button"}},
                   defaults);

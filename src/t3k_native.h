@@ -34,7 +34,8 @@
 //   x000000FE (any type ending in FE): a disabled entry, nothing drawn;
 //   00100200 textured plane (806A3108 mode 2, 806A3794; tools/t3k_planefit.py: 0.7 a channel): the rectangle w0 / w1
 //            filled with the 16 x 16 texture at w9 at quadratic (u, v) (bonus / warp backgrounds); a GPU mesh;
-//   00310108 (806A5FB0 mode 1) draws nothing unless w4 bit 0 is set (a particle burst: not ported, never seen in play);
+//   00310108 (806A5FB0 mode 1) draws nothing unless w4 bit 0 is set: then the jump burst (96 LFSR particles, as
+//   00310309's discs; tools/t3k_jumpburstfit.py);
 //   000000FF end of list; 000000FE / 003102FE nothing drawn.
 // A picture holding any other type is not "complete": the emulated picture is shown instead.
 #pragma once

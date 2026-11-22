@@ -714,6 +714,12 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
 - 00310108 (806A5FB0 mode 1, handler 806A630A): draws only when w4 bit 0 is set - a 96-particle burst (LFSR 806A66D8
   positions, colour lerped between $B60 / $B64 by depth, perspective size 2..24). In play w4 = 00240100: nothing, in
   every logged play entry (500). Ported as "draws nothing" (bit set -> picture stays emulated).
+  2026-11-22: the bit is set by the JUMP (Nuon R; found by the owner's log_emulated). Ported (JumpBurst): seeds
+  $23956329 / $49352850 / $0946354F set at module entry (same 96 particles each picture); LFSR r >>= 1, ^= $A3000000
+  when the bit out was 0; x / y = sext24 x z >> 26, size = (r & 15) x z >> 25, z = (lfsr - 2 w3) & $1FFFFFF; colour
+  lerp($D2921000, mem[$8010B154]) by ((z << 7) & $FFFF) / 2^16 (mul_p takes ru's fraction); I = $3F000000; projection
+  as 00310309. tools/t3k_jumpburstfit.py: all 96 exact against a PCLOG. Mask check (play_f3150 + R at 3155): 10.1 over
+  the type's pixels, optimum in x / y / radius.
 - 00310309 (806A8990 mode 3, handler 806A8B68): particles from a list of 4-word records at w12 (16 bytes each, ends
   at x word $80000000): word 0 = x hi / y lo (signed), 1 = depth, 2 = colour (YCrCb), 3 = intensity hi / size lo
   (hi 0 -> full intensity, size word as is). Projection as the point modules: depth clamped >= $400000, k from the

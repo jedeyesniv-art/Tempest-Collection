@@ -400,6 +400,48 @@ int32_t KOfDepth(int64_t depth) {   // 806A9566 + $C000: 0.75 x 2^44 / (depth + 
   return int32_t(int64_t(0xC000) * int64_t(17592186044416.0 / double(depth + 0x800000)) >> 16);
 }
 
+// --- 00310108 with w4 bit 0: the jump burst (806A5FB0 mode 1, 806A630A; tools/t3k_jumpburstfit.py) ---
+// 96 particles from fixed LFSR seeds (the same set every picture), flying out along z as w3 grows; colour a mix of
+// $D2921000 and mem[$8010B154] by the low 16 bits of z << 7; projected and drawn as the 00310309 particles.
+
+void JumpBurst(const uint32_t* e, const Mem& mem, Picture* out) {
+  uint32_t cam[3] = {}, colb = 0;
+  for (int k = 0; k < 3; ++k) Read(mem, 0x800DAD80u + 4 * uint32_t(k), &cam[k]);
+  Read(mem, 0x8010B154u, &colb);
+  const uint32_t cola = 0xD2921000u;
+  auto lfsr = [](uint32_t r) { return (r >> 1) ^ ((r & 1) ? 0u : 0xA3000000u); };
+  uint32_t r8 = 0x23956329u, r9 = 0x49352850u, r10 = 0x0946354Fu;
+  const int32_t base = S32(int64_t(int32_t(e[2])) + int32_t(cam[2]));
+  for (int n = 0; n < 96; ++n) {
+    r8 = lfsr(r8);
+    const int32_t x0 = Sext(r8, 24);
+    r9 = lfsr(r9);
+    const int32_t y0 = Sext(r9, 24);
+    r10 = lfsr(r10);
+    const int32_t z = int32_t((r10 - (e[3] << 1)) & 0x1FFFFFFu);
+    r8 = lfsr(r8);
+    const int32_t x = Mul(z, x0, 26), y = Mul(z, y0, 26), s = Mul(z, int32_t(r8 & 15), 25);
+    const uint32_t f = (uint32_t(z) << 7) & 0xFFFF;
+    uint32_t col = 0;
+    for (int sh = 24; sh >= 8; sh -= 8) {
+      const int ca = int(cola >> sh & 0xFF), cb = int(colb >> sh & 0xFF);
+      col |= uint32_t((ca + (((cb - ca) * int(f)) >> 16)) & 0xFF) << sh;
+    }
+    const int32_t k = KOfDepth(int64_t(base) + z);
+    const int32_t px = Mul(k, S32(int64_t((S32(int64_t(int32_t(e[0])) + x)) >> 1) + (int64_t(int32_t(cam[1])) << 3)), 19);
+    const int32_t py = Mul(k, S32(int64_t((S32(int64_t(int32_t(e[1])) + y)) >> 1) + (int64_t(int32_t(cam[0])) << 3)), 19);
+    const int size = std::clamp(Mul(k, s, 19), 2, 24);
+    Blob b;   // centre = the call's top-left + size / 2 = the projected point + (180.5, 120.5); pixel offsets as Particles
+    // (checked 2026-11-22 with T3K_CHECK_MASK over the jump: a pixel off in x or y, or the radius +-0.5, doubles the error)
+    b.x = float(double(px) / 65536.0 + 180.5 + 0.5);
+    b.y = float(double(py) / 65536.0 + 120.5 - 0.5);
+    b.r = float(size) / 2.f;
+    b.colour = Colour(col | 0xFF, 1.f);
+    b.colour.a = float(0x3F000000 / 1073741824.0);
+    out->blobs.push_back(b);
+  }
+}
+
 void Dots(const uint32_t* e, const Mem& mem, Picture* out) {
   const uint32_t w13 = e[13];
   uint32_t lst = (w13 & 0x80) ? e[12] : 0;
@@ -1110,13 +1152,13 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         break;
       case 0x007100FE:   // (a disabled vector entry: the low byte FE makes the renderers pass over it)
         break;
-      case 0x00310108:   // 806A5FB0 mode 1 (806A630A): a 96-particle burst, drawn only when w4 bit 0 is set
-        if (e[4] & 1) {   // (never seen in play so far: not ported)
-          if (out->complete) {
-            out->first_unknown = e[15];
-            std::memcpy(out->unknown_entry, e, sizeof out->unknown_entry);
-          }
-          out->complete = false;
+      case 0x00310108:   // 806A5FB0 mode 1 (806A630A): the jump burst, drawn only when w4 bit 0 is set
+        if (e[4] & 1) {
+          Op op{Op::kBlobs};
+          op.first = uint32_t(out->blobs.size());
+          JumpBurst(e, mem, out);
+          op.count = uint32_t(out->blobs.size()) - op.first;
+          if (op.count) out->ops.push_back(op);
         }
         break;
       default: {

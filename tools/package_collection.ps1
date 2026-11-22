@@ -360,8 +360,8 @@ PAD (each game's menu can remap its buttons)
  Launcher: left / right choose, up / down Space Giraffe's flavour (Acid / Nuxx), A start, Y Steam, B quit.
  Tempest (1981): left stick / d-pad spin, A / RT fire, B / RB / X Superzapper, Y coin, Start start.
  Tempest 2000: A fire, X / RT jump, B / RB Superzapper, Y Option, Start pause, LB camera view.
- Tempest 3000: left stick claw, A / B / X / Y as the Nuon A / B / C-left / C-up, LB / RB L / R, LT / RT C-down /
-               C-right, Start start.
+ Tempest 3000: left stick claw, A fire, B Superzapper, RB / RT jump (Nuon R), X / Y as the Nuon C-left / C-up,
+               LB L, LT C-down, Start start.
  TxK: A Cross, B Circle, X Square, Y Triangle, LB Select, LT hold (L), RT jump (R), Start start, sticks;
       touch the screen (or click) for the touchscreen.
  Back (View) = the game's settings menu (the game pauses).

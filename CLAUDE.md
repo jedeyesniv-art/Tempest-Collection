@@ -218,6 +218,16 @@ framing in play on Tempest Tubes.
   in place, ROMs checked by CRC first), CRT+ / CRT++ (GPU renderer). All: the menus, the run logs.
 - Tools from the session: tools/iso_list.py, t3k_datmap.py, t3k_musicrate.py, wav_compare.py.
 
+## T3K jump (2026-11-22)
+- The game HAS a jump: Nuon R shoulder (our RB, and RT since 2026-11-22, owner). From play_f3150, R lifts the claw off the rim (camera pulls back), lands
+  ~30 fields later; the top-right HUD number (x2 -> 1) = jumps left. A = fire, B = Superzapper; C buttons / L: nothing
+  in play. VM Labs design doc 09/02/99 (arstechnica PDF) planned a "Hover" (fuel meter) instead of T2K's jump, plus
+  Guided Missiles, Rapid Fire, A.I. Droid. Disc speech/sound names (end of nuon.dat): "homing missiles", "superzapper
+  recharge", "remote destroyer", "thrust", "glide control", "auto shooting"; no "hover" / "jump". Shots: logs/t3k/jump3.
+  Not checked: how jumps are refilled, whether holding R longer hovers.
+- The jump's particle burst = type 00310108 with w4 bit 0 (never seen before: the owner's log_emulated caught it).
+  Native now (PLAN.md "The small types"); repro: play_f3150 + --press=3155:r:90, pictures 1042-1048.
+
 ## T3K run-ahead + Step nudge fix (2026-11-18; PLAN.md item 8)
 - Lag: d-pad -> picture 5 fields inside the game. Step mode had 2 more + lost / half nudges (stuck check counted from the
   first picture, per field): fixed; tools/t3k_steptest.py [--state --f0 --phase] checks nudges / three / wiggle / sweep.
