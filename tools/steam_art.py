@@ -1,6 +1,6 @@
 """Steam library art for the Tempest Collection shortcut (TempestCollection.exe added to Steam as a non-Steam game),
 made from the launcher's ingredients: the six covers (art\\panels\\, tools/launcher_art.py), glowing panel edges in
-each game's colour and the launcher's glowing 5x7 pixel lettering (read from src/launcher_view.cpp).
+each game's colour and the launcher's glowing 5x7 pixel lettering (read from src/pixfont.cpp).
 
 python -I tools/steam_art.py [out dir]      (default art\\steam\\ - not in git: the covers are the publishers')
 
@@ -26,7 +26,7 @@ MAGENTA, CYAN = (255, 80, 255), (120, 200, 255)
 
 
 def glyphs():
-    src = open(os.path.join(ROOT, 'src', 'launcher_view.cpp'), encoding='utf-8').read()
+    src = ''.join(open(os.path.join(ROOT, 'src', f), encoding='utf-8').read() for f in ('pixfont.cpp', 'launcher_view.cpp'))
     g = {}
     for c, rows in re.findall(r"\{'(\\?.)', \"([.#]+)\"\}", src):
         g[c.replace('\\', '') or c] = rows.ljust(35, '.')[:35]

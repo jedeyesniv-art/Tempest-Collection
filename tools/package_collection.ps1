@@ -13,13 +13,18 @@
 #   README.txt                     Steam Deck steps and controls
 #
 # Game files are hard-linked from the repo (no second copy on this disk; copying the folder elsewhere copies them).
-# Usage: powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
-param([switch]$SkipBuild)
+# Usage: powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild] [-Release]
+#
+# -Release: the PUBLIC package instead - dist\release\TempestCollection\ + dist\TempestCollection-<date>.zip:
+#   no game files (game\ holds a note), no PS Vita firmware (vita_firmware\ holds a note; nothing in system\vita3k),
+#   an empty userdata\ (each program writes its defaults on first start), licences\ with the cores' licence texts and
+#   our changes to each core as patches. The Nuon BIOS replacement (Nuance's own, open source) is shipped.
+param([switch]$SkipBuild, [switch]$Release)
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $build = Join-Path $repo "build"
-$dist = Join-Path $repo "dist\TempestCollection"
+$dist = if ($Release) { Join-Path $repo "dist\release\TempestCollection" } else { Join-Path $repo "dist\TempestCollection" }
 
 if (-not $SkipBuild) {
     $log = Join-Path $build "package_build.log"
@@ -37,7 +42,7 @@ if (-not $SkipBuild) {
 # If a run stopped between the two, the set-aside copy is still in build\ and is used (the play folder has none then).
 $kept = Join-Path $build "userdata_play_kept"
 $distUd = Join-Path $dist "userdata"
-if (Test-Path $distUd) {
+if ((-not $Release) -and (Test-Path $distUd)) {
     if (Test-Path $kept) { Remove-Item -Recurse -Force $kept }
     Move-Item $distUd $kept
 }
@@ -93,6 +98,9 @@ foreach ($f in @("msvcp140.dll", "msvcp140_atomic_wait.dll", "vcruntime140.dll",
 
 # System files: the Nuon BIOS stubs, the installed Vita firmware (the core's own data it unpacks again if missing).
 Copy-Item -Recurse (Join-Path $build "system\nuance") (Join-Path $dist "system\nuance")
+# (FlashEEPROM.bin is the Nuon's save memory, written while playing: a release starts with none.)
+if ($Release) { Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dist "system\nuance\FlashEEPROM.bin") }
+if (-not $Release) {
 $vsrc = Join-Path $build "system\vita3k"
 $vdst = Join-Path $dist "system\vita3k"
 if (-not (Test-Path (Join-Path $vsrc "vs0"))) { Write-Error "Vita firmware not installed yet: run build\txk.exe once" }
@@ -101,7 +109,40 @@ New-Item -ItemType Directory -Force $vdst | Out-Null
 # the data from it (a test run from dist\ once moved build\system\vita3k away). Without it the copy is a fresh start.
 Get-ChildItem $vsrc | Where-Object { $_.Extension -ne ".pup" -and $_.Name -notin @("log", "cache", "storage_location.txt") } |
     ForEach-Object { Copy-Item -Recurse $_.FullName (Join-Path $vdst $_.Name) }
+}
 
+if ($Release) {
+@"
+PUT YOUR GAMES HERE
+===================
+
+The Tempest Collection comes without any games. Put your own copies in this folder:
+
+  Tempest (1981 arcade)   tempest.zip             the MAME romset (MAME 0.289 or later; a merged set also gives
+                                                  Tempest Tubes in the game's menu)
+  Tempest 2000 (Jaguar)   <name>.jag or .j64      the cartridge image; the file name must contain "Tempest"
+  Tempest 3000 (Nuon)     <name>.iso or .mdf      the disc image; the file name must contain "Tempest"
+                                                  (the launcher offers to compress it on its first start)
+  TxK (PS Vita)           PCSB00494\              the game's folder (eboot.bin, sce_sys\ ...); TxK also needs the
+                                                  PS Vita firmware: see ..\vita_firmware\
+
+The launcher greys out a game until its files are here, and says what it is looking for.
+Space Giraffe and Tempest 4000 are not files: install them in Steam.
+"@ | Set-Content -Encoding ascii (Join-Path $dist "game\PUT YOUR GAMES HERE.txt")
+    $vf = Join-Path $dist "vita_firmware"
+    New-Item -ItemType Directory -Force $vf | Out-Null
+@"
+PS VITA FIRMWARE (for TxK)
+==========================
+
+Put these two files from Sony's PS Vita system software update pages in this folder:
+
+  PSVUPDAT.PUP    the PS Vita system software
+  PSP2UPDAT.PUP   the font package
+
+TxK installs them on its first start (it takes a little while; the files can be deleted afterwards).
+"@ | Set-Content -Encoding ascii (Join-Path $vf "PUT THE FIRMWARE HERE.txt")
+} else {
 # The games (hard links: same disk, no second copy).
 function Link-Game($src, $name) {
     if (-not (Test-Path $src)) { Write-Warning "missing: $src"; return }
@@ -120,6 +161,7 @@ Get-ChildItem $txk -Recurse -File | ForEach-Object {
     $to = Join-Path $dist "game\$rel"
     New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
     New-Item -ItemType HardLink -Path $to -Target $_.FullName | Out-Null
+}
 }
 
 # The Tempest 4000 helper (skips its video-mode dialog; goes into the Steam game's folder, see its README).
@@ -185,13 +227,16 @@ UNINSTALL: delete d3d9.dll and sg_helper.txt from the game's folder (and the lau
 # (settings, T2K EEPROM, save states, TxK saves). Not *.bak, not emulated\ (T3K's log of pictures the native renderer
 # couldn't draw: debug states + shots, ~180 MB). Settings files copied from build\ start fullscreen; the play
 # folder's own settings are left as the owner set them.
-if (Test-Path $kept) {
+if ($Release) {
+    # nothing: each program writes its own settings file with its defaults on first start
+} elseif (Test-Path $kept) {
     Remove-Item -Recurse -Force $distUd
     Move-Item $kept $distUd
     Write-Host "userdata: the play folder's own kept (files it lacks added from build\userdata)"
 }
 $srcUd = (Resolve-Path (Join-Path $build "userdata")).Path
 $added = @()
+if (-not $Release) {
 Get-ChildItem $srcUd -Recurse -File | Where-Object {
     $rel = $_.FullName.Substring($srcUd.Length + 1)
     $_.Name -notlike "*.bak" -and -not ($rel -like "emulated\*")
@@ -210,14 +255,69 @@ $added | Where-Object { $_.Name -like "*settings.txt" } | ForEach-Object {
     $t = $t -replace '^vita3k_resolution_multiplier\s*=.*$', 'vita3k_resolution_multiplier = 1'
     Set-Content -Encoding ascii $_.FullName $t
 }
+}
 
+# Licences: each third-party licence text, and where the source is. Everything is in this project's repository:
+# Virtual Jaguar and Nuance vendored (third_party/), MAME and Vita3K as our patches (third_party/patches/, copied here
+# too) on the upstream commits tools/get_third_party.sh fetches.
+$lic = Join-Path $dist "licences"
+New-Item -ItemType Directory -Force $lic | Out-Null
+$tp = Join-Path $repo "third_party"
+$texts = @(
+    @("Virtual Jaguar (libretro) - LICENSE.txt", "virtualjaguar\LICENSE"),
+    @("Nuance Resurrection - License.txt", "NuanceResurrection\License.txt"),
+    @("MAME (libretro) - COPYING.txt", "mame-libretro\COPYING"),
+    @("Vita3K (libretro) - COPYING.txt", "vita3k-libretro\COPYING.txt"),
+    @("SDL 3 - LICENSE.txt", "SDL\LICENSE.txt"),
+    @("libsndfile - COPYING.txt", "libsndfile\COPYING")
+)
+foreach ($t in $texts) { Copy-Item (Join-Path $tp $t[1]) (Join-Path $lic $t[0]) }
+foreach ($core in @("mame-libretro", "vita3k-libretro")) {
+    $pd = Join-Path $lic "patches\$core"
+    New-Item -ItemType Directory -Force $pd | Out-Null
+    Copy-Item (Join-Path $tp "patches\$core\*.patch") $pd
+    # the patches must still be what the core's branch holds (a core change not exported yet would be missing)
+    $n = @(git -C (Join-Path $tp $core) rev-list "HEAD" --not --remotes 2>$null).Count
+    $have = @(Get-ChildItem (Join-Path $tp "patches\$core") -Filter *.patch).Count
+    if ($n -ne $have) { Write-Warning "$core has $n commits of ours but $have patch files: re-export them (git format-patch)" }
+}
 @"
-TEMPEST COLLECTION
-==================
+SOURCE
+======
 
-Run TempestCollection.exe and pick a game. Each game runs fullscreen on top of the launcher and comes back to it
-when you quit (Back / View on the pad opens a game's settings menu, which has "Return to launcher").
+The complete source of this collection - our programs and every change we made to the emulator cores - is in the
+Tempest Collection's GitHub repository:
 
+  src\                            the launcher and the four game programs (t2k, t3k, t81, txk)
+  third_party\virtualjaguar\      Virtual Jaguar (GPL-3), with our changes (LLAMASOFT-NOTES.txt)
+  third_party\NuanceResurrection\ Nuance Resurrection, with our changes (LLAMASOFT-NOTES.txt)
+  third_party\patches\            our changes to MAME and Vita3K (also in patches\ here), applied by
+                                  tools\get_third_party.sh to:
+                                    MAME (libretro)   https://github.com/libretro/mame at 5f5a0774
+                                    Vita3K (libretro) https://github.com/WizzardSK/vita3k-libretro at 29ad0e79
+  SDL 3.4.16 and libsndfile 1.2.2 are used unmodified.
+
+The programs that contain GPL code (t2k.exe and the cores) are under the GPL; the licence texts are in this folder.
+"@ | Set-Content -Encoding ascii (Join-Path $lic "SOURCE.txt")
+
+if ($Release) {
+$gamesText = @"
+  TEMPEST (1981 arcade)       MAME core           game\tempest.zip
+  TEMPEST 2000 (Jaguar)       Virtual Jaguar      game\<name>.jag  (or .j64)
+  TEMPEST 3000 (Nuon)         Nuance              game\<name>.iso  (or .mdf)
+  SPACE GIRAFFE               opens Steam (if it is installed there); "Space Giraffe helper\" sets it up
+  TxK (PS Vita)               Vita3K              game\PCSB00494\  + the PS Vita firmware in vita_firmware\
+  TEMPEST 4000                opens Steam (if it is installed there); "Tempest 4000 helper\" skips its
+                              video-mode window and starts at the screen's own mode (see its README)
+
+NO GAMES ARE INCLUDED: bring your own. game\PUT YOUR GAMES HERE.txt says what goes where; the launcher greys out a
+game until its files are there and says what it is looking for.
+
+Settings, saves and save states live in userdata\ (made on first start).
+Licences and the source of the emulator cores: licences\.
+"@
+} else {
+$gamesText = @"
   TEMPEST (1981 arcade)       MAME core           game\tempest.zip
   TEMPEST 2000 (Jaguar)       Virtual Jaguar      game\Tempest 2000 (1994).jag
   TEMPEST 3000 (Nuon)         Nuance              game\$t3kDisc
@@ -227,6 +327,17 @@ when you quit (Back / View on the pad opens a game's settings menu, which has "R
                               video-mode window and starts at the screen's own mode (see its README)
 
 Settings, saves and save states live in userdata\. This folder is a private copy: do not share it.
+"@
+}
+
+@"
+TEMPEST COLLECTION
+==================
+
+Run TempestCollection.exe and pick a game. Each game runs fullscreen on top of the launcher and comes back to it
+when you quit (Back / View on the pad opens a game's settings menu, which has "Return to launcher").
+
+$gamesText
 
 STEAM DECK (desktop mode, then play in game mode):
  1. Copy this whole folder to the Deck, e.g. /home/deck/Games/TempestCollection
@@ -265,3 +376,16 @@ foreach ($d in @("game", "system", "userdata")) {
 }
 $total = [double](($files | Measure-Object Length -Sum).Sum)
 Write-Host ("{0,-12} {1,8:N1} MB in {2} files: {3}" -f "total", ($total / 1MB), $files.Count, $dist)
+
+if ($Release) {
+    # Safety: nothing of the owner's may be in a public package.
+    $bad = $files | Where-Object { $_.Extension -in @(".jag", ".j64", ".rom", ".iso", ".mdf", ".mds", ".nuz", ".chd", ".pup",
+                                                       ".state", ".eeprom", ".bak") -or $_.Name -eq "tempest.zip" -or
+                                   $_.Name -eq "eboot.bin" -or $_.FullName -match "\\system\\vita3k\\" -or
+                                   $_.FullName -match "\\userdata\\" }
+    if ($bad) { $bad | ForEach-Object { Write-Host "  NOT ALLOWED: $($_.FullName)" }; Write-Error "game or owner files in the release" }
+    $zip = Join-Path $repo ("dist\TempestCollection-{0}.zip" -f (Get-Date -Format "yyyy-MM-dd"))
+    if (Test-Path $zip) { Remove-Item -Force $zip }
+    Compress-Archive -Path $dist -DestinationPath $zip -CompressionLevel Optimal
+    Write-Host ("release zip  {0,8:N1} MB: {1}" -f ((Get-Item $zip).Length / 1MB), $zip)
+}

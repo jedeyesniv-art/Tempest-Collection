@@ -112,6 +112,8 @@ std::string FindRom(const std::string& given, const char* title_word) {
     for (auto& e : fs::directory_iterator(d, ec)) {
       auto name = e.path().filename().string();
       auto ext = e.path().extension().string();
+      std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+      std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
       if ((ext == ".jag" || ext == ".j64" || ext == ".rom") && name.find(title_word) != std::string::npos)
         return e.path().string();
     }
@@ -286,7 +288,8 @@ int main(int argc, char** argv) {
   int menu_test = 0;   // --menu (1) / --menu=all (2): open the menu at start (tests; winshot counts presents)
   std::vector<Shot> rmshots;
   int runahead = 0;
-  int win_w = 1280, win_h = 960;   // --winsize=WxH
+  int win_w = 1280, win_h = 960;   // --winsize=WxH (a window of that size: not fullscreen)
+  bool winsize_given = false;
   double aspect = 0;  // --aspect=W:H (headless rmshots: the 4:3 picture centred, our layer filling the rest)   // --runahead=N (headless; the window uses setting run_ahead)
   int rm_scale = 4;
   std::string pause_line = "press y to quit to title";
@@ -301,6 +304,7 @@ int main(int argc, char** argv) {
       auto v = val("--winsize="); auto c = v.find('x');
       win_w = std::atoi(v.substr(0, c).c_str());
       win_h = std::atoi(v.substr(c + 1).c_str());
+      winsize_given = true;
     } else if (a.rfind("--aspect=", 0) == 0) {
       auto v = val("--aspect="); auto c = v.find(':');
       aspect = std::atof(v.substr(0, c).c_str()) / std::atof(v.substr(c + 1).c_str());
@@ -388,10 +392,10 @@ int main(int argc, char** argv) {
   }
   // Saves / settings next to the program unless given (Steam and shortcuts start it from other folders).
   if (!userdata_given) userdata = (fs::path(SDL_GetBasePath()) / "userdata").string();
-  rom = FindRom(rom, "Tempest");
+  rom = FindRom(rom, "tempest");
   if (rom.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 2000",
-                             "Put your Tempest 2000 cartridge image (.jag) next to the program.", nullptr);
+                             "Put your Tempest 2000 cartridge image (.jag) in the game folder next to the program.", nullptr);
     return 1;
   }
   const char* app = "t2k";
@@ -526,7 +530,7 @@ int main(int argc, char** argv) {
       SDL_DestroySurface(icon);
     }
   }
-  if (settings::Num("fullscreen", 0) != 0) SDL_SetWindowFullscreen(win, true);
+  if (settings::Num("fullscreen", 1) != 0 && !winsize_given) SDL_SetWindowFullscreen(win, true);
   // SDL's GPU renderer (D3D12) for the CRT shaders; the default renderer if it isn't available (no CRT then).
   SDL_Renderer* ren = crt::CreateRenderer(win);
   if (ren && !crt::Init(ren)) std::fprintf(stderr, "crt: unavailable on renderer %s\n", SDL_GetRendererName(ren));
@@ -930,7 +934,7 @@ int main(int argc, char** argv) {
       if (remaster::Enabled()) {
         remaster::SetLineWidth(float(settings::Num("remaster_line_width", 1.5)));
         remaster::SetEffects(float(settings::Num("remaster_bolt_width", 2.0)), settings::Num("remaster_bolt_glow", 1) != 0,
-                             float(settings::Num("remaster_particle_size", 1.5)),
+                             float(settings::Num("remaster_particle_size", 1.4)),
                              float(settings::Num("remaster_shot_glow", 0.5)),
                              float(settings::Num("remaster_shot_size", 0.5)));
         remaster::SetPowerUps(float(settings::Num("remaster_pup_floor", 0.7)),

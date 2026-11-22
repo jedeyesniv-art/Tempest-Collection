@@ -384,6 +384,83 @@ const SteamSetup kSetups[] = {
      "sg\\d3d9.dll"},
 };
 
+std::string Lower(std::string s) {
+  for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+  return s;
+}
+
+// Tempest 3000's disc: the image (.iso, or a DVD .mdf / .img: the same sectors) and the .nuz beside it, in the first
+// folder (as t3k.exe searches) that has either. `iso` is whichever uncompressed image it is.
+struct T3kDisc { fs::path iso, nuz; };
+T3kDisc FindT3kDisc(const fs::path& base) {
+  for (const fs::path& d : {base, base / "game", base.parent_path().parent_path() / "Nuance_067"}) {
+    std::error_code ec;
+    fs::path iso, nuz;
+    for (auto& e : fs::directory_iterator(d, ec)) {
+      const std::string ext = Lower(e.path().extension().string());
+      const std::string name = Lower(e.path().filename().string());
+      if (name.find("tempest") == std::string::npos && name.find("t3k") == std::string::npos) continue;
+      if ((ext == ".iso" || ext == ".mdf" || ext == ".img") && (iso.empty() || ext == ".iso")) iso = e.path();
+      if (ext == ".nuz") nuz = e.path();
+    }
+    if (!iso.empty()) return {iso, fs::path(iso).replace_extension(".nuz")};
+    if (!nuz.empty()) return {{}, nuz};
+  }
+  return {};
+}
+
+// The game files each program needs (searched as the program itself searches: next to it and in game\). Empty when
+// they are there, else the launcher's help lines: what is missing and where it goes. The collection ships without
+// them: the player brings their own.
+std::vector<std::string> MissingGameFiles(const std::string& id, const fs::path& base) {
+  const fs::path dirs[] = {base, base / "game", base.parent_path().parent_path()};
+  auto any = [&](auto pred) {
+    for (const fs::path& d : dirs) {
+      std::error_code ec;
+      for (auto& e : fs::directory_iterator(d, ec))
+        if (pred(e)) return true;
+    }
+    return false;
+  };
+  if (id == "t81") {
+    if (any([](const fs::directory_entry& e) { return Lower(e.path().filename().string()) == "tempest.zip"; })) return {};
+    return {"Needs the MAME romset tempest.zip (MAME 0.289 or newer,",
+            "merged or split) - put it in the game folder:", "    " + (base / "game").string()};
+  }
+  if (id == "t2k") {
+    if (any([](const fs::directory_entry& e) {
+          const std::string ext = Lower(e.path().extension().string());
+          return (ext == ".jag" || ext == ".j64" || ext == ".rom") &&
+                 Lower(e.path().filename().string()).find("tempest") != std::string::npos;
+        }))
+      return {};
+    return {"Needs the Tempest 2000 cartridge image (.jag or .j64,",
+            "the name containing \"Tempest\") in the game folder:", "    " + (base / "game").string()};
+  }
+  if (id == "t3k") {
+    if (!FindT3kDisc(base).iso.empty() || !FindT3kDisc(base).nuz.empty()) return {};
+    return {"Needs the Tempest 3000 disc image (.iso or .mdf, the name", "containing \"Tempest\") in the game folder:",
+            "    " + (base / "game").string(), "(on its first start the launcher offers to compress it: 743 -> 196 MB)"};
+  }
+  if (id == "txk") {
+    const bool game = any([](const fs::directory_entry& e) {
+      return e.is_directory() && e.path().filename().string().rfind("PCS", 0) == 0 &&
+             fs::exists(e.path() / "eboot.bin") && fs::exists(e.path() / "sce_sys" / "param.sfo");
+    });
+    const bool firmware = fs::exists(base / "system" / "vita3k" / "vs0") ||
+                          fs::exists(base / "vita_firmware" / "PSVUPDAT.PUP");
+    std::vector<std::string> help;
+    if (!game) help.push_back("Needs the TxK game folder (e.g. PCSB00494, with eboot.bin) in game\\");
+    if (!firmware) {
+      help.push_back(std::string(game ? "Needs" : "and") + " the Vita firmware PSVUPDAT.PUP + font PSP2UPDAT.PUP");
+      help.push_back("(both free from Sony's site) in vita_firmware\\");
+    }
+    if (!help.empty()) help.push_back("    in " + base.string());
+    return help;
+  }
+  return {};
+}
+
 std::vector<Game> MakeGames(const fs::path& base) {
   std::vector<Game> g = {
       {"t81", "TEMPEST", "1981 - ARCADE", "ATARI - DAVE THEURER", Kind::Program, "t81.exe", ""},
@@ -398,6 +475,7 @@ std::vector<Game> MakeGames(const fs::path& base) {
   for (auto& x : g) {
     if (x.kind == Kind::NotYet) x.status = "coming later";
     else if (x.kind == Kind::Program && !fs::exists(base / x.target)) x.status = std::string(x.target) + " not found";
+    else if (x.kind == Kind::Program && !(x.help = MissingGameFiles(x.id, base)).empty()) x.status = "game files needed";
     else if (x.kind == Kind::Steam) {
       const SteamSetup* su = nullptr;
       for (const auto& s : kSetups)
@@ -494,25 +572,6 @@ SDL_Gamepad* FirstPad() {
 
 // The launcher menu's own actions (menu::Update returns them).
 enum LauncherAction : int { kCompressDisc = menu::kGameAction, kDeleteIso, kAskDiscAgain };
-
-// Tempest 3000's disc: the .iso and the .nuz beside it, in the first folder (as t3k.exe searches) that has either.
-struct T3kDisc { fs::path iso, nuz; };
-T3kDisc FindT3kDisc(const fs::path& base) {
-  for (const fs::path& d : {base, base / "game", base.parent_path().parent_path() / "Nuance_067"}) {
-    std::error_code ec;
-    fs::path iso, nuz;
-    for (auto& e : fs::directory_iterator(d, ec)) {
-      std::string ext = e.path().extension().string();
-      for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
-      if (e.path().filename().string().find("Tempest") == std::string::npos) continue;
-      if (ext == ".iso") iso = e.path();
-      if (ext == ".nuz") nuz = e.path();
-    }
-    if (!iso.empty()) return {iso, fs::path(iso).replace_extension(".nuz")};
-    if (!nuz.empty()) return {{}, nuz};
-  }
-  return {};
-}
 
 }  // namespace
 
@@ -852,7 +911,11 @@ int main(int argc, char** argv) {
       if (yes) {
         std::error_code ec;
         fs::remove(disc.iso, ec);
-        message = ec ? "could not delete the .iso: " + ec.message() : "deleted " + disc.iso.filename().string();
+        message = ec ? "could not delete the disc image: " + ec.message() : "deleted " + disc.iso.filename().string();
+        if (!ec && Lower(disc.iso.extension().string()) == ".mdf") {   // its .mds (the layout) is no use alone
+          std::error_code ec2;
+          fs::remove(fs::path(disc.iso).replace_extension(".mds"), ec2);
+        }
       } else if (ask_start) {
         settings::Save("t3k_offer_delete", "0");
       }
@@ -914,7 +977,7 @@ int main(int argc, char** argv) {
     p.Header("TEMPEST 3000 DISC");
     p.items.back().when = [&] { return disc_iso; };   // (nothing to do without the .iso)
     p.Button("Compress the disc now", kCompressDisc, true)->when = [&] { return disc_iso && !disc_nuz; };
-    p.Button("Delete the original .iso", kDeleteIso, true)->when = [&] { return disc_iso && disc_nuz; };
+    p.Button("Delete the original disc image", kDeleteIso, true)->when = [&] { return disc_iso && disc_nuz; };
     p.Button("Ask about the disc again on start", kAskDiscAgain)->when = [&] {
       return disc_iso && (settings::Num("t3k_offer_compress", 1) == 0 || settings::Num("t3k_offer_delete", 1) == 0);
     };

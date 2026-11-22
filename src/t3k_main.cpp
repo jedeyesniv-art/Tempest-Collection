@@ -131,7 +131,7 @@ buffer_fields = 2
 # speed. 24 = the owner's choice; the original hardware probably managed about 30 in play. Rates that divide 120
 # (15, 20, 24, 30, 40, 60) step evenly on a 120 Hz display, those dividing 60 (15, 20, 30, 60) on a 60 Hz one; others
 # show pictures for uneven times (picture_blend / native_interpolate smooth that out).
-game_speed = 24
+game_speed = 26
 # The light synth warp between levels (and after a lost life) at its own speed, as on the original, which drew those
 # light screens at about 60 a second while play ran slower: pictures a second (15-60), 0 = game_speed everywhere.
 warp_speed = 60
@@ -187,7 +187,7 @@ stick_mode = step
 # Run-ahead, fields (0 = off, up to 4): the game answers the pad that many fields sooner (it emulates them ahead and
 # goes back each field). Costs CPU: each field is emulated 1 + this many times. Lowered by itself for the session when
 # this machine can't keep up. (The game's own lag: the picture changes 5 fields after a d-pad press.)
-run_ahead = 0
+run_ahead = 2
 lr_deadzone = 0.20
 # Top speed at full deflection, in lanes per picture (the game's own d-pad top speed is 0.94).
 lr_max_speed = 0.94
@@ -450,7 +450,7 @@ struct SpeedControl {
       warp = zoom && !web;
       this->web = web;
     }
-    const double game = std::clamp(settings::Num("game_speed", 24), 15.0, 60.0);
+    const double game = std::clamp(settings::Num("game_speed", 26), 15.0, 60.0);
     const double ws = settings::Num("warp_speed", 60);
     const double warp_rate = ws > 0 ? std::clamp(ws, 15.0, 60.0) : game;
     const double target = warp ? warp_rate : game;
@@ -895,9 +895,11 @@ std::string FindDisc(const std::string& given) {
       auto name = e.path().filename().string();
       auto ext = e.path().extension().string();
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-      if (name.find("Tempest") == std::string::npos) continue;
+      std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+      if (name.find("tempest") == std::string::npos && name.find("t3k") == std::string::npos) continue;
       if (ext == ".nuz") return e.path().string();
-      if ((ext == ".iso" || ext == ".chd") && found.empty()) found = e.path().string();
+      // a DVD .mdf (Alcohol 120%) / .img is the same 2048-byte sectors as an .iso
+      if ((ext == ".iso" || ext == ".chd" || ext == ".mdf" || ext == ".img") && found.empty()) found = e.path().string();
     }
     if (!found.empty()) return found;
   }
@@ -1134,7 +1136,7 @@ int main(int argc, char** argv) {
   disc = FindDisc(disc);
   if (disc.empty()) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest 3000",
-                             "Put your Tempest 3000 disc image (.iso) next to the program.", nullptr);
+                             "Put your Tempest 3000 disc image (.iso or .mdf) in the game folder next to the program.", nullptr);
     return 1;
   }
   std::string err;
@@ -1821,7 +1823,7 @@ int main(int argc, char** argv) {
       // second, in play): one field less for the rest of the session (ra_cut; the menu tells).
       // Only in play (the web on screen, not a warp): where the pad matters, and the boot / menus are heavier fields
       // (they tripped the lowering at once) that also load code and disc data.
-      const int ra_want = std::clamp(int(settings::Num("run_ahead", 0)), 0, 4);
+      const int ra_want = std::clamp(int(settings::Num("run_ahead", 2)), 0, 4);
       if (ra_want != ra_set) { ra_set = ra_want; ra_level = ra_want; ra_over = 0; }
       const bool ra_on = ra_level > 0 && speed.web && !speed.warp;
       uint64_t ra_t[5] = {};   // (the breakdown: before the snapshot, after it, after the hidden fields, picture, load)

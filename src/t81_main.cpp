@@ -350,7 +350,7 @@ int main(int argc, char** argv) {
   const bool romset_given = !romset.empty() && fs::path(romset).stem().string() != "tempest";
   romset = FindRomset(romset);
   if (romset.empty()) {
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest", "Put the MAME romset tempest.zip next to the program.",
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Tempest", "Put the MAME romset tempest.zip in the game folder next to the program.",
                              nullptr);
     return 1;
   }

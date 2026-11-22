@@ -30,11 +30,11 @@ lr_max_speed = 0.41
 # Deflection curve: 1 = linear, higher = gentler near the centre.
 lr_curve = 1.5
 # Ramp from first push to full speed, in frames (slow start, quicker middle, eases into top speed).
-lr_ramp_frames = 14
+lr_ramp_frames = 20
 # Fraction of the speed available on the very first frame of a push.
-lr_ramp_start = 0.15
+lr_ramp_start = 0.05
 # Frames the claw keeps easing after the stick is released (0 = stop dead, like the original pad).
-lr_release_frames = 2
+lr_release_frames = 3
 
 # --- aim mode ---
 # How far the stick must be pushed before it picks a lane (0..1).

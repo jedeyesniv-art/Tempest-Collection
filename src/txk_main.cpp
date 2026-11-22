@@ -72,10 +72,10 @@ auto_ok_dialog = Network features are disabled
 # (re)starts).
 vita3k_resolution_multiplier = 1
 # Anisotropic texture filtering: 1 (off), 2, 4, 8, 16.
-vita3k_anisotropic_filtering = 1
+vita3k_anisotropic_filtering = 16
 
 # Picture scaling to the window: smooth (bilinear) or sharp (nearest pixel).
-picture_filter = smooth
+picture_filter = sharp
 )";
 
 struct Shot { int frame; std::string path; };
@@ -441,7 +441,7 @@ int main(int argc, char** argv) {
   txk_menu::Install(from_launcher);
   game = FindGame(game);
   if (game.empty()) {
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TxK", "Put your TxK game folder (PCSB00494) next to the program.",
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TxK", "Put your TxK game folder (e.g. PCSB00494) in the game folder next to the program.",
                              nullptr);
     return 1;
   }
@@ -696,7 +696,7 @@ int main(int argc, char** argv) {
         th = f.height;
       }
       SDL_UpdateTexture(tex, nullptr, f.pixels.data(), int(f.width * 4));
-      SDL_SetTextureScaleMode(tex, settings::Str("picture_filter", "smooth") == "sharp" ? SDL_SCALEMODE_NEAREST
+      SDL_SetTextureScaleMode(tex, settings::Str("picture_filter", "sharp") == "sharp" ? SDL_SCALEMODE_NEAREST
                                                                                          : SDL_SCALEMODE_LINEAR);
     }
     int ww = 0, wh = 0;

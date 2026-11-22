@@ -115,18 +115,18 @@ double LrVelocity(const Pad& p) {
     int sgn = p.lx < 0 ? -1 : 1;
     if (sgn != g_dir) { g_dir = sgn; g_held = 0; }
     ++g_held;
-    double frames = std::max(1.0, settings::Num("lr_ramp_frames", 14));
-    double r0 = std::clamp(settings::Num("lr_ramp_start", 0.15), 0.0, 1.0);
+    double frames = std::max(1.0, settings::Num("lr_ramp_frames", 20));
+    double r0 = std::clamp(settings::Num("lr_ramp_start", 0.05), 0.0, 1.0);
     double ramp = r0 + (1 - r0) * Smoothstep(g_held / frames);
     double v = sgn * settings::Num("lr_max_speed", 0.41) * std::pow(d, settings::Num("lr_curve", 1.5)) * ramp;
-    g_release_left = int(settings::Num("lr_release_frames", 2));
+    g_release_left = int(settings::Num("lr_release_frames", 3));
     g_release_v0 = v;
     return v;
   }
   g_dir = 0;
   g_held = 0;
   if (g_release_left > 0) {
-    int n = int(settings::Num("lr_release_frames", 2));
+    int n = int(settings::Num("lr_release_frames", 3));
     int k = n - g_release_left + 1;
     --g_release_left;
     return g_release_v0 * (1.0 - double(k) / (n + 1));

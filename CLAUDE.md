@@ -17,9 +17,19 @@ PLAN.md "Tempest Collection" and "Collection status and open items".
 ## Layout
 - `Tempest 2000 (1994).jag` (MD5 602bc995..., == mwenge/tempest2k `make cartridge`). Never in git.
   (Defender 2000's cartridge moved to C:\LlamatronRecomp\Private\d2k, 2026-11-22.) `BigPEmu Jaguar\` = closed-source visual reference only.
-- third_party/virtualjaguar: libretro/virtualjaguar-libretro clone (GPL-3), our branch `llamasoft-jaguar`
-  from master 34696082 (v3.11.0). Built with its own app/cmake/VJCore.cmake. Not in the outer git.
-- third_party/SDL: SDL 3.4.16, copied from the Llamatron repo. Not in the outer git.
+- SOURCES IN THE MAIN REPO (2026-11-22, owner: "I got criticised for splitting them before"). VENDORED (plain folders,
+  tracked by the outer git; tools/vendor_cores.py did it, trimmed to what the builds read; LLAMASOFT-NOTES.txt each):
+  third_party/virtualjaguar (GPL-3, was branch llamasoft-jaguar eb83a9de from 34696082) and third_party/
+  NuanceResurrection (was branch llamasoft-nuon 5a6e8de3 from 12ece855; asmjit's files included). Their old git
+  histories: third_party/_coregit/<name>.git + .bundle (not in git). CORE CHANGES ARE NOW COMMITTED IN THE MAIN REPO.
+  PATCHED, FETCHED: third_party/mame-libretro + vita3k-libretro stay git clones (ignored); our commits as
+  third_party/patches/<core>/*.patch (git format-patch from the base; verified: git am on the base == our tree). After
+  a new commit in one of them, re-export its patches (package_collection.ps1 warns when counts differ).
+  tools/get_third_party.sh fetches SDL (release-3.4.16), MAME @ 5f5a0774, Vita3K @ 29ad0e79 + am (download part not
+  run end to end). third_party/libsndfile (1.2.2 DLL from the Python soundfile wheel, unmodified) is tracked.
+  Shipped art is tracked too (art/panels, art/steam, art/sounds stings; the source pictures in art/ stay out).
+- third_party/virtualjaguar: built with its own app/cmake/VJCore.cmake. A core fix may belong in Llamatron's copy too.
+- third_party/SDL: SDL 3.4.16 (Llamatron's submodule commit). Not in the outer git (get_third_party.sh).
 - reference/tempest2k: mwenge's source (yak.s = 68K main, src/gpu/*.gas GPU modules). Not in the outer git.
 - third_party/vita3k-libretro: WizzardSK/vita3k-libretro (GPL-2) for TxK, our branch `llamasoft-vita` from libretro
   29ad0e79 (one patch: OpenSSL no-asm, so no NASM). tools\build_vita3k.bat (MSVC, Ninja Multi-Config, as upstream CI)
@@ -88,6 +98,14 @@ PLAN.md "Tempest Collection" and "Collection status and open items".
   (LAUNCHER_NO_REGISTRY + STEAM_COMPAT_CLIENT_INSTALL_PATH), tools/vdf_dump.py.
 
 ## Build / test
+PUBLIC RELEASE (2026-11-22, owner): tools\package_collection.ps1 -Release -> dist\release\TempestCollection\ +
+dist\TempestCollection-<date>.zip (~53 MB): no game files / Vita firmware / userdata (the launcher stings ARE shipped, owner), the
+Nuon BIOS replacement shipped, licences\ = licence texts + each core's patch vs its upstream base (SOURCE.txt; commit
+core changes first or they are missing - it warns). Ends with a check that refuses game / owner files. The launcher
+greys a game out with "game files needed" + what / where (launcher.cpp MissingGameFiles). T3K reads .iso / .mdf /
+.img (a DVD .mdf == .iso). Release defaults = the owner's tune (T3K game_speed 26 + run_ahead 2, T2K lr ramp 20 /
+0.05 / 3 + particles 1.4 + fullscreen, TxK sharp + aniso 16). README.md = the GitHub page (header res/github/,
+tools/github_art.py). Tested: a copy of the release + hard-linked games (logs\reltest), all four from first start.
 Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
 -> dist\TempestCollection\ (TempestCollection.exe launcher, t2k / t3k / txk / t81 + cores + C++ runtime, system\ with the
 installed Vita firmware, game\ = the four games hard-linked (T3K as the .nuz), userdata\ = the play folder's own, KEPT across

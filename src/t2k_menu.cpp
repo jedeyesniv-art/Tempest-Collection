@@ -55,7 +55,7 @@ void Install(bool from_launcher) {
   p.Choice("  Pixel art (text, HUD, menus)", "picture_filter", {"sharp", "xbr", "smooth"},
            {"Sharp pixels", "Smoothed (xBR)", "Soft (bilinear)"})->when = rem;
   p.Sub("Fine-tune look");
-  p.Number("Particle size (x original)", "remaster_particle_size", 0.5, 3.0, 0.1, "%.1f", 1.5)->when = rem;
+  p.Number("Particle size (x original)", "remaster_particle_size", 0.5, 3.0, 0.1, "%.1f", 1.4)->when = rem;
   p.Number("Lightning width (0 = original)", "remaster_bolt_width", 0.0, 5.0, 0.25, "%.2f", 2.0)->when = rem;
   p.Choice("Lightning glow", "remaster_bolt_glow", {"1", "0"}, {"On", "Off"})->when = rem;
   p.Number("Enemy bullet glow (0 = off)", "remaster_shot_glow", 0.0, 3.0, 0.1, "%.1f", 0.5)->when = rem;
