@@ -37,7 +37,7 @@ void Install(bool from_launcher) {
            {"Off", "25%", "50%", "75%", "100%", "125%", "150%"})->def_value = "1";
   p.Button("Restart the game", kRestart, true);
   // play / menus / warp each at their own speed (t3k_main.cpp SpeedControl)
-  p.Number("Play speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 26);
+  p.Number("Play speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 21);
   p.Number("Menu speed (pictures/s)", "menu_speed", 15, 60, 1, "%.0f", 30);
   p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60/s (original)", "Play speed"});
   p.Number("  Speed change (s)", "warp_ramp", 0, 2, 0.1, "%.1f", 0.5);
@@ -53,9 +53,9 @@ void Install(bool from_launcher) {
   // the owner's tuning (2026-11-17) is each slider's default and its middle
   p.Choice("On release after a sweep", "sp_release", {"off", "back", "nearest", "ahead"},
            {"Off (stop where it is)", "Step back a lane (stop short)", "Nearest lane", "On to the next lane"})->when = sp;
-  p.Number("Top speed (lanes a second)", "sp_top_speed", 16, 34, 0.5, "%.1f", 25.0)->when = sp;
+  p.Number("Top speed (lanes a second)", "sp_top_speed", 16, 34, 0.5, "%.1f", 23.0)->when = sp;
   p.Number("Hold before sweeping (s)", "sp_repeat_delay", 0.02, 0.18, 0.01, "%.2f", 0.10)->when = sp;
-  p.Number("Ramp to top speed (s)", "sp_ramp_time", 0.02, 0.58, 0.02, "%.2f", 0.30)->when = sp;
+  p.Number("Ramp to top speed (s)", "sp_ramp_time", 0.02, 0.58, 0.02, "%.2f", 0.44)->when = sp;
   p.Number("Sweep start (of top)", "sp_ramp_start", 0.05, 0.55, 0.01, "%.2f", 0.30)->when = sp;
   p.Number("Step time (s a lane)", "sp_step_time", 0.01, 0.17, 0.01, "%.2f", 0.09)->when = sp;
   p.Number("Stick depth curve", "sp_curve", 0.5, 2.5, 0.1, "%.1f", 1.5)->when = sp;

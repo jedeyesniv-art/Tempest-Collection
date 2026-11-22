@@ -35,7 +35,7 @@ compresses it to save disc space.
 
 At this point Tempest 3000 is highly playable, incredibly beautiful and runs fantastically well. The general feel of
 the game is configurable, since the game's speed is set by its internal frame rate. The original most likely ran at
-around 30 fps; I prefer it slightly slower at 26, but you can choose. Smooth motion interpolation means play still
+around 30 fps; I prefer it slower at 21, but you can choose. Smooth motion interpolation means play still
 feels smooth, and run-ahead is available to reduce latency further if you have the CPU for it. Run-ahead is too much for
 the Steam Deck, but testing shows the game plays well there without it.
 
@@ -128,8 +128,12 @@ shows the exact line to paste when it is missing.
 
 **Tempest 3000**
 - Every picture is drawn natively from the game's display lists: high resolution, wide screens, and smooth motion
-  interpolated between the game's own frames.
-- Game speed (pictures per second, 15-60; default 26) and a separate warp speed, so the game's feel is yours to set.
+  interpolated between the game's own frames - the web, vectors, particles, power-ups and numbers all move smoothly
+  at your display's refresh rate, whatever the game speed.
+- Three speeds (pictures per second, 15-60): play (default 21), menus (default 30) and the warp between levels (60),
+  with a short ramp between them, so the game's feel is yours to set without slowing the menus.
+- The jump: RB or RT (the Nuon's R button; the number at the top right is the jumps left). A fires, B is the
+  Superzapper.
 - Stick modes: Step (default: a push = one lane, hold to sweep), Stiff (Tempest 2000-like) and Left / right.
 - Run-ahead (0-4, default 2; lowered automatically when the CPU can't keep up - set it to Off on the Steam Deck).
   No "controller configuration" screen at boot. High scores kept between sessions.

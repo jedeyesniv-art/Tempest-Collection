@@ -105,7 +105,7 @@ dist\TempestCollection-<date>.zip (~53 MB): no game files / Vita firmware / user
 Nuon BIOS replacement shipped, licences\ = licence texts + each core's patch vs its upstream base (SOURCE.txt; commit
 core changes first or they are missing - it warns). Ends with a check that refuses game / owner files. The launcher
 greys a game out with "game files needed" + what / where (launcher.cpp MissingGameFiles). T3K reads .iso / .mdf /
-.img (a DVD .mdf == .iso). Release defaults = the owner's tune (T3K game_speed 26 + run_ahead 2, T2K lr ramp 20 /
+.img (a DVD .mdf == .iso). Release defaults = the owner's tune (T3K game_speed 21 + sp_top_speed 23 + sp_ramp_time 0.44 + menu_speed 30 + run_ahead 2, T2K lr ramp 20 /
 0.05 / 3 + particles 1.4 + fullscreen, TxK sharp + aniso 16). README.md = the GitHub page (header res/github/,
 tools/github_art.py). Tested: a copy of the release + hard-linked games (logs\reltest), all four from first start.
 Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]

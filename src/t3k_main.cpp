@@ -21,7 +21,8 @@
 //   --poke=F:hexaddr:hexvalue[:len]       write a big-endian word into system RAM before fields F.. (headless)
 //   --stick=F:x[:len]                     hold the left stick at x (-1..1) for the claw controller (headless)
 //   --clawlog=F0:F1:<file>                headless: after each field F0..F1: field, stick x, claw position (lanes),
-//                                         velocity, scale, the game's picture counter (claw feel study), web on screen (0 / 1), the claw position copy $800DC100
+//                                         velocity, scale, the game's picture counter (claw feel study), web on screen (0 / 1), the claw position copy $800DC100,
+//                                         the camera words $800DAD80 / 84 / 88 (y, x, z)
 //   --memdump=F:<prefix>                  dump the Nuon's memory after field F (headless; repeatable)
 //   --perflog=<file.csv>                  one line per frame: timing and the core's run statistics
 //   --userdata=<dir>                      save folder (default userdata next to the program)
@@ -128,10 +129,10 @@ nuon_rounds = 200000
 # (16.7 ms) more input lag. 1 = lowest lag, but busy moments may show a field for 1 or 3 refreshes.
 buffer_fields = 2
 # Game speed in pictures a second (15-60). Tempest 3000 moves a fixed step per picture, so its picture rate is its
-# speed. 24 = the owner's choice; the original hardware probably managed about 30 in play. Rates that divide 120
+# speed. 21 = the owner's choice (2026-11-22); the original hardware probably managed about 30 in play. Rates that divide 120
 # (15, 20, 24, 30, 40, 60) step evenly on a 120 Hz display, those dividing 60 (15, 20, 30, 60) on a 60 Hz one; others
 # show pictures for uneven times (picture_blend / native_interpolate smooth that out).
-game_speed = 26
+game_speed = 21
 # The light synth warp between levels (and after a lost life) at its own speed, as on the original, which drew those
 # light screens at about 60 a second while play ran slower: pictures a second (15-60), 0 = game_speed everywhere.
 warp_speed = 60
@@ -225,8 +226,8 @@ st_snap_ahead = 0.2
 sp_deadzone = 0.20
 sp_step_time = 0.09
 sp_repeat_delay = 0.10
-sp_top_speed = 25.0
-sp_ramp_time = 0.30
+sp_top_speed = 23.0
+sp_ramp_time = 0.44
 sp_ramp_start = 0.30
 sp_curve = 1.5
 sp_release = off
@@ -484,7 +485,7 @@ struct SpeedControl {
       const uint8_t* m = nuon::Memory(0, &n);
       claw = m && n >= 0x800000 && FindClawSlot(m, &claw_at);
     }
-    const double game = std::clamp(settings::Num("game_speed", 26), 15.0, 60.0);
+    const double game = std::clamp(settings::Num("game_speed", 21), 15.0, 60.0);
     const double ws = settings::Num("warp_speed", 60), ms = settings::Num("menu_speed", 30);
     const double warp_rate = ws > 0 ? std::clamp(ws, 15.0, 60.0) : game;
     const double menu_rate = ms > 0 ? std::clamp(ms, 15.0, 60.0) : game;
@@ -672,11 +673,11 @@ struct ClawControl {
         sp_held = 0;
       }
       if (sp_sweeping) {
-        const double top = std::max(1.0, settings::Num("sp_top_speed", 25.0));
+        const double top = std::max(1.0, settings::Num("sp_top_speed", 23.0));
         const double r0 = std::clamp(settings::Num("sp_ramp_start", 0.30), 0.0, 1.0);
         const double u = std::min(1.0, (ax - dz) / std::max(0.01, 1.0 - dz));
         const double cap = top * (r0 + (1 - r0) * std::pow(std::max(0.0, u), settings::Num("sp_curve", 1.5)));
-        const double t = std::clamp(sp_held / std::max(0.01, settings::Num("sp_ramp_time", 0.30)), 0.0, 1.0);
+        const double t = std::clamp(sp_held / std::max(0.01, settings::Num("sp_ramp_time", 0.44)), 0.0, 1.0);
         const double speed = std::min(cap, top * (r0 + (1 - r0) * t * t * (3 - 2 * t)));
         // finish the nudge's step first (never slower than the sweep)
         if (sp_rem * sp_dir > 1e-6) {
@@ -1460,9 +1461,10 @@ int main(int argc, char** argv) {
           headless_claw.FindClaw(m);
           const uint32_t ca = headless_claw.claw_at;
           const int inplay = speed.web ? 1 : 0;
-          std::fprintf(clawlog, "%d %.3f %.5f %.5f %.4f %d %d %08X %08X %d %08X\n", f, sx, get(ca) / 65536.0,
+          std::fprintf(clawlog, "%d %.3f %.5f %.5f %.4f %d %d %08X %08X %d %08X %d %d %d\n", f, sx, get(ca) / 65536.0,
                        get(ca + 4) / 65536.0, get(ca + 8) / 65536.0, get(0x80110AA0), get(0x801133D8),
-                       uint32_t(get(ca + 12)), ca, inplay, uint32_t(get(0x800DC100)));
+                       uint32_t(get(ca + 12)), ca, inplay, uint32_t(get(0x800DC100)), get(0x800DAD80),
+                       get(0x800DAD84), get(0x800DAD88));   // + the camera words y, x, z
         }
         if (f == clawlog_f1 && clawlog) { std::fclose(clawlog); clawlog = nullptr; }
       }

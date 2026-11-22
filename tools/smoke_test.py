@@ -94,9 +94,10 @@ def main():
                          '--set=remaster=0', '--press=400:b', '--press=600:b', '--press=800:b', '--press=1000:b', '--press=1500:b',
                          '--shot=2290:' + o('t2k_play.bmp')], [o('t2k_play.bmp')], ['loaded'], 900, 0.10))
     if 't3k' in want:
-        headless.append(('t3k play', [os.path.join(B, 't3k.exe'), '--headless', '--frames=3010', ud('t3k'),
+        # (at the default play speed 21 field 3000 is the next level's fly-in, a small web: shot later, in play)
+        headless.append(('t3k play', [os.path.join(B, 't3k.exe'), '--headless', '--frames=3160', ud('t3k'),
                          '--press=900:a', '--press=1300:a', '--press=1700:a', '--press=2100:a', '--press=2500:a',
-                         '--shot=3000:' + o('t3k_play.bmp')], [o('t3k_play.bmp')], ['loaded'], 900, 0.10))
+                         '--shot=3150:' + o('t3k_play.bmp')], [o('t3k_play.bmp')], ['loaded'], 900, 0.10))
     if 't81' in want:
         for v in ('tempest', 'temptube'):
             headless.append((f't81 {v}', [os.path.join(B, 't81.exe'), '--headless', '--frames=610', ud('t81_' + v),
