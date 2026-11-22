@@ -8,7 +8,9 @@ graphics, an unlocked (interpolated) frame rate, Xbox-pad stick controls, QoL. A
 from that launcher; notes in its D2K.md, which has this file's old "Defender 2000 renderer" section and PLAN.md's
 "Defender 2000"). Its code, tools, cartridge, art pack, Real-ESRGAN, saves and logs/d2k went with it. The core here
 still has the D2K-era hooks (survey, OP skip, GPU memory) - T2K uses some; a core fix may belong in both copies.
-**Entirely offline**: local git only, no remote, no push, no publishing until the owner decides.
+**PUBLIC since 2026-11-22**: https://github.com/jedeyesniv-art/Tempest-Collection (origin, branch main; release v1.0.0 =
+the -Release zip). Commits use the GitHub no-reply email (history rewritten; pre-rewrite backup:
+logs\repo-backup-before-email-rewrite.bundle). Push / new releases only when the owner asks.
 
 Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): arcade Tempest (1981, MAME),
 T2K (Jaguar), T3K (Nuon), Space Giraffe (Steam), TxK (Vita), Tempest 4000 (Steam) - all six run from the launcher;
