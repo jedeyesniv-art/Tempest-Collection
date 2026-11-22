@@ -300,6 +300,11 @@ framing in play on Tempest Tubes.
   the menu) candidates: 800B2F4C 80139048 801B72AC 8024670C (untested).
 
 ## T3K game speed + warp speed (2026-11-16)
+- 2026-11-22 smooth motion = the whole picture (owner: 20-22 pictures/s felt steppy): InterpolatePicture blends
+  vectors (as before), the web surface (64 vertices, the same each picture; it moves 1.5-5.5 game px a picture), discs
+  (paired by entry type (Op::type) + index, per disc only if it moved <= 30 px), numbers and planes. The title dot
+  field 0031000E is left out (its indices aren't the same dots). Test: T3K_WEBDUMP=1 headless (web moves, disc
+  pairing quality per type). Lag unchanged (up to one picture, as before).
 - 2026-11-22 (owner): three speeds. Play = the web surface AND the claw object (FindClawSlot) -> game_speed (menu
   label "Play speed"); warp -> warp_speed; everything else (title, options, level select, high scores) -> menu_speed
   (default 30). Each change ramps over warp_ramp. T3K_SPEED_LOG prints warp / web / claw; checked boot -> game over ->

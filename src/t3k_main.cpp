@@ -1369,8 +1369,76 @@ int main(int argc, char** argv) {
       }
       {
         static nuon::Capture scap;
-        speed.Field(nuon::GetCapture(&scap) ? &scap : nullptr);
+        const bool have_cap = nuon::GetCapture(&scap);
+        speed.Field(have_cap ? &scap : nullptr);
         CheatsAfterField(speed.web);
+        // T3K_WEBDUMP=1 (tests): per new picture, the web surface against the previous picture's - vertex count, the
+        // largest vertex / texel move, and whether InterpolatePicture blends the pair (the halfway vertex = the mean)
+        if (std::getenv("T3K_WEBDUMP") && have_cap) {
+          static t3knative::Picture wprev, wcur, wmid;
+          static uint32_t wflip = 0;
+          if (scap.flip != wflip && !scap.entries.empty()) {
+            wflip = scap.flip;
+            wprev = std::move(wcur);
+            wcur = t3knative::Picture{};
+            t3knative::BuildPicture(scap, &wcur);
+            if (!wcur.webs.empty() && !wprev.webs.empty()) {
+              const auto &a = wprev.webs[0].quads, &b = wcur.webs[0].quads;
+              float dxy = 0, duv = 0, err = 0;
+              const bool same = a.size() == b.size();
+              t3knative::InterpolatePicture(wprev, wcur, 0.5f, &wmid);
+              for (size_t i = 0; same && i < b.size(); ++i) {
+                dxy = std::max(dxy, std::fabs(a[i].x - b[i].x) + std::fabs(a[i].y - b[i].y));
+                duv = std::max(duv, std::fabs(a[i].u - b[i].u) + std::fabs(a[i].v - b[i].v));
+                const auto& m = wmid.webs[0].quads[i];
+                err = std::max(err, std::fabs(m.x - (a[i].x + b[i].x) / 2) + std::fabs(m.y - (a[i].y + b[i].y) / 2));
+              }
+              std::fprintf(stderr, "webdump field %d flip %u: verts %zu -> %zu, max move %.2f px, uv %.2f, "
+                           "halfway off %.3f\n", f, scap.flip, a.size(), b.size(), dxy, duv, err);
+            }
+            // disc ops, paired by entry type and order as InterpolatePicture does: counts, how many index pairs it
+            // blends (moved <= 30 px), and pairing quality - for true pairs the motion continues from the last pair
+            // (median |velocity change| well under the median |velocity|)
+            static std::map<std::pair<uint32_t, int>, std::vector<std::pair<float, float>>> last_v;
+            std::map<uint32_t, int> seen_a, seen_b;
+            std::vector<const t3knative::Op*> oa;
+            for (auto& op : wprev.ops) if (op.kind == t3knative::Op::kBlobs) oa.push_back(&op);
+            std::vector<char> used(oa.size(), 0);
+            for (auto& ob : wcur.ops) {
+              if (ob.kind != t3knative::Op::kBlobs) continue;
+              const int k = seen_b[ob.type]++;
+              const t3knative::Op* pa = nullptr;
+              for (size_t j = 0; j < oa.size(); ++j)
+                if (!used[j] && oa[j]->type == ob.type) { used[j] = 1; pa = oa[j]; break; }
+              if (!pa) continue;
+              const auto key = std::make_pair(ob.type, k);
+              if (pa->count != ob.count) {
+                std::fprintf(stderr, "blobdump field %d type %08X #%d: %u -> %u (counts differ)\n", f, ob.type, k,
+                             pa->count, ob.count);
+                last_v.erase(key);
+                continue;
+              }
+              std::vector<std::pair<float, float>> v(ob.count);
+              std::vector<float> sp, dv;
+              int blended = 0;
+              for (uint32_t i = 0; i < ob.count; ++i) {
+                const auto &p = wprev.blobs[pa->first + i], &c = wcur.blobs[ob.first + i];
+                v[i] = {c.x - p.x, c.y - p.y};
+                if (std::fabs(v[i].first) + std::fabs(v[i].second) <= 30.f) ++blended;
+                sp.push_back(std::hypot(v[i].first, v[i].second));
+                auto it = last_v.find(key);
+                if (it != last_v.end() && it->second.size() == v.size())
+                  dv.push_back(std::hypot(v[i].first - it->second[i].first, v[i].second - it->second[i].second));
+              }
+              last_v[key] = v;
+              std::sort(sp.begin(), sp.end());
+              std::sort(dv.begin(), dv.end());
+              std::fprintf(stderr, "blobdump field %d type %08X #%d: %u, blended %d, median speed %.2f, median "
+                           "velocity change %.2f\n", f, ob.type, k, ob.count, blended, sp.empty() ? 0.f : sp[sp.size() / 2],
+                           dv.empty() ? -1.f : dv[dv.size() / 2]);
+            }
+          }
+        }
         if (std::getenv("T3K_SPEED_LOG") && f % 10 == 0) {   // tests: the speed control every 10 fields
           nuon::RunStats rs{};
           nuon::GetRunStats(&rs);
@@ -2251,7 +2319,12 @@ int main(int argc, char** argv) {
           const float take = std::min(native_step_left, due);
           native_step_left -= take;
           // the fade rounds once per game picture: on the present that completes its step (or finishes the last one's)
-          native.Draw(ren, *shown_vec, native_segments(), dst, carry + take, view,
+          // in between two game pictures: the whole picture blended (vectors, web surface)
+          static t3knative::Picture between;
+          const bool blend = native_t < 1.0 && prev_vec;
+          if (blend) t3knative::InterpolatePicture(*prev_vec, *shown_vec, float(native_t), &between);
+          const t3knative::Picture& draw_pic = blend ? between : *shown_vec;
+          native.Draw(ren, draw_pic, draw_pic.segs, dst, carry + take, view,
                       native_step_left <= 1e-4f || carry > 0.f);
         } else if (shown_vec != native_last_pic) {
           native.Draw(ren, *shown_vec, shown_vec->segs, dst, 1.f, view);

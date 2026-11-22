@@ -97,6 +97,7 @@ struct Op {
   float cx = 0, cy = 0, zx = 1, zy = 1;        // zoom: centre (game pixels), zoom
   float angle = 0, fade = 1;                   // zoom: rotation (radians), intensity factor
   uint32_t first = 0, count = 0;               // segs: the range in Picture::segs
+  uint32_t type = 0;                           // the display list entry type that made it
 };
 
 // A picture as drawing operations in list order.
@@ -130,6 +131,8 @@ inline void BuildVectors(const nuon::Capture& cap, Picture* out) { BuildPicture(
 // Vector entries of cur are matched to prev's by shape, segment count and nearest position (each used once);
 // unmatched ones, or moves of more than max_move game pixels, are drawn as in cur.
 void Interpolate(const Picture& prev, const Picture& cur, float t, std::vector<Seg>* out, float max_move = 30.f);
+// A whole in-between picture: cur with its segments (Interpolate) and web surface blended toward prev by 1 - t.
+void InterpolatePicture(const Picture& prev, const Picture& cur, float t, Picture* out);
 
 // Draw segments into dst (the window rectangle the 360 x 240 picture fills). rgb: onto the window (picture colours
 // converted from YCrCb when the YCrCb pipeline is on); false: into a native picture (colours as they are).

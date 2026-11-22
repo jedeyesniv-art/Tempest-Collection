@@ -972,6 +972,7 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         continue;
       }
     }
+    const size_t ops_before = out->ops.size();
     switch (e[15]) {
       case 0x00710001: {   // vector shape
         const uint32_t first = uint32_t(out->segs.size());
@@ -1173,6 +1174,7 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         break;
       }
     }
+    for (size_t k = ops_before; k < out->ops.size(); ++k) out->ops[k].type = e[15];
   }
 }
 
@@ -1590,6 +1592,96 @@ void Interpolate(const Picture& prev, const Picture& cur, float t, std::vector<S
       const Seg &a = prev.segs[ip.first + k], &b = cur.segs[ic.first + k];
       (*out)[ic.first + k] = {lerp(a.x0, b.x0), lerp(a.y0, b.y0), lerp(a.x1, b.x1), lerp(a.y1, b.y1),
                               lerpc(a.c0, b.c0), lerpc(a.c1, b.c1), lerp(a.r, b.r)};
+    }
+  }
+}
+
+void InterpolatePicture(const Picture& prev, const Picture& cur, float t, Picture* out) {
+  *out = cur;
+  if (t >= 1.f) return;
+  t = std::max(t, 0.f);
+  Interpolate(prev, cur, t, &out->segs);
+  auto lerp = [t](float a, float b) { return a + (b - a) * t; };
+  // The web surface: the same lanes from picture to picture (4 vertices each), moved by the camera. Blended vertex by
+  // vertex when both pictures have it with the same lane count and nothing jumped (a new level, a camera cut); the
+  // texture coordinates too, unless they wrapped (the surface pattern scrolls).
+  if (prev.webs.size() == cur.webs.size())
+    for (size_t w = 0; w < cur.webs.size(); ++w) {
+      const auto &a = prev.webs[w].quads, &b = cur.webs[w].quads;
+      if (a.size() != b.size() || b.empty()) continue;
+      bool ok = true;
+      for (size_t i = 0; i < b.size() && ok; ++i)
+        ok = std::fabs(a[i].x - b[i].x) + std::fabs(a[i].y - b[i].y) <= 60.f;
+      if (!ok) continue;
+      auto& q = out->webs[w].quads;
+      for (size_t i = 0; i < b.size(); ++i) {
+        q[i].x = lerp(a[i].x, b[i].x);
+        q[i].y = lerp(a[i].y, b[i].y);
+        if (std::fabs(a[i].u - b[i].u) < 4.f && std::fabs(a[i].v - b[i].v) < 4.f) {
+          q[i].u = lerp(a[i].u, b[i].u);
+          q[i].v = lerp(a[i].v, b[i].v);
+        }
+      }
+    }
+  // Discs, numbers, planes: an op pairs with prev's op of the same kind from the same entry type, by order (the k-th
+  // of that type in each picture); items blend index by index when the counts agree (lists that grew or shrank:
+  // drawn as in cur), each only if it moved little (a particle that wrapped or a reused slot: drawn as in cur).
+  auto pairs = [&](Op::Kind kind) {
+    std::vector<std::pair<const Op*, const Op*>> v;
+    std::vector<char> used(prev.ops.size(), 0);
+    for (const Op& ob : cur.ops) {
+      if (ob.kind != kind) continue;
+      for (size_t j = 0; j < prev.ops.size(); ++j)
+        if (!used[j] && prev.ops[j].kind == kind && prev.ops[j].type == ob.type) {
+          used[j] = 1;
+          v.push_back({&prev.ops[j], &ob});
+          break;
+        }
+    }
+    return v;
+  };
+  // Measured 2026-11-22 (T3K_WEBDUMP: a true pair's motion continues from the last pair): the grid 00310010, shapes
+  // 0031020E, bursts, particles 00310309, rings / wave pair by index; the title dot field 0031000E does NOT (median
+  // velocity change 11.7 px against a speed of 2: its index i is another dot each picture) - drawn as in cur.
+  for (const auto& [pa, pb] : pairs(Op::kBlobs)) {
+    if (pa->count != pb->count || pb->type == 0x0031000Eu) continue;
+    for (uint32_t i = 0; i < pb->count; ++i) {
+      const Blob &a = prev.blobs[pa->first + i], &b = cur.blobs[pb->first + i];
+      if (std::fabs(a.x - b.x) + std::fabs(a.y - b.y) > 30.f) continue;
+      Blob& o = out->blobs[pb->first + i];
+      o.x = lerp(a.x, b.x);
+      o.y = lerp(a.y, b.y);
+      o.r = lerp(a.r, b.r);
+    }
+  }
+  for (const auto& [pa, pb] : pairs(Op::kText)) {
+    {
+      const Op &oa = *pa, &ob = *pb;
+      if (oa.count != ob.count) continue;
+      for (uint32_t i = 0; i < ob.count; ++i) {
+        const Glyph &a = prev.glyphs[oa.first + i], &b = cur.glyphs[ob.first + i];
+        if (std::fabs(a.x - b.x) + std::fabs(a.y - b.y) > 30.f) continue;
+        Glyph& o = out->glyphs[ob.first + i];
+        o.x = lerp(a.x, b.x);
+        o.y = lerp(a.y, b.y);
+        o.w = lerp(a.w, b.w);
+        o.h = lerp(a.h, b.h);
+      }
+    }
+  }
+  for (const auto& [pa, pb] : pairs(Op::kPlane)) {
+    {
+      const Plane &a = prev.planes[pa->first], &b = cur.planes[pb->first];
+      if (a.cols != b.cols || a.rows != b.rows || a.grid.size() != b.grid.size()) continue;
+      bool ok = true;
+      for (size_t i = 0; i < b.grid.size() && ok; ++i)
+        ok = std::fabs(a.grid[i].x - b.grid[i].x) + std::fabs(a.grid[i].y - b.grid[i].y) <= 60.f;
+      if (!ok) continue;
+      auto& g = out->planes[pb->first].grid;
+      for (size_t i = 0; i < b.grid.size(); ++i) {
+        g[i].x = lerp(a.grid[i].x, b.grid[i].x);
+        g[i].y = lerp(a.grid[i].y, b.grid[i].y);
+      }
     }
   }
 }
