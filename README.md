@@ -3,7 +3,8 @@
 # Tempest Collection
 
 This is the latest in a series of collections made to bring the lost games of Jeff Minter (aka Llamasoft) to modern
-PCs, following our earlier releases of the iOS Minotaur Project and Llamasoft's Atari ST games.
+PCs, following our earlier releases of the iOS [Minotaur Project](https://github.com/jedeyesniv-art/MinotaurProjectRemastered)
+and [Llamasoft's Atari ST games](https://github.com/jedeyesniv-art/Llamasoft-on-the-Atari).
 
 This project follows a line of thought I call **Emulation++**. It is not a decompilation or a recompilation: the games
 in this collection run on a heavily modified form of emulation, in which our layer catches and interprets many of the
