@@ -412,7 +412,7 @@ T3kDisc FindT3kDisc(const fs::path& base) {
 // The game files each program needs (searched as the program itself searches: next to it and in game\). Empty when
 // they are there, else the launcher's help lines: what is missing and where it goes. The collection ships without
 // them: the player brings their own.
-std::vector<std::string> MissingGameFiles(const std::string& id, const fs::path& base) {
+std::vector<std::string> MissingGameFiles(const std::string& id, const fs::path& base, std::string* status) {
   const fs::path dirs[] = {base, base / "game", base.parent_path().parent_path()};
   auto any = [&](auto pred) {
     for (const fs::path& d : dirs) {
@@ -443,10 +443,20 @@ std::vector<std::string> MissingGameFiles(const std::string& id, const fs::path&
             "    " + (base / "game").string(), "(on its first start the launcher offers to compress it: 743 -> 196 MB)"};
   }
   if (id == "txk") {
-    const bool game = any([](const fs::directory_entry& e) {
+    auto is_game = [](const fs::directory_entry& e) {
       return e.is_directory() && e.path().filename().string().rfind("PCS", 0) == 0 &&
              fs::exists(e.path() / "eboot.bin") && fs::exists(e.path() / "sce_sys" / "param.sfo");
-    });
+    };
+    // A Vitamin dump (the old dumper adds its loader sce_module\steroid.suprx): Vita3K refuses that module ("You're
+    // trying to load a vitamin dump") and the game crashes at once. Only flagged when no other game folder is there.
+    auto vitamin = [](const fs::directory_entry& e) { return fs::exists(e.path() / "sce_module" / "steroid.suprx"); };
+    const bool game = any([&](const fs::directory_entry& e) { return is_game(e) && !vitamin(e); });
+    if (!game && any([&](const fs::directory_entry& e) { return is_game(e) && vitamin(e); })) {
+      if (status) *status = "unsupported game dump";
+      return {"A Vitamin dump (sce_module\\steroid.suprx): Vita3K can't run it.",
+              "Make a NoNpDrm / FAGDec dump (or use the .pkg + zRIF key)",
+              "and put its folder (e.g. PCSB00494) in the game folder:", "    " + (base / "game").string()};
+    }
     const bool firmware = fs::exists(base / "system" / "vita3k" / "vs0") ||
                           fs::exists(base / "vita_firmware" / "PSVUPDAT.PUP");
     std::vector<std::string> help;
@@ -475,7 +485,10 @@ std::vector<Game> MakeGames(const fs::path& base) {
   for (auto& x : g) {
     if (x.kind == Kind::NotYet) x.status = "coming later";
     else if (x.kind == Kind::Program && !fs::exists(base / x.target)) x.status = std::string(x.target) + " not found";
-    else if (x.kind == Kind::Program && !(x.help = MissingGameFiles(x.id, base)).empty()) x.status = "game files needed";
+    else if (x.kind == Kind::Program) {
+      std::string status = "game files needed";
+      if (!(x.help = MissingGameFiles(x.id, base, &status)).empty()) x.status = status;
+    }
     else if (x.kind == Kind::Steam) {
       const SteamSetup* su = nullptr;
       for (const auto& s : kSetups)
