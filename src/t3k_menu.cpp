@@ -81,6 +81,9 @@ void Install(bool from_launcher) {
   p.Binds();
   p.Header("PICTURE");
   p.Button("Fullscreen", menu::kToggleFullscreen);
+  // the picture drawn at most this tall, then stretched over the window (lighter for weaker GPUs)
+  p.Choice("Resolution", "resolution", {"0", "1440", "1080", "900", "720", "540"},
+           {"Window (full)", "1440p", "1080p", "900p", "720p (lighter)", "540p (lightest)"});
   // Remaster (the native renderer) or Emulation (the original pictures); each one's options only show with it
   auto rem = [] { return settings::Num("native_view", 1) == 1; };
   auto emu = [] { return settings::Num("native_view", 1) != 1; };

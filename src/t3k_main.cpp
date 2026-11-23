@@ -1762,7 +1762,7 @@ int main(int argc, char** argv) {
   if (!ren) { std::fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
   crt::SetModeDefault(0, 1);   // T3K: CRT+ only, off unless chosen
   if (!crt::Init(ren)) std::fprintf(stderr, "crt: unavailable on renderer %s\n", SDL_GetRendererName(ren));
-  SDL_Texture* crt_scene = nullptr;   // the picture before the CRT shader (window-sized)
+  SDL_Texture* crt_scene = nullptr;   // the picture before the CRT shader / the stretch (setting resolution)
   if (settings::Num("fullscreen", 1) != 0 && winsize_w <= 0) SDL_SetWindowFullscreen(win, true);
   const bool vsync_on = !novsync && settings::Num("vsync", 1) != 0;
   SDL_SetRenderVSync(ren, vsync_on ? 1 : 0);
@@ -2258,11 +2258,20 @@ int main(int argc, char** argv) {
     }
     int ww = 0, wh = 0;
     SDL_GetRenderOutputSize(ren, &ww, &wh);
+    // Resolution (setting resolution = a height, 0 = the window's): on a weaker GPU the picture is drawn at most that
+    // tall into crt_scene and stretched over the window (the native renderer's feedback textures follow its size, the
+    // main GPU cost). The menu, toasts and notes stay at the window's size.
+    const int out_w = ww, out_h = wh;
+    if (const int cap = int(settings::Num("resolution", 0)); cap > 0 && wh > cap) {
+      ww = std::max(1, int(std::lround(double(ww) * cap / wh)));
+      wh = cap;
+    }
+    const bool scaled = ww != out_w || wh != out_h;
     // CRT (setting crt): the picture is drawn into a window-sized texture, then through the CRT+ shader
     crt::LoadSettings();
     const bool use_crt = crt::Mode() > 0 && ww > 0 && wh > 0;
     float crt_src_w = 0, crt_src_h = 0;   // the window in game pixels (the scanlines follow the game's 240 lines)
-    if (use_crt) {
+    if (use_crt || scaled) {
       float sw = 0, sh = 0;
       if (crt_scene) SDL_GetTextureSize(crt_scene, &sw, &sh);
       if (!crt_scene || int(sw) != ww || int(sh) != wh) {
@@ -2351,12 +2360,19 @@ int main(int argc, char** argv) {
       if ((native_view == 2 || native_view == 3) && shown_vec) t3knative::DrawVectors(ren, native_segments(), dst);
       if (!native_whole) native_last_ns = 0;   // (the feedback restarts from our last native picture)
     }
-    if (use_crt && crt_scene) {
+    if ((use_crt || scaled) && crt_scene) {
       SDL_SetRenderTarget(ren, nullptr);
       SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
       SDL_RenderClear(ren);
-      crt::DrawPicture(ren, crt_scene, SDL_FRect{0, 0, float(ww), float(wh)}, crt_src_w, crt_src_h);
+      const SDL_FRect full{0, 0, float(out_w), float(out_h)};
+      if (use_crt) crt::DrawPicture(ren, crt_scene, full, crt_src_w, crt_src_h);
+      else {
+        SDL_SetTextureBlendMode(crt_scene, SDL_BLENDMODE_NONE);
+        SDL_RenderTexture(ren, crt_scene, nullptr, &full);
+      }
     }
+    ww = out_w;   // (the overlays below: the window's size)
+    wh = out_h;
     if (show_rates) {
       const uint64_t now = SDL_GetTicksNS();
       if (now - rates_t >= 1000000000ull) {
