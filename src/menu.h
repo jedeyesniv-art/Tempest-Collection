@@ -42,6 +42,7 @@ struct Item {
   bool slot_info = false;               // Button: shows the SetSlotInfo text as its value
   int fn = 0;                           // Bind: controls:: function
   std::function<bool()> when;           // shown only while this is true (unset: always; a Header: its title)
+  std::function<void(Item&)> refresh;   // Choice: rebuilds values / names before each use (a list that changes)
   int section = -1;                     // (set by SetPage) the header it belongs to; -1 = none
   int sub = -1;                         // (set by SetPage) the fold inside the section it belongs to; -1 = none
 };

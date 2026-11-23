@@ -63,6 +63,7 @@
 #include <vector>
 
 #include "controls.h"
+#include "pads.h"
 #include "menu.h"
 #include "nuon_host.h"
 #include "runlog.h"
@@ -2115,12 +2116,9 @@ int main(int argc, char** argv) {
         set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
       else if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) SDL_HideCursor();
       else if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) SDL_ShowCursor();
-      else if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
-      else if (e.type == SDL_EVENT_GAMEPAD_REMOVED && pad && SDL_GetGamepadID(pad) == e.gdevice.which) {
-        SDL_CloseGamepad(pad);
-        pad = nullptr;
-      }
+      else pads::HandleEvent(e);   // controllers: every one open, see pads.h
     }
+    pad = pads::Current();
     // Settings menu (Back / Esc): the emulation waits while it is open; its changes apply here once it is parked.
     {
       const uint64_t now = SDL_GetTicksNS();

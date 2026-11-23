@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "controls.h"
+#include "pads.h"
 #include "gpulog.h"
 #include "jagsurvey.h"
 #include "host.h"
@@ -632,12 +633,9 @@ int main(int argc, char** argv) {
         menu::Toast(remaster::Enabled() ? "Remaster on" : "Remaster off (original picture)", now);
       } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11)
         set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
-      else if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
-      else if (e.type == SDL_EVENT_GAMEPAD_REMOVED && pad && SDL_GetGamepadID(pad) == e.gdevice.which) {
-        SDL_CloseGamepad(pad);
-        pad = nullptr;
-      }
+      else pads::HandleEvent(e);   // controllers: every one open, see pads.h
     }
+    pad = pads::Current();
     const bool* keys = SDL_GetKeyboardState(nullptr);
     bool back = pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK);
     uint32_t held = controls::Held(pad);
@@ -1078,7 +1076,6 @@ int main(int argc, char** argv) {
 
   eeprom.SaveIfChanged();
   host::Unload();
-  if (pad) SDL_CloseGamepad(pad);
   if (audio) SDL_DestroyAudioStream(audio);
   crt::Shutdown();
   SDL_DestroyRenderer(ren);

@@ -4,6 +4,7 @@
 #include "controls.h"
 #include "crt_menu.h"
 #include "nuon_host.h"
+#include "pads.h"
 #include "settings.h"
 
 namespace t3k_menu {
@@ -45,6 +46,7 @@ void Install(bool from_launcher) {
   p.Button("  Save state", menu::kSaveState)->slot_info = true;
   p.Button("  Load state", menu::kLoadState, true)->slot_info = true;
   p.Header("CONTROLS");
+  p.Choice("Controller", "controller", {"auto"}, {"Any (last used)"})->refresh = pads::FillChoice;
   p.Choice("Stick mode", "stick_mode", {"step", "stiff", "lr"},
            {"Step (nudge = a lane)", "Stiff (T2K feel)", "Left / right"});
   p.Choice("Run-ahead (less input lag, more CPU)", "run_ahead", {"0", "1", "2", "3", "4"},

@@ -3,6 +3,7 @@
 
 #include "controls.h"
 #include "crt_menu.h"
+#include "pads.h"
 #include "settings.h"
 
 namespace t2k_menu {
@@ -31,6 +32,7 @@ void Install(bool from_launcher) {
   p.Choice("Camera view", "camera_view", {"0", "1", "2"}, {"Standard", "Whole web", "Close-up"});
   p.Button("Music on / off", kToggleMusic);
   p.Header("CONTROLS");
+  p.Choice("Controller", "controller", {"auto"}, {"Any (last used)"})->refresh = pads::FillChoice;
   p.Choice("Stick mode", "stick_mode", {"lr", "aim"}, {"Left / right", "Aim (point at lane)"});
   p.Sub("Fine-tune stick");
   p.Number("Top speed", "lr_max_speed", 0.20, 0.80, 0.01, "%.2f", 0.20)->when = lr;

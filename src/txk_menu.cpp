@@ -2,6 +2,7 @@
 #include "txk_menu.h"
 
 #include "controls.h"
+#include "pads.h"
 #include "settings.h"
 #include "lr_host.h"
 
@@ -34,6 +35,7 @@ void Install(bool from_launcher) {
            {"Off", "25%", "50%", "75%", "100%", "125%", "150%"})->def_value = "1";
   p.Button("Restart the game", kRestart, true);
   p.Header("CONTROLS");
+  p.Choice("Controller", "controller", {"auto"}, {"Any (last used)"})->refresh = pads::FillChoice;
   p.Binds();
   p.Header("PICTURE");
   p.Button("Fullscreen", menu::kToggleFullscreen);

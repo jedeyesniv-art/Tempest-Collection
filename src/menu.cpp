@@ -237,6 +237,8 @@ void Close() {
 void SetSlotInfo(std::function<std::string()> f) { g_slot_info = std::move(f); }
 
 int Update(const Nav& nav, uint64_t now) {
+  for (Item& it : g_items)
+    if (it.refresh) it.refresh(it);
   const auto& items = Items();
   if (items.empty()) return kNone;
   if (!Selectable(items[g_sel])) Move(items, 1);
@@ -336,6 +338,8 @@ void SetAccent(float r, float g, float b) { g_accent = {r, g, b}; }
 void SetPausedNote(bool on) { g_paused_note = on; }
 
 void Draw(SDL_Renderer* ren, int w, int h) {
+  for (Item& it : g_items)
+    if (it.refresh) it.refresh(it);
   const auto& items = Items();
   if (items.empty()) return;
   g_window = SDL_GetRenderWindow(ren);
