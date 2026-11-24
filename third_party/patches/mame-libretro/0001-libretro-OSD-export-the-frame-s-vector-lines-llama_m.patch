@@ -1,5 +1,5 @@
 From e1dc56a75c5503581598735cc1bc56df2ab1ed01 Mon Sep 17 00:00:00 2001
-From: John <sniv2001@hotmail.com>
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Tue, 17 Nov 2026 12:51:53 +0000
 Subject: [PATCH] libretro OSD: export the frame's vector lines
  (llama_mame_lines) for t81.exe's own renderer

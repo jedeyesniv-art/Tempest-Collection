@@ -1,7 +1,7 @@
 From 45757105203de1bb0570bb72c6fe8c3edd081a5f Mon Sep 17 00:00:00 2001
-From: John <sniv2001@hotmail.com>
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 23:32:54 +0000
-Subject: [PATCH 2/4] sceMsgDialogInit: VITA3K_AUTO_OK_DIALOG answers a
+Subject: [PATCH 2/5] sceMsgDialogInit: VITA3K_AUTO_OK_DIALOG answers a
  matching OK-only message at once (TxK's offline network notice)
 
 ---

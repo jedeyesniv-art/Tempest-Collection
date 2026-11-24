@@ -225,6 +225,14 @@ framing in play on Tempest Tubes.
   the nudge's lane (a release never stops short of it) and a nudge from between lanes goes to the next centre that
   way. Measured (scratch script; t3k_steptest.py all ok): flick 7 fields 0.5 -> 1.0, three 8-field flicks 2.8 -> 3.0.
 
+## T3K spikes at the level end (2026-11-24, owner's states logs/t3k/spikes/s1_start + s2_end, "Bonio of Doom")
+- Owner: "every lane has a tiny green spike, the descent feels like luck". From s2_end, descents after holding right /
+  left 0-45 fields (every lane) all survived EXCEPT ending on the lane of the enemy sitting on the rim as the level
+  ended ("CAUGHT YOU!!" during the drop, level replayed). s1_start's death was also CAUGHT YOU (in play).
+  CORRECTED by the owner's own testing: the stubs DO kill, but shots clear them - pick the lane early and keep firing;
+  a late move or a sweep runs into one. My runs survived because the claw kept firing on its lane (auto shooting).
+  In the drop the zoom feedback smears the stubs into long green streaks on every lane. Runs: logs/t3k/spikes/sw.
+
 ## T3K stray web shard (2026-11-24, owner's state logs/t3k/pink/owner_pink.state)
 - A pink / red slab above (and below) the web that stayed across levels and deaths: live pictures (the draw gate =
   every window picture) read web quads at $800BACF0 up to an all-zero record, but the game never clears that list, so
@@ -356,6 +364,13 @@ framing in play on Tempest Tubes.
   lr::SetTouch answers one pointer; txk.exe sends the left mouse button mapped onto the drawn picture (touches arrive
   as mouse: SDL's touch-to-mouse, and Proton on the Deck), not while our menu is open. Headless --touch=F:x,y[:len]
   (0..1 on the picture). Verified: a tap on HIGH SCORES in TxK Options opens it. Deck touch untested.
+
+## TxK point sprites (2026-11-24; core commit "Point sprites at the game's size")
+- Owner: particles tiny at higher resolutions. Real cause: Vita3K's GL renderer never enabled GL_PROGRAM_POINT_SIZE
+  and only synced the point width on change, so every point (TxK's particles, power-ups, scores, a background
+  starfield) was 1 px at ANY resolution - effects were missing, not minimalist (owner: "so much better"). Now the
+  shader PSIZE is used, x a new vertex uniform res_multiplier (shader cache v16). A first fix that only scaled PSIZE
+  changed nothing: measure first (a draw census by primitive / polygon mode / GL state found it in one run).
 
 ## Space Giraffe (Steam 27800) in the launcher (2026-11-17)
 - Launcher entry SPACE GIRAFFE, LEFT / RIGHT = flavour (launcher setting sg_flavour, acid default). Start: finds the

@@ -1,7 +1,7 @@
 From 84a6a8bfcf017bef309c967b35b7a69a736fff25 Mon Sep 17 00:00:00 2001
-From: John <sniv2001@hotmail.com>
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 23:04:51 +0000
-Subject: [PATCH 1/4] Windows libretro build: OpenSSL no-asm (no NASM needed)
+Subject: [PATCH 1/5] Windows libretro build: OpenSSL no-asm (no NASM needed)
 
 ---
  external/CMakeLists.txt | 2 +-

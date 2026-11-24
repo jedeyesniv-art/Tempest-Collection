@@ -1,7 +1,7 @@
 From 3c407af537b77aa828d87dfb615473228b5d3115 Mon Sep 17 00:00:00 2001
-From: John <sniv2001@hotmail.com>
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
 Date: Tue, 17 Nov 2026 12:28:19 +0000
-Subject: [PATCH 4/4] llama_vita_write: guest memory writes for the host's text
+Subject: [PATCH 4/5] llama_vita_write: guest memory writes for the host's text
  patches
 
 The frontend of the Tempest Collection rewrites a game's button prompts in guest

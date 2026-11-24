@@ -1,0 +1,153 @@
+From 99f9dcce57761e86fe9f78267b01c5428d5bd188 Mon Sep 17 00:00:00 2001
+From: John <326213404+jedeyesniv-art@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 17:14:40 +0000
+Subject: [PATCH 5/5] Point sprites at the game's size, scaled with the
+ internal resolution
+
+OpenGL ignored a vertex shader's PSIZE (GL_PROGRAM_POINT_SIZE was never
+enabled) and only applied the GXM point/line width when it changed, so
+every point was one pixel at any resolution: TxK's particle effects
+(power-ups, scores, the starfield) were nearly invisible. The draw now
+enables program point size for shaders that write PSIZE and sets the
+fixed size (width x res_multiplier) otherwise. The translated PSIZE is
+multiplied by a new vertex uniform res_multiplier (OpenGL and Vulkan).
+Shader cache version 15 -> 16.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CHANGELOG.md                                    |  1 +
+ vita3k/renderer/src/gl/draw.cpp                 | 14 ++++++++++++++
+ vita3k/renderer/src/vulkan/scene.cpp            |  1 +
+ vita3k/shader/include/shader/spirv_recompiler.h |  2 +-
+ vita3k/shader/include/shader/uniform_block.h    |  4 +++-
+ vita3k/shader/src/spirv_recompiler.cpp          |  9 ++++++++-
+ 6 files changed, 28 insertions(+), 3 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ad209af..02f2a00 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come
+ 
+ ## Unreleased
+ 
++- Point sprites are drawn at the size the game gives them, scaled with the internal resolution. On OpenGL a size set by the vertex shader was ignored (GL_PROGRAM_POINT_SIZE was never enabled) and the point/line width was applied only when it changed, so every point was one pixel at any resolution (TxK lost most of its particle effects); on Vulkan the shader's size was not scaled with the resolution. The shader cache is rebuilt once (cache version 16).
+ - What the user makes is kept in RetroArch's save directory, which can be synced to cloud storage, in its `vita3k` folder laid out as the Vita's storage, wherever Storage Location puts the rest: the accounts with their saves, trophies and play times (`ux0/user`), the photo album (`ux0/picture`) and the registry (`vd0/registry/system.dreg`). What the core's folder still has there (from earlier builds, or a standalone Vita3K folder copied in) is moved over at the next start or reset, shown as Moving data, merged with what the save directory has: a file it already has stays where it was, with a warning in the log. Remove Content's saves and trophies option and Remove Account delete them there. `ux0/data`, where homebrew and ports keep their game files, stays in the core's folder (sco8487).
+ - The registry works: the core never started it (upstream does so from its GUI), so every sceRegMgr call of a game ran on an empty one, reads finding nothing and writes being dropped. Its template comes with the firmware, and `system.dreg` is made from it when missing (sco8487).
+ - Storage Location: the other location is now `vita3k` in RetroArch's download directory (Download Directory), no longer in its save directory, whose small files get uploaded to cloud storage and which is no place for installs; nor the cache directory, which RetroArch empties. A storage still in the save directory is moved to the download directory at the next start, shown as Moving data, and the option set to Download Directory (#7, i30817).
+diff --git a/vita3k/renderer/src/gl/draw.cpp b/vita3k/renderer/src/gl/draw.cpp
+index 706bc85..3b24342 100644
+--- a/vita3k/renderer/src/gl/draw.cpp
++++ b/vita3k/renderer/src/gl/draw.cpp
+@@ -127,6 +127,7 @@ void draw(GLState &renderer, GLContext &context, const FeatureState &features, S
+     vert_ublock.z_scale = context.record.z_scale;
+     vert_ublock.screen_width = static_cast<float>(context.record.color_surface.width);
+     vert_ublock.screen_height = static_cast<float>(context.record.color_surface.height);
++    vert_ublock.res_multiplier = renderer.res_multiplier;
+ 
+     if (memcmp(&context.previous_vert_info, &vert_ublock, sizeof(shader::RenderVertUniformBlock)) != 0) {
+         std::pair<std::uint8_t *, std::size_t> allocated_buffer = context.vertex_info_uniform_buffer.allocate(sizeof(shader::RenderVertUniformBlock));
+@@ -220,6 +221,19 @@ void draw(GLState &renderer, GLContext &context, const FeatureState &features, S
+     const GLenum mode = translate_primitive(type);
+     const GLenum gl_type = format == SCE_GXM_INDEX_FORMAT_U16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+ 
++    // Point size. GL takes gl_PointSize from the shader only with GL_PROGRAM_POINT_SIZE on, and the GXM point/line
++    // width is only synced when it changes: without this, every point (TxK's particles) was 1 pixel at any resolution.
++    const bool is_point = type == SCE_GXM_PRIMITIVE_POINTS || (context.record.front_polygon_mode >= SCE_GXM_POLYGON_MODE_POINT_10UV && context.record.front_polygon_mode <= SCE_GXM_POLYGON_MODE_POINT_01UV) || context.record.front_polygon_mode == SCE_GXM_POLYGON_MODE_TRIANGLE_POINT;
++    if (is_point) {
++        const SceGxmProgram &vertex_program_gxp = *context.record.vertex_program.get(mem)->program.get(mem);
++        if (gxp::get_vertex_outputs(vertex_program_gxp) & SCE_GXM_VERTEX_PROGRAM_OUTPUT_PSIZE) {
++            glEnable(GL_PROGRAM_POINT_SIZE); // the shader scales its size by the resolution multiplier
++        } else {
++            glDisable(GL_PROGRAM_POINT_SIZE);
++            glPointSize(context.record.line_width * renderer.res_multiplier);
++        }
++    }
++
+     if (instance_count == 1) {
+         glDrawElements(mode, static_cast<GLsizei>(count), gl_type, reinterpret_cast<const void *>(index_gpu_ptr.second));
+     } else {
+diff --git a/vita3k/renderer/src/vulkan/scene.cpp b/vita3k/renderer/src/vulkan/scene.cpp
+index acd85ab..65a3d0b 100644
+--- a/vita3k/renderer/src/vulkan/scene.cpp
++++ b/vita3k/renderer/src/vulkan/scene.cpp
+@@ -524,6 +524,7 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
+     vert_ublock.z_scale = context.record.z_scale;
+     vert_ublock.screen_width = context.render_target->width / context.state.res_multiplier;
+     vert_ublock.screen_height = context.render_target->height / context.state.res_multiplier;
++    vert_ublock.res_multiplier = context.state.res_multiplier;
+ 
+     if (context.curr_vert_ublock.changed || memcmp(&context.prev_vert_ublock, &vert_ublock, sizeof(vert_ublock)) != 0) {
+         // TODO: this intermediate step can be avoided
+diff --git a/vita3k/shader/include/shader/spirv_recompiler.h b/vita3k/shader/include/shader/spirv_recompiler.h
+index 730bb7d..bd5ea1a 100644
+--- a/vita3k/shader/include/shader/spirv_recompiler.h
++++ b/vita3k/shader/include/shader/spirv_recompiler.h
+@@ -31,7 +31,7 @@ namespace shader {
+ static constexpr int COLOR_ATTACHMENT_TEXTURE_SLOT_IMAGE = 0;
+ static constexpr int MASK_TEXTURE_SLOT_IMAGE = 1;
+ static constexpr int COLOR_ATTACHMENT_RAW_TEXTURE_SLOT_IMAGE = 3;
+-static constexpr uint32_t CURRENT_VERSION = 15;
++static constexpr uint32_t CURRENT_VERSION = 16;
+ // fragment shader using the rendering surface as a storage image (because of shader interlock) have a line
+ // layout (constant_id = GAMMA_CORRECTION_SPECIALIZATIO_ID) const bool is_srgb = false;
+ // Setting this constant to true performs gamma correction in the shader
+diff --git a/vita3k/shader/include/shader/uniform_block.h b/vita3k/shader/include/shader/uniform_block.h
+index 2297bd5..68b35f0 100644
+--- a/vita3k/shader/include/shader/uniform_block.h
++++ b/vita3k/shader/include/shader/uniform_block.h
+@@ -16,6 +16,7 @@ struct RenderVertUniformBlock {
+     float screen_height;
+     float z_offset;
+     float z_scale;
++    float res_multiplier; // scales point sizes the vertex shader writes (PSIZE)
+ };
+ 
+ // used internally to identify the field by the shader recompiler
+@@ -26,7 +27,8 @@ enum VertUniformFieldId : uint32_t {
+     VERT_UNIFORM_screen_width,
+     VERT_UNIFORM_screen_height,
+     VERT_UNIFORM_z_offset,
+-    VERT_UNIFORM_z_scale
++    VERT_UNIFORM_z_scale,
++    VERT_UNIFORM_res_multiplier
+ };
+ 
+ struct RenderFragUniformBlock {
+diff --git a/vita3k/shader/src/spirv_recompiler.cpp b/vita3k/shader/src/spirv_recompiler.cpp
+index 64ac68c..269e6e0 100644
+--- a/vita3k/shader/src/spirv_recompiler.cpp
++++ b/vita3k/shader/src/spirv_recompiler.cpp
+@@ -1014,7 +1014,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
+ 
+     if (program_type == SceGxmProgramType::Vertex) {
+         // Create the default reg uniform buffer
+-        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32 };
++        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32, f32 };
+         if (uniform_buffer_count > 0)
+             uniform_composition.push_back(buffer_addresses_type);
+         if (uniform_texture_count > 0) {
+@@ -1038,6 +1038,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
+         ADD_VERT_UNIFORM_MEMBER(screen_height);
+         ADD_VERT_UNIFORM_MEMBER(z_offset);
+         ADD_VERT_UNIFORM_MEMBER(z_scale);
++        ADD_VERT_UNIFORM_MEMBER(res_multiplier);
+ 
+ #undef ADD_VERT_UNIFORM_MEMBER
+ #define ADD_EXT_UNIFORM_MEMBER(name)                                                                                                                                                \
+@@ -1880,6 +1881,12 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
+                 cond_builder.makeEndIf();
+             } else if (vo == SCE_GXM_VERTEX_PROGRAM_OUTPUT_PSIZE) {
+                 b.addDecoration(out_var, spv::DecorationBuiltIn, spv::BuiltInPointSize);
++                // the guest's size is in Vita pixels: scale it with the internal resolution
++                if (translation_state.render_info_id != spv::NoResult) {
++                    spv::Id mult = utils::create_access_chain(b, spv::StorageClassUniform, translation_state.render_info_id, { b.makeIntConstant(VERT_UNIFORM_res_multiplier) });
++                    mult = b.createLoad(mult, spv::NoPrecision);
++                    o_val = b.createBinOp(used_component_count > 1 ? spv::OpVectorTimesScalar : spv::OpFMul, out_type, o_val, mult);
++                }
+                 b.createStore(o_val, out_var);
+             } else if (vo == SCE_GXM_VERTEX_PROGRAM_OUTPUT_COLOR0 || vo == SCE_GXM_VERTEX_PROGRAM_OUTPUT_COLOR1) {
+                 const spv::Id zero = utils::make_uniform_vector_from_type(b, out_type, 0.0f);
+-- 
+2.55.0.windows.5
+
