@@ -629,6 +629,7 @@ struct ClawControl {
   double sp_held = 0;           // seconds of the current push
   double sp_rem = 0;            // lanes still to step (nudges / settling)
   bool sp_sweeping = false;     // this push has become a sweep
+  double sp_goal = 0;           // the lane this push's nudge aimed at, relative to the model (moves with it)
 
   void SpRelease(double pos, double p) {
     // pos = the game's claw (what is seen), p = the model
@@ -636,6 +637,14 @@ struct ClawControl {
     const double d = sp_dir;
     double target;
     if (how == "off") {   // where it is seen (the model may be behind the game's late move): hold the claw there
+      // ... but never short of the nudge that began this push: the model ends a nudge ~4 fields before the game shows
+      // it, so a flick held just past sp_repeat_delay (7 fields) stopped the claw half way, and the next nudge, from
+      // between lanes, went further (owner 2026-11-24: "nudges add up to a small push")
+      const double owed = sp_goal + (p - pos);   // the nudge's lane - the seen claw
+      if (owed * d > 1e-3) {
+        sp_rem = sp_goal;
+        return;
+      }
       sp_rem = 0;
       mo_err = 0;
       return;
@@ -657,10 +666,17 @@ struct ClawControl {
     if (want != sp_dir) {
       if (sp_dir != 0 && sp_sweeping) SpRelease(pos, p);
       if (want != 0) {   // a nudge: one lane on from the lane the claw is at (or is already stepping to)
-        const double base = std::fabs(sp_rem) > 1e-6 ? p + sp_rem : std::round(p);
-        // reversing a step in flight: from the lane it has reached
-        const double from = sp_rem * want < 0 ? std::round(p) : base;
-        sp_rem = from + want - p;
+        // At rest between lanes (a sweep released with sp_release off): to the next lane centre that way, never round(p)
+        // + 1 - from 1.6 that went to 3, a 1.4-lane nudge after a short sweep (owner 2026-11-24: "nudges add up to a
+        // small push"). (0.1: a claw just short of a centre counts as on it.)
+        const double next = want > 0 ? std::floor(p + 0.1) + 1 : std::ceil(p - 0.1) - 1;
+        if (std::fabs(sp_rem) > 1e-6) {
+          // reversing a step in flight: from the lane it has reached; else on from the lane it is stepping to
+          sp_rem = (sp_rem * want < 0 ? std::round(p) : p + sp_rem) + want - p;
+        } else {
+          sp_rem = next - p;
+        }
+        sp_goal = sp_rem;
       }
       sp_dir = want;
       sp_held = 0;
@@ -722,6 +738,7 @@ struct ClawControl {
       sp_held = 0;
       sp_rem = 0;
       sp_sweeping = false;
+      sp_goal = 0;
     }
     double moved = pos - mo_prev;
     mo_prev = pos;
@@ -741,7 +758,7 @@ struct ClawControl {
       mo_pic_moved = 0;
       mo_asked = std::fabs(mo_req) > 0.05 ? mo_asked + 1 : 0;
       if (mo_asked > 2 && pic_moved == 0) {
-        if (++mo_stuck >= 2) { mo_v = 0; mo_err = 0; sp_rem = 0; }
+        if (++mo_stuck >= 2) { mo_v = 0; mo_err = 0; sp_rem = 0; sp_goal = 0; }
       } else {
         mo_stuck = 0;
       }
@@ -755,6 +772,7 @@ struct ClawControl {
     if (step) StepModel(stick_x, pos, dt);
     else StiffModel(stick_x, pos, dt);
     mo_err += mo_v * dt;
+    sp_goal -= mo_v * dt;
 
     // Ask the game for the model's position one picture ahead (it moves once a picture, a picture late).
     double lead = mo_v * dt * mo_fields * settings::Num("claw_lead", 0.5);

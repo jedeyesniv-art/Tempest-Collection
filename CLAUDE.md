@@ -218,6 +218,19 @@ framing in play on Tempest Tubes.
   in place, ROMs checked by CRC first), CRT+ / CRT++ (GPU renderer). All: the menus, the run logs.
 - Tools from the session: tools/iso_list.py, t3k_datmap.py, t3k_musicrate.py, wav_compare.py.
 
+## T3K nudges adding up (2026-11-24)
+- Owner: a few small nudges sometimes made a 2-lane move. A flick held just past sp_repeat_delay (7+ fields) became a
+  sweep; the model had already finished the nudge (it runs ~4 fields ahead of the seen claw), so sp_release off ("stop
+  where seen") stopped half way (0.5 lane), and the next nudge went round(p) + 1 (up to 1.5 lanes). Now: sp_goal keeps
+  the nudge's lane (a release never stops short of it) and a nudge from between lanes goes to the next centre that
+  way. Measured (scratch script; t3k_steptest.py all ok): flick 7 fields 0.5 -> 1.0, three 8-field flicks 2.8 -> 3.0.
+
+## T3K stray web shard (2026-11-24, owner's state logs/t3k/pink/owner_pink.state)
+- A pink / red slab above (and below) the web that stayed across levels and deaths: live pictures (the draw gate =
+  every window picture) read web quads at $800BACF0 up to an all-zero record, but the game never clears that list, so
+  a smaller web after a bigger one drew the old web's last quads. Now the count comes as the module's (806AD454):
+  [[$20100020] + $900] + $28, bits 8-12. Headless shots without --gate=2 never showed it (captures stop where MPE0 did).
+
 ## T3K jump (2026-11-22)
 - The game HAS a jump: Nuon R shoulder (our RB, and RT since 2026-11-22, owner). From play_f3150, R lifts the claw off the rim (camera pulls back), lands
   ~30 fields later; the top-right HUD number (x2 -> 1) = jumps left. A = fire, B = Superzapper; C buttons / L: nothing

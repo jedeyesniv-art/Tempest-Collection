@@ -1019,7 +1019,13 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         for (int k = 0; k < 256; ++k) Read(mem, e[0] + 4 * uint32_t(k), &web.texture[k]);
         uint32_t job = 0;
         Read(mem, 0x20100000u, &job);
-        for (uint32_t a = 0x800BACF0u; web.quads.size() < 4 * 32; a += 32) {
+        // The quad count, as the module gets it (806AD454..806AD4B6): [[$20100020] + $900] + $28 -> a word whose
+        // bits 8-12 are the lanes. The records past it are NOT cleared: a smaller web after a bigger one leaves the
+        // bigger one's last quads there (live pictures drew them: the owner's stray pink shard, 2026-11-24). Without
+        // the chain (a capture that lacks it), up to the first all-zero record as before.
+        uint32_t lanes = 32, p = 0, q = 0, cw = 0;
+        if (Read(mem, 0x20100020u, &p) && Read(mem, p + 0x900u, &q) && Read(mem, q + 0x28u, &cw)) lanes = (cw >> 8) & 0x1F;
+        for (uint32_t a = 0x800BACF0u; web.quads.size() < 4 * size_t(lanes); a += 32) {
           uint32_t w[8];
           bool any = false;
           for (int k = 0; k < 8; ++k) {
@@ -1038,7 +1044,9 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
           op.first = uint32_t(out->webs.size());
           op.fade = float(job) / 2.f;   // (kWeb: the v scroll in texels)
           if (std::getenv("T3K_NATIVE_DEBUG"))
-            std::fprintf(stderr, "web flip %u job %X quads %zu\n", cap.flip, job, web.quads.size() / 4);
+            std::fprintf(stderr, "web flip %u job %X quads %zu  e %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X "
+                         "%08X %08X %08X %08X\n", cap.flip, job, web.quads.size() / 4, e[0], e[1], e[2], e[3], e[4], e[5],
+                         e[6], e[7], e[8], e[9], e[10], e[11], e[12], e[13], e[14]);
           out->webs.push_back(std::move(web));
           out->ops.push_back(op);
         }
