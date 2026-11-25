@@ -55,7 +55,7 @@ The settings menu has DISPLAY (remaster, CRT+ / CRT++, pixel art, melt), CHEATS 
 "Original mode" turns every improvement off.
 "@ | Set-Content -Encoding ascii (Join-Path $dist "README.txt")
 
-if (Test-Path $zip) { Remove-Item -Force $zip }
-Compress-Archive -Path $dist -DestinationPath $zip
+. (Join-Path $PSScriptRoot "zip_folder.ps1")
+Write-ZipFolder $dist $zip
 Get-ChildItem $dist -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
 Write-Host "zip: $zip ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB)"

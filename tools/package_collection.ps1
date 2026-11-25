@@ -385,7 +385,7 @@ if ($Release) {
                                    $_.FullName -match "\\userdata\\" }
     if ($bad) { $bad | ForEach-Object { Write-Host "  NOT ALLOWED: $($_.FullName)" }; Write-Error "game or owner files in the release" }
     $zip = Join-Path $repo ("dist\TempestCollection-{0}.zip" -f (Get-Date -Format "yyyy-MM-dd"))
-    if (Test-Path $zip) { Remove-Item -Force $zip }
-    Compress-Archive -Path $dist -DestinationPath $zip -CompressionLevel Optimal
+    . (Join-Path $PSScriptRoot "zip_folder.ps1")
+    Write-ZipFolder $dist $zip
     Write-Host ("release zip  {0,8:N1} MB: {1}" -f ((Get-Item $zip).Length / 1MB), $zip)
 }
