@@ -13,7 +13,13 @@ set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-add_subdirectory(third_party/SDL EXCLUDE_FROM_ALL)
+set(TEMPEST_SDL_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third_party/SDL" CACHE PATH "SDL3 source directory")
+add_subdirectory("${TEMPEST_SDL_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/sdl" EXCLUDE_FROM_ALL)
+include(cmake/Tempest3k.cmake)
+option(TEMPEST_T3K_ONLY "Build only native Tempest 3000" OFF)
+if(TEMPEST_T3K_ONLY)
+  return()
+endif()
 
 # The Virtual Jaguar core (our local branch llamasoft-jaguar), built by its own CMake module.
 set(VJ_LTO_ENABLED OFF)
@@ -33,8 +39,8 @@ if(WIN32)
   target_link_libraries(t2k PRIVATE ws2_32 iphlpapi winmm)
 endif()
 # Tempest Collection launcher (tempest.exe): picks a game and starts its program (t2k.exe, t3k.exe) or Steam.
-add_executable(tempest WIN32 src/launcher.cpp src/launcher_view.cpp src/pixfont.cpp src/menu.cpp src/controls.cpp src/launcher_sound.cpp src/steam_shortcut.cpp src/settings.cpp src/t3k_compress.cpp third_party/NuanceResurrection/src/stb_vorbis.c res/t2k.rc)
-target_include_directories(tempest PRIVATE third_party/NuanceResurrection/src)   # stb_vorbis.c (the compression's check)
+add_executable(tempest WIN32 src/launcher.cpp src/launcher_view.cpp src/pixfont.cpp src/menu.cpp src/controls.cpp src/launcher_sound.cpp src/steam_shortcut.cpp src/settings.cpp src/t3k_compress.cpp src/t3k_runtime/stb_vorbis.c res/t2k.rc)
+target_include_directories(tempest PRIVATE src/t3k_runtime)   # stb_vorbis.c (the compression's check)
 # libsndfile (LGPL) for the T3K disc compression's Vorbis encoder, loaded at run time: next to the launcher
 add_custom_command(TARGET tempest POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/third_party/libsndfile/libsndfile_x64.dll"
@@ -44,24 +50,6 @@ target_compile_definitions(tempest PRIVATE _CRT_SECURE_NO_WARNINGS)
 if(WIN32)
   target_link_libraries(tempest PRIVATE winmm advapi32)
 endif()
-
-# Tempest 3000 (Nuon): the Nuance libretro core is a separate DLL (tools\build_nuance.bat -> build_nuance\), loaded at
-# run time; its BIOS stubs (from the Nuance source) and our nuance.cfg go to system\nuance next to the exe.
-add_executable(t3k WIN32 src/t3k_main.cpp src/volume.cpp src/t3k_menu.cpp src/t3k_native.cpp src/t3k_scores.cpp src/nuon_host.cpp src/settings.cpp src/runlog.cpp src/menu.cpp src/pixfont.cpp src/controls.cpp src/pads.cpp src/crt.cpp src/crt_menu.cpp)
-target_link_libraries(t3k PRIVATE SDL3::SDL3-static opengl32)
-target_compile_definitions(t3k PRIVATE _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
-if(WIN32)
-  target_link_libraries(t3k PRIVATE winmm)
-endif()
-set(NUANCE_SRC "${CMAKE_SOURCE_DIR}/third_party/NuanceResurrection")
-# A target of its own (not POST_BUILD): the DLL changes without t3k relinking.
-add_custom_target(t3k_runtime ALL
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/system/nuance"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${NUANCE_SRC}/bios.cof" "${NUANCE_SRC}/minibios.cof"
-          "${NUANCE_SRC}/minibiosX.cof" "${CMAKE_SOURCE_DIR}/res/nuance/nuance.cfg" "${CMAKE_BINARY_DIR}/system/nuance"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/build_nuance/nuance_libretro.dll"
-          "${CMAKE_BINARY_DIR}"
-  DEPENDS t3k)
 
 # TxK (PS Vita): the Vita3K libretro core is a separate DLL (tools\build_vita3k.bat -> build_vita3k\bin\Release\),
 # loaded at run time. Firmware comes from vita_firmware\ (txk.exe links it into system\vita3k\ on first start).

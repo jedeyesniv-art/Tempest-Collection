@@ -5,7 +5,7 @@
 Checks (each runs with its own --userdata under logs/smoke/, never the owner's saves):
   t2k  headless boot -> level select -> play (the known script), the picture at field 2290 (remaster off:
        headless, the remaster's own drawing isn't in the picture - only the HUD would be)
-  t3k  headless boot -> play (a at 900..2500, the .nuz), field 3000; and the run's disc reads come from NUON.DAT
+  t3k  native: --check in a small window (boot -> play -> name entry), picture 900 in play
   t81  headless attract, rev 3 and Tempest Tubes (setting version)
   txk  headless boot to the title
   launcher  one frame (--shot)
@@ -94,10 +94,11 @@ def main():
                          '--set=remaster=0', '--press=400:b', '--press=600:b', '--press=800:b', '--press=1000:b', '--press=1500:b',
                          '--shot=2290:' + o('t2k_play.bmp')], [o('t2k_play.bmp')], ['loaded'], 900, 0.10))
     if 't3k' in want:
-        # (at the default play speed 21 field 3000 is the next level's fly-in, a small web: shot later, in play)
-        headless.append(('t3k play', [os.path.join(B, 't3k.exe'), '--headless', '--frames=3160', ud('t3k'),
-                         '--press=900:a', '--press=1300:a', '--press=1700:a', '--press=2100:a', '--press=2500:a',
-                         '--shot=3150:' + o('t3k_play.bmp')], [o('t3k_play.bmp')], ['loaded'], 900, 0.10))
+        # native T3K (2026-11-25): no headless mode; --check plays a scripted game in a small window (boot -> level
+        # select -> play -> name entry, ~30 s) and exits. Picture 900 is in play on level 1.
+        headless.append(('t3k play', [os.path.join(B, 't3k.exe'), '--check', '--winsize=960x720', ud('t3k'),
+                         '--winshot=900:' + o('t3k_play.bmp')], [o('t3k_play.bmp')],
+                         ['Native selected level', 'name entry'], 300, 0.10))
     if 't81' in want:
         for v in ('tempest', 'temptube'):
             headless.append((f't81 {v}', [os.path.join(B, 't81.exe'), '--headless', '--frames=610', ud('t81_' + v),

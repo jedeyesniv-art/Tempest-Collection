@@ -66,7 +66,7 @@ settings menu, which pauses the game.
 |---|---|---|
 | Tempest (1981) | Arcade | MAME core, with our own vector renderer |
 | Tempest 2000 (1994) | Atari Jaguar | Virtual Jaguar core + our native renderer ("Remaster") |
-| Tempest 3000 (2000) | Nuon | Nuance core + our native renderer |
+| Tempest 3000 (2000) | Nuon | Native reconstruction + GPU renderer |
 | Space Giraffe (2008) | PC | Your Steam copy, started and patched by the launcher |
 | TxK (2014) | PS Vita | Vita3K core |
 | Tempest 4000 (2018) | PC | Your Steam copy, started and patched by the launcher |
@@ -88,7 +88,7 @@ greys that game out and tells you exactly which file it is looking for and where
 | PS Vita firmware (for TxK) | `vita_firmware\PSVUPDAT.PUP` and `vita_firmware\PSP2UPDAT.PUP` | Both are free downloads from Sony's PS Vita system software pages. Installed automatically on TxK's first start (the `.PUP` files can be deleted afterwards). |
 | Space Giraffe, Tempest 4000 | Install them in Steam | Not installed? The launcher's A button opens their store page. |
 
-The Nuon BIOS is not needed: Tempest 3000 runs on the Nuance emulator's own open-source BIOS replacement, included.
+The Nuon BIOS and Nuance core are not needed: Tempest 3000 now runs as native reconstructed C++ with the GPU renderer. See [native integration notes](docs/T3K-NATIVE.md) for settings, controls, saves, and validation.
 
 ### Requirements
 
@@ -179,7 +179,7 @@ Git Bash, Python 3 with Pillow for the art tools.
 1. `bash tools/get_third_party.sh` - fetches SDL 3.4.16, MAME (libretro) and Vita3K (libretro) at the commits we
    use and applies our patches. Unzip Strawberry Perl Portable 5.42.3.1 (64-bit) to `third_party/strawberry`.
 2. `build.bat` - the launcher and the four programs into `build\` (Virtual Jaguar is built into `t2k.exe`).
-3. `tools\build_nuance.bat` (Tempest 3000's core), `bash tools/build_mame.sh` (the arcade core, the Tempest driver only),
+3. `bash tools/build_mame.sh` (the arcade core, the Tempest driver only),
    `tools\build_vita3k.bat` (TxK's core), `tools\build_t4k_helper.bat` and `tools\build_sg_helper.bat` (the Steam helpers).
 4. The launcher's art and sounds are in `art/` already. To remake them: `tools/launcher_art.py` and
    `tools/more_art.py` (from source pictures in `art/`, not in git), `tools/steam_art.py`, `tools/github_art.py`,

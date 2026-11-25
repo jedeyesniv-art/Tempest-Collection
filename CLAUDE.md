@@ -12,6 +12,16 @@ still has the D2K-era hooks (survey, OP skip, GPU memory) - T2K uses some; a cor
 the -Release zip). Commits use the GitHub no-reply email (history rewritten; pre-rewrite backup:
 logs\repo-backup-before-email-rewrite.bundle). Push / new releases only when the owner asks.
 
+**NATIVE T3K (2026-11-25, branch t3k-native, not merged yet):** Travis's contribution (credit him as FROGACUDA; GitHub link from the owner at release) (logs/t3k_native: patch,
+HANDOFF.txt, T3K-NATIVE.md; base 47bdc7a, applied cleanly) replaces Nuance in t3k.exe: src/t3k_runtime/game/ = T3K's
+own MPE code reconstructed function by function (original addresses in comments), our GPU renderer draws the display
+lists, the disc supplies data. Owner: both have JEFF MINTER'S BLESSING to work on these games; preservation (Nuon
+obsolete, the game rare) - so the reconstruction may go in the repo and release (unlike our AOT rule, which predates
+this). Old t3k.exe kept as logs/t3k_native/t3k_nuance_before.exe; "Play T3K native.bat" there = a test copy with its own
+userdata. Changes vs ours: stick = the game's own analog path (Step / Stiff models gone), no headless / run-ahead;
+native save states (t3k_slot<N>.native-state). Ours on top (owner 2026-11-25): Back / Guide / Esc = our menu again
+(Back did nothing in play as Nuon; Steam owns Guide on the Deck), Nuon button = LB; --menu / --menu=all (opens at
+picture 30, --winshot counts menu presents). Smoke test: t3k play = --check (window), t3k menu = --menu=all.
 Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): arcade Tempest (1981, MAME),
 T2K (Jaguar), T3K (Nuon), Space Giraffe (Steam), TxK (Vita), Tempest 4000 (Steam) - all six run from the launcher;
 PLAN.md "Tempest Collection" and "Collection status and open items".

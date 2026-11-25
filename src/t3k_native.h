@@ -42,6 +42,7 @@
 #include <SDL3/SDL.h>
 #include <cstdint>
 #include <vector>
+#include <string>
 
 #include "nuon_host.h"
 
@@ -90,7 +91,7 @@ struct Plane {
 };
 
 struct Op {
-  enum Kind { kFill, kZoom, kSegs, kWeb, kText, kBlobs, kPlane, kRipple } kind;
+  enum Kind { kFill, kZoom, kSegs, kWeb, kText, kBlobs, kPlane, kRipple, kBlendRect } kind;
   // kRipple: x / y = the displacement's base / slope along x, w / h = along y (16.16 units / 65536), colour, fade
   float x = 0, y = 0, w = 0, h = 0;          // fill rectangle (game pixels)
   SDL_FColor colour{};                         // fill colour
@@ -144,6 +145,7 @@ SDL_Renderer* CreateRenderer(SDL_Window* window);
 // hardware (its fades and clipping), converted to RGB for the window. False = not available (no GPU renderer /
 // T3K_NATIVE_RGB set): the RGB path.
 bool InitPipeline(SDL_Renderer* ren);
+void ShutdownPipeline();
 // Sharp vectors: vector items up to max_size game pixels across (text, claw, enemies, HUD) drawn as a thin core
 // (core x the line's width) plus a glow at the original width (x glow); sharp = false: the original look.
 void SetLineStyle(bool sharp, float core, float glow, float max_size);
@@ -151,8 +153,15 @@ void SetLineStyle(bool sharp, float core, float glow, float max_size);
 void ClearBlack(SDL_Renderer* ren);
 
 // Whole native pictures, with the feedback the game builds them on kept in our own textures (window resolution).
+struct FeedbackState {
+  int width=0,height=0;
+  uint32_t format=0;
+  std::vector<uint8_t> pixels;
+};
 class Renderer {
  public:
+  bool CaptureFeedback(SDL_Renderer*,FeedbackState&,std::string& error);
+  bool RestoreFeedback(SDL_Renderer*,const FeedbackState&,std::string& error);
   ~Renderer();
   // Draw pic (its segments: segs, e.g. interpolated) into dst. step = how much of one game step the zoom feedback
   // advances (1 = a whole picture, as the original; less for in-between frames: zoom^step, angle x step, fade^step).

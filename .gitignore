@@ -48,3 +48,6 @@ third_party/realesrgan/
 
 # Python caches
 __pycache__/
+
+# Native T3K build outputs
+build-native/

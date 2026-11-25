@@ -371,6 +371,14 @@ good as it is. Same approach as before: the original code runs unchanged, and ou
   system-bus word; run with DynamicCompiler Disabled) -> $80012210 (object list store) -> handler table $8011332C.
 - Analog: reporting CTRLR_ANALOG1 (T3K_PAD_PROPS=10) skips the "controller configuration" screen but the axes
   (d1-d4) aren't read in play (the claw spins at a fixed -69120 whatever they hold) - not pursued.
+  WRONG, corrected 2026-11-25 (prompted by someone porting our T3K natively): the game DOES read the analog X axis.
+  From play_f2700 (poke 807FFF80 = 8000001F + start = re-detect, stick_mode lr, claw scale poked to 1.0; logs/t3k/
+  analog): velocity = x * 768/65536 lanes a picture, linear, deadzone |x| < ~20 (15 none, 20 = 0.234), capped at x 90
+  (1.0547 = 12% over the d-pad's top 0.9375), no ramp, stops dead on release, same latency as the d-pad (velocity the
+  next field, moved the next picture); the d-pad still works alongside (ramp 20/40/60/80). The -69120 was full left
+  (1.0547) - our hook / harness, not the game. CTRLR_QUADSPINNER1 (0x1000, d5 deltas) moves the claw too (+6 a field
+  -> ~0.94); CTRLR_THUMBWHEEL1 nothing. So the stick could drive the game's own analog path instead of d-pad presses
+  + the poked speed scale (open: menus with analog reported, boot from power-on, level-dependent behaviour).
 - t3k.exe ClawControl (stick_mode = lr, default): the stick presses the d-pad its way and sets the scale each field
   so speed = lr_max_speed (0.94 = the game's top) x deflection curve x ramp (lr_ramp_pictures, lr_ramp_start);
   the game's late d-pad picture after release is held to half the last speed (lr_release_pictures, 0 = stop dead).

@@ -1,0 +1,434 @@
+{
+  "src\\t3k_runtime\\game\\TempestAnimatedMenu.h": {
+    "source": "nuance-upstream\\src\\TempestAnimatedMenu.h",
+    "sha256": "4f5c0f11b240b47ac988ca7270a27a324555b699d5ec27193e9d1fb9a14170ea"
+  },
+  "src\\t3k_runtime\\game\\TempestAnimation.h": {
+    "source": "nuance-upstream\\src\\TempestAnimation.h",
+    "sha256": "9e95db5e661eccd30c7e51ca91b6f1541c768202feb56ae075126ea301e4f074"
+  },
+  "src\\t3k_runtime\\game\\TempestAudioTest.h": {
+    "source": "nuance-upstream\\src\\TempestAudioTest.h",
+    "sha256": "cca556a661b0114dac506282c57ce193c181ed066481044a669ee852e23b7bcb"
+  },
+  "src\\t3k_runtime\\game\\TempestBitmapBlit.h": {
+    "source": "nuance-upstream\\src\\TempestBitmapBlit.h",
+    "sha256": "48014f078fac84ef8097cf2106fd540fd96baf6d25d5a7cf3c2ad89b4848dda6"
+  },
+  "src\\t3k_runtime\\game\\TempestBitmapCopy32.h": {
+    "source": "nuance-upstream\\src\\TempestBitmapCopy32.h",
+    "sha256": "6f91c2d26ec4e01d0e8db2541bd9b22e1717f9e9f7cff96b3410dc60aa194682"
+  },
+  "src\\t3k_runtime\\game\\TempestBitmapTilePlan.h": {
+    "source": "nuance-upstream\\src\\TempestBitmapTilePlan.h",
+    "sha256": "4e789f6dc41b9f60185e2b3e356589dafee455d3b683cb2257e407a9fdc000e2"
+  },
+  "src\\t3k_runtime\\game\\TempestBitmapTransfer.h": {
+    "source": "nuance-upstream\\src\\TempestBitmapTransfer.h",
+    "sha256": "2175ef0c702085488649b78b4fd02e5a9e93236b873973a8539c1f5bece99470"
+  },
+  "src\\t3k_runtime\\game\\TempestBootConstructors.h": {
+    "source": "nuance-upstream\\src\\TempestBootConstructors.h",
+    "sha256": "a55b6dda17f7d1453bc0d0392588c376c586f0ae5a075b584de5ac9cc6c79694"
+  },
+  "src\\t3k_runtime\\game\\TempestBootDriver.h": {
+    "source": "nuance-upstream\\src\\TempestBootDriver.h",
+    "sha256": "90abbfe747eb0fb0f7532319e82feba1f4c74dbfcedec0bf1db3e14e4a3ee0f2"
+  },
+  "src\\t3k_runtime\\game\\TempestBootEntry.h": {
+    "source": "nuance-upstream\\src\\TempestBootEntry.h",
+    "sha256": "e3983432ab670a70bb61a863686eb26972ee032b22a9b6c3ddf35322dd03fe58"
+  },
+  "src\\t3k_runtime\\game\\TempestBootMenuEntry.h": {
+    "source": "nuance-upstream\\src\\TempestBootMenuEntry.h",
+    "sha256": "09a0505c2e366f36760ee7c12f5c4e688d705d69b0af14603b5d400081d9eda4"
+  },
+  "src\\t3k_runtime\\game\\TempestBootPlatform.h": {
+    "source": "nuance-upstream\\src\\TempestBootPlatform.h",
+    "sha256": "6b32968088f87c5814a27f4fd919bd8708cc7d11defeb66bc31e52e887197bf3"
+  },
+  "src\\t3k_runtime\\game\\TempestCallbacks.h": {
+    "source": "nuance-upstream\\src\\TempestCallbacks.h",
+    "sha256": "adf1cce75412c2a1451879b4e3eeaf9846fc549b985c2e3d85b1a9a57b43f07e"
+  },
+  "src\\t3k_runtime\\game\\TempestCollision.h": {
+    "source": "nuance-upstream\\src\\TempestCollision.h",
+    "sha256": "de7be29ca8647295d44feadf93faf391346f065530231bbd863a3aa58d91b508"
+  },
+  "src\\t3k_runtime\\game\\TempestCommands.h": {
+    "source": "nuance-upstream\\src\\TempestCommands.h",
+    "sha256": "f267b91f523215aa8a79401812f5625c9b1a43d76426ba2a4258355991ce7cbd"
+  },
+  "src\\t3k_runtime\\game\\TempestContact.h": {
+    "source": "nuance-upstream\\src\\TempestContact.h",
+    "sha256": "aaec2df00ce9ecff325931f8b79e57599abfb0cf47fe0daf341d9023b896c4f2"
+  },
+  "src\\t3k_runtime\\game\\TempestControllerCalibration.h": {
+    "source": "nuance-upstream\\src\\TempestControllerCalibration.h",
+    "sha256": "b732b8b83dfe298b8f9b5933a600fa653bb71bd186041798a11723b30f968543"
+  },
+  "src\\t3k_runtime\\game\\TempestControllerDiscovery.h": {
+    "source": "nuance-upstream\\src\\TempestControllerDiscovery.h",
+    "sha256": "919f96b158d753e2808783810f8b6ea2a67d03b7909706b245347112126b9868"
+  },
+  "src\\t3k_runtime\\game\\TempestDepthPreparation.h": {
+    "source": "nuance-upstream\\src\\TempestDepthPreparation.h",
+    "sha256": "3c5d8d1b2be1ae14349e8ab2f8dac1b392601732566ae04c85653547420c4168"
+  },
+  "src\\t3k_runtime\\game\\TempestDriver.h": {
+    "source": "nuance-upstream\\src\\TempestDriver.h",
+    "sha256": "59740e5ea5d76094bf0cdb99ef919bf6eec63989099cee9d631422fe29f5c9dd"
+  },
+  "src\\t3k_runtime\\game\\TempestEvents.h": {
+    "source": "nuance-upstream\\src\\TempestEvents.h",
+    "sha256": "90c9fdb90171832f2cd361bf76fb0ade06d7fa03ddcfe46c99c099a9b9f2d2c5"
+  },
+  "src\\t3k_runtime\\game\\TempestFrame.h": {
+    "source": "nuance-upstream\\src\\TempestFrame.h",
+    "sha256": "a23433280dd9a825f174a34bb7834914cc767d384be434db417e07a96e3cda5d"
+  },
+  "src\\t3k_runtime\\game\\TempestFrameLoop.h": {
+    "source": "nuance-upstream\\src\\TempestFrameLoop.h",
+    "sha256": "74510143325409712692080529755318138e1c247af26e76a9f511e109bf1924"
+  },
+  "src\\t3k_runtime\\game\\TempestFrameOrchestrator.h": {
+    "source": "nuance-upstream\\src\\TempestFrameOrchestrator.h",
+    "sha256": "5afa8d6d982cc4ef3a3c4a77c0b14df21ff80936aaf6de9ce2866f0cd24573a5"
+  },
+  "src\\t3k_runtime\\game\\TempestGameMenuLabels.h": {
+    "source": "nuance-upstream\\src\\TempestGameMenuLabels.h",
+    "sha256": "f5653e627fe30a206b80816e25316e4cab1058db71824cf7bf7e0996934cedcc"
+  },
+  "src\\t3k_runtime\\game\\TempestGameSession.h": {
+    "source": "nuance-upstream\\src\\TempestGameSession.h",
+    "sha256": "0ce99a9837dbfcbe103452191316775c5acc24126420741982a57705afb5f616"
+  },
+  "src\\t3k_runtime\\game\\TempestGameSetupEntry.h": {
+    "source": "nuance-upstream\\src\\TempestGameSetupEntry.h",
+    "sha256": "f853f0c28518dd5037bff7d8d7ca04628c5230fe70545c480e943515150e5921"
+  },
+  "src\\t3k_runtime\\game\\TempestGeneratedLevel.h": {
+    "source": "nuance-upstream\\src\\TempestGeneratedLevel.h",
+    "sha256": "72ffeb363262cd0a861389c4cd1a081f1b654fd5be834de85478ca9fee474af1"
+  },
+  "src\\t3k_runtime\\game\\TempestGraphicsDispatch.h": {
+    "source": "nuance-upstream\\src\\TempestGraphicsDispatch.h",
+    "sha256": "72bbdc04a7fbbb25d04567e55c2a829960a1b3341552026a2fab83455ed8cdbc"
+  },
+  "src\\t3k_runtime\\game\\TempestGraphicsInitialization.h": {
+    "source": "nuance-upstream\\src\\TempestGraphicsInitialization.h",
+    "sha256": "ef7318919061a2adce56f53c3beb856cdc66eadc6980ee223cb6559dccc75d79"
+  },
+  "src\\t3k_runtime\\game\\TempestGraphicsUtilities.h": {
+    "source": "nuance-upstream\\src\\TempestGraphicsUtilities.h",
+    "sha256": "3f0ef6c78412765ab0be8b489075cf8ec08997fa702789288a06cb8a7d25b299"
+  },
+  "src\\t3k_runtime\\game\\TempestHeap.h": {
+    "source": "nuance-upstream\\src\\TempestHeap.h",
+    "sha256": "09b66604136badfc309aac4822480e577e1fcd54859bcf78f4e3549909256490"
+  },
+  "src\\t3k_runtime\\game\\TempestHighScores.h": {
+    "source": "nuance-upstream\\src\\TempestHighScores.h",
+    "sha256": "c93009000bd3f4713b349c60f06f7a58ac5ceccd365833111823ed595505d9fc"
+  },
+  "src\\t3k_runtime\\game\\TempestLevelDefinition.h": {
+    "source": "nuance-upstream\\src\\TempestLevelDefinition.h",
+    "sha256": "39ad54822884335d2c546fbae9bfefdb76341cb693c6f95969c5e0ae8dae5125"
+  },
+  "src\\t3k_runtime\\game\\TempestLevelDescription.h": {
+    "source": "nuance-upstream\\src\\TempestLevelDescription.h",
+    "sha256": "814d2e4fe4c2c98856a8b06d708d82ffb83e8ca115e48c934b2f26c80a0a6cd4"
+  },
+  "src\\t3k_runtime\\game\\TempestLevelSelection.h": {
+    "source": "nuance-upstream\\src\\TempestLevelSelection.h",
+    "sha256": "79e06be74dd83bd55beaf3760bbceef89fdf0c8a6bb2fb341c9c452faa4a0a43"
+  },
+  "src\\t3k_runtime\\game\\TempestLifecycle.h": {
+    "source": "nuance-upstream\\src\\TempestLifecycle.h",
+    "sha256": "fa12df414bf82203af34b87d1d9f792ffed79be04d7ce04dd776e04e437ae626"
+  },
+  "src\\t3k_runtime\\game\\TempestLists.h": {
+    "source": "nuance-upstream\\src\\TempestLists.h",
+    "sha256": "77d2b963c39242a853c1cce3b0c3eee9cf05e8e1e2d448018e8fa5e87a99f17f"
+  },
+  "src\\t3k_runtime\\game\\TempestMainContinuation.h": {
+    "source": "nuance-upstream\\src\\TempestMainContinuation.h",
+    "sha256": "5d901490f9c42feb0fcf74acf348782a3dfb1b6321ca486cfef6142c5431fd78"
+  },
+  "src\\t3k_runtime\\game\\TempestMainDispatch.h": {
+    "source": "nuance-upstream\\src\\TempestMainDispatch.h",
+    "sha256": "ee0235ebb24e9b78ea20f2b5d83a4862b66121ab715c64967cecfe19ac6f1257"
+  },
+  "src\\t3k_runtime\\game\\TempestMenuInput.h": {
+    "source": "nuance-upstream\\src\\TempestMenuInput.h",
+    "sha256": "d51f9eef1a27965a35614f1eba5d49981fe48b3dd0fe10edde3b48cc1d1734eb"
+  },
+  "src\\t3k_runtime\\game\\TempestMenuParameters.h": {
+    "source": "nuance-upstream\\src\\TempestMenuParameters.h",
+    "sha256": "66a69dd281b69bf9f7555b7e96c0075e2ed030d849766a2db71f4f5c3aa3b3b3"
+  },
+  "src\\t3k_runtime\\game\\TempestMenuPresets.h": {
+    "source": "nuance-upstream\\src\\TempestMenuPresets.h",
+    "sha256": "eeb74acd83a33c3610e5fd44470ab71688b5fdc14890d227e38933bc6d8dee72"
+  },
+  "src\\t3k_runtime\\game\\TempestMenuTransition.h": {
+    "source": "nuance-upstream\\src\\TempestMenuTransition.h",
+    "sha256": "0fa28fad7a14e7975e6db5135fd900d4d1da133a37b623c304f410e6dac528c1"
+  },
+  "src\\t3k_runtime\\game\\TempestMovement.h": {
+    "source": "nuance-upstream\\src\\TempestMovement.h",
+    "sha256": "e00940059b9612575d5c8367cb71f6635b461b6d93a5dc4e8f65fbdd97c31bda"
+  },
+  "src\\t3k_runtime\\game\\TempestNise.h": {
+    "source": "nuance-upstream\\src\\TempestNise.h",
+    "sha256": "5b00e4047e7622d6488bfca45529b1334ad4c4ace9dc9ba15260e7ac3a5558f1"
+  },
+  "src\\t3k_runtime\\game\\TempestNiseDescriptor.h": {
+    "source": "nuance-upstream\\src\\TempestNiseDescriptor.h",
+    "sha256": "025c656271d265a4179ce4bc6e3d47997a04fd35629738f05116f791b44253a5"
+  },
+  "src\\t3k_runtime\\game\\TempestNiseInitialization.h": {
+    "source": "nuance-upstream\\src\\TempestNiseInitialization.h",
+    "sha256": "c2d4a86f57bfc78d81d35aef7eac69a1870b40ea78569ad994cd1351ce67c189"
+  },
+  "src\\t3k_runtime\\game\\TempestNiseProcessorControl.h": {
+    "source": "nuance-upstream\\src\\TempestNiseProcessorControl.h",
+    "sha256": "c61c0bbc1b7271cdf9538cd16370faa49d69d410cbd93d5b5f689ce7a0db4d68"
+  },
+  "src\\t3k_runtime\\game\\TempestNiseStream.h": {
+    "source": "nuance-upstream\\src\\TempestNiseStream.h",
+    "sha256": "cfe8209b263224066c2548f44e177e894e9e76d3a559f21bdbe907adfd89524c"
+  },
+  "src\\t3k_runtime\\game\\TempestNiseStreamControl.h": {
+    "source": "nuance-upstream\\src\\TempestNiseStreamControl.h",
+    "sha256": "aa87ea2637ec19865872033225d315c2b87c1f0de51d52ef1e0d4744996be9c5"
+  },
+  "src\\t3k_runtime\\game\\TempestNiseStreamInitialization.h": {
+    "source": "nuance-upstream\\src\\TempestNiseStreamInitialization.h",
+    "sha256": "114bc950ce85679910dc12dcd9aa1fc98c778b69e5040e8379d48df2ac78dc2a"
+  },
+  "src\\t3k_runtime\\game\\TempestNiseVoice.h": {
+    "source": "nuance-upstream\\src\\TempestNiseVoice.h",
+    "sha256": "3b2a97e3fd5e03e973ece0a08fcc9cd4a383f11c99b1abb081b3428b12e5fc1a"
+  },
+  "src\\t3k_runtime\\game\\TempestObjectLayout.h": {
+    "source": "nuance-upstream\\src\\TempestObjectLayout.h",
+    "sha256": "cb86e44e8b8ce7db6baac995a4b34cee516cebffdc886d2e243758aded8639b3"
+  },
+  "src\\t3k_runtime\\game\\TempestObjects.h": {
+    "source": "nuance-upstream\\src\\TempestObjects.h",
+    "sha256": "834798433f1e18237a649c417f8fd15c0a2e6cdb57da32b98ae6825eb50d88c2"
+  },
+  "src\\t3k_runtime\\game\\TempestOpeningAnimation.h": {
+    "source": "nuance-upstream\\src\\TempestOpeningAnimation.h",
+    "sha256": "33850c00646699649d7030047274ff28d39cac998d73d2fadc98672f61d3ac45"
+  },
+  "src\\t3k_runtime\\game\\TempestOptions.h": {
+    "source": "nuance-upstream\\src\\TempestOptions.h",
+    "sha256": "de9e8c212a01aacbfb19f4cdc9013fd557cc7d1500304a7bb8df90f2adaa5807"
+  },
+  "src\\t3k_runtime\\game\\TempestOuterFrames.h": {
+    "source": "nuance-upstream\\src\\TempestOuterFrames.h",
+    "sha256": "49ef83f182024471f25fc1b94fbae37f093a1eabbe636dd472c69c9d50d1b1ee"
+  },
+  "src\\t3k_runtime\\game\\TempestPassword.h": {
+    "source": "nuance-upstream\\src\\TempestPassword.h",
+    "sha256": "76543cc6c452bc3ebc3540e54fd38e2c5a28914e1c3803b82ab7bf2455a4e6a3"
+  },
+  "src\\t3k_runtime\\game\\TempestPauseMenu.h": {
+    "source": "nuance-upstream\\src\\TempestPauseMenu.h",
+    "sha256": "7ba07010a7603d9ecdce45cff3f1f16aec0af6b10b0a11276c4367c89cd4e3a3"
+  },
+  "src\\t3k_runtime\\game\\TempestPools.h": {
+    "source": "nuance-upstream\\src\\TempestPools.h",
+    "sha256": "df5d3a7b8f1b104dad4da8e2ea0cd4db3120f1ec67d9c54cb752d93820c21a58"
+  },
+  "src\\t3k_runtime\\game\\TempestPreparation.h": {
+    "source": "nuance-upstream\\src\\TempestPreparation.h",
+    "sha256": "2dcb65b0641d0c94f4e753a5984b81be0bf798486a51097854ff4e0c438837f6"
+  },
+  "src\\t3k_runtime\\game\\TempestProjection.h": {
+    "source": "nuance-upstream\\src\\TempestProjection.h",
+    "sha256": "5a8dcfb743b75553a5a9d5a1dd9ff435788c8968b5e12f6491e35c6ac574c452"
+  },
+  "src\\t3k_runtime\\game\\TempestQueueDecode.h": {
+    "source": "nuance-upstream\\src\\TempestQueueDecode.h",
+    "sha256": "2f1e99e5d85c500a4c2f69f3f33ffd4c8f5ea321b648d6513b934fdbc7e3a824"
+  },
+  "src\\t3k_runtime\\game\\TempestRotaryCalibration.h": {
+    "source": "nuance-upstream\\src\\TempestRotaryCalibration.h",
+    "sha256": "734df94752fecfb84131e6c6f8ea8ee1299cd985bb25909c23f350a86a8fa893"
+  },
+  "src\\t3k_runtime\\game\\TempestSceneInitialization.h": {
+    "source": "nuance-upstream\\src\\TempestSceneInitialization.h",
+    "sha256": "a5eabc41e1d114a8ea8ce0ffa6e8525a3fcb5fa4c70e174ce99374bb20f78ab0"
+  },
+  "src\\t3k_runtime\\game\\TempestSelectionMenu.h": {
+    "source": "nuance-upstream\\src\\TempestSelectionMenu.h",
+    "sha256": "d1b411cb9ed13b487987fb10b65fcd720595c25a38a179417149481fbacfe4c6"
+  },
+  "src\\t3k_runtime\\game\\TempestSession.h": {
+    "source": "nuance-upstream\\src\\TempestSession.h",
+    "sha256": "eae439cf4c89adc40f852b4d07262d39d7efc947ff6467fec7cbf4bd628d5b6f"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionAsset.h": {
+    "source": "nuance-upstream\\src\\TempestSessionAsset.h",
+    "sha256": "29440d80b2dbeda0e5e3039a424f9f79f12e477735b574400e824fdd4073f9c8"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionDeath.h": {
+    "source": "nuance-upstream\\src\\TempestSessionDeath.h",
+    "sha256": "cd76acf7bdf9ff53244b81b52de87412b3d809d0df4bab2738b68a4078a73bf5"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionEntry.h": {
+    "source": "nuance-upstream\\src\\TempestSessionEntry.h",
+    "sha256": "8d45bfde0556958b62d074d8ccfccb4138557646882507240d18eec2531d3b67"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionGameOver.h": {
+    "source": "nuance-upstream\\src\\TempestSessionGameOver.h",
+    "sha256": "5fd733d3ed8f1491e44e3e4363cd81d1cbccf75f63157028ff00ea1f3e9ed301"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionGameplay.h": {
+    "source": "nuance-upstream\\src\\TempestSessionGameplay.h",
+    "sha256": "bd5195aeb165bc108541822e382e557e2d0f39c374402825be3da1f4bc8af363"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionLevelClear.h": {
+    "source": "nuance-upstream\\src\\TempestSessionLevelClear.h",
+    "sha256": "72ff3b224efcaf2ba7c5ca1e7379afc6ee640273b17c6846ee79e0abcab1fe1c"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionSpawning.h": {
+    "source": "nuance-upstream\\src\\TempestSessionSpawning.h",
+    "sha256": "c41caf75903faea951471727bcddfec2e229a109728d7d8d93958d6706bce7c2"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionUtilities.h": {
+    "source": "nuance-upstream\\src\\TempestSessionUtilities.h",
+    "sha256": "b33ca21943b772115788312a7824b040f1635d6b1671089203d8d14576444164"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionWarpBonus.h": {
+    "source": "nuance-upstream\\src\\TempestSessionWarpBonus.h",
+    "sha256": "4c08c946461d0d636515cfdd176276c0538201711fd8e3ee9879c25a56f58174"
+  },
+  "src\\t3k_runtime\\game\\TempestSessionWarpSkip.h": {
+    "source": "nuance-upstream\\src\\TempestSessionWarpSkip.h",
+    "sha256": "7ea8149625bcd93f085ff429a9c597ce052cc19984613c9f469607558148a7fb"
+  },
+  "src\\t3k_runtime\\game\\TempestShapePreparation.h": {
+    "source": "nuance-upstream\\src\\TempestShapePreparation.h",
+    "sha256": "107594cd95f73ec32329a434e79f0c8b87001165180c0669b5b95f861609a176"
+  },
+  "src\\t3k_runtime\\game\\TempestSound.h": {
+    "source": "nuance-upstream\\src\\TempestSound.h",
+    "sha256": "2742fe2bb5eafcb1059ef4df32432c84be1f08d0c4fad7d31f27d6deb428563d"
+  },
+  "src\\t3k_runtime\\game\\TempestTemplates.h": {
+    "source": "nuance-upstream\\src\\TempestTemplates.h",
+    "sha256": "7d57e7c3fdc46bb40b1597b8df9955c5c878e266f476e726b3642ccd6a698735"
+  },
+  "src\\t3k_runtime\\game\\TempestToolInput.h": {
+    "source": "nuance-upstream\\src\\TempestToolInput.h",
+    "sha256": "28df3a0da266b643e5f6c7682fd13d9d64b6f57c91985bb699397e3077ff3d9e"
+  },
+  "src\\t3k_runtime\\game\\TempestVectorInspector.h": {
+    "source": "nuance-upstream\\src\\TempestVectorInspector.h",
+    "sha256": "89803fd47fae5228d3be48753485bab9381a6c0c5ca0becb8095612d3dc65d15"
+  },
+  "src\\t3k_runtime\\game\\TempestWebPreparation.h": {
+    "source": "nuance-upstream\\src\\TempestWebPreparation.h",
+    "sha256": "8b7f967105ad8cba8227c8b7b537dffc91054df9529fc6248c3148cbd021e7c9"
+  },
+  "src\\t3k_runtime\\native_audio_backend.h": {
+    "source": "tempest-profile\\native_audio_backend.h",
+    "sha256": "97f65735f0b740eac926ddbf874eb7b159ea70c3b17c1f0c9994ef490c112308"
+  },
+  "src\\t3k_runtime\\native_audio_stream.h": {
+    "source": "tempest-profile\\native_audio_stream.h",
+    "sha256": "3b9c433dd15ba41a2ad6243b040c702e5b08eb01ca12521a59374e58c9ca2f1c"
+  },
+  "src\\t3k_runtime\\native_boot_image.h": {
+    "source": "tempest-profile\\native_boot_image.h",
+    "sha256": "a30e77f739dda9135a00cd5a220b3eb5008042db75e8ed1896206494630e2259"
+  },
+  "src\\t3k_runtime\\native_boot_music.h": {
+    "source": "tempest-profile\\native_boot_music.h",
+    "sha256": "0164296b66a592ea70cf25c39ef91844e05c2da5eecf5d45e387dddec7adf5cf"
+  },
+  "src\\t3k_runtime\\native_boot_renderer.h": {
+    "source": "tempest-profile\\native_boot_renderer.h",
+    "sha256": "373f97900397fec5cba21bb7683296196d10b587e8f6f13fb5bb62d1c8e9818f"
+  },
+  "src\\t3k_runtime\\native_controller_input.h": {
+    "source": "tempest-profile\\native_controller_input.h",
+    "sha256": "f06347c39a0e2d59bcd3c1ef270f67df9536864148820aced7d1c854b6eeec7d"
+  },
+  "src\\t3k_runtime\\native_controllers.h": {
+    "source": "tempest-profile\\native_controllers.h",
+    "sha256": "2965e93e1592d46536ce6ead275c17a716aed84e4a2f26acce1b33fc3a6c1067"
+  },
+  "src\\t3k_runtime\\native_driver_audio.h": {
+    "source": "tempest-profile\\native_driver_audio.h",
+    "sha256": "98f2876f28d66cdca41ba29c9ad82af13061a28c7339415dca5f328f12edd514"
+  },
+  "src\\t3k_runtime\\native_frame_integration.cpp": {
+    "source": "tempest-profile\\native_frame_integration.cpp",
+    "sha256": "182d00130e2afe649910b3b75182025b6081380776c3a5267fad68613cf8f9aa"
+  },
+  "src\\t3k_runtime\\native_frame_integration.h": {
+    "source": "tempest-profile\\native_frame_integration.h",
+    "sha256": "269f069e5912cf9546a5d5b6179b9b0f14ea0842be2c3fcfea68e6c00d939777"
+  },
+  "src\\t3k_runtime\\native_frame_memory.h": {
+    "source": "tempest-profile\\native_frame_memory.h",
+    "sha256": "d9242c2924f2f7ae433a06c55698b1a099a9de9e0ec2c8375efa18cc287f6770"
+  },
+  "src\\t3k_runtime\\native_frame_platform.cpp": {
+    "source": "tempest-profile\\native_frame_platform.cpp",
+    "sha256": "333c7591e409c3e019f82d87ae6a68a355f4a9d35e61da9fb3b912d1d4652c48"
+  },
+  "src\\t3k_runtime\\native_frame_platform.h": {
+    "source": "tempest-profile\\native_frame_platform.h",
+    "sha256": "f834e60774f6bc1c2f13d4a2d48cdc15499b8f9fa8dda308b7e7c77b03ff2707"
+  },
+  "src\\t3k_runtime\\native_live_host.h": {
+    "source": "tempest-profile\\native_live_host.h",
+    "sha256": "cb96fad26f19c23b2dac79ec304eb9668ea694d046be43c635c6c995abe49051"
+  },
+  "src\\t3k_runtime\\native_media.h": {
+    "source": "tempest-profile\\native_media.h",
+    "sha256": "6d84dfee9a9399c03d37396da4d155117c68b17a3370089483a1b2b6ca2704e2"
+  },
+  "src\\t3k_runtime\\native_menu_flow.h": {
+    "source": "tempest-profile\\native_menu_flow.h",
+    "sha256": "326615d6acb782673d135d30d36b21da18444b888abc2732d80a20439dfe3032"
+  },
+  "src\\t3k_runtime\\native_mouse_input.h": {
+    "source": "tempest-profile\\native_mouse_input.h",
+    "sha256": "8de142a4bac411b7a18747df762c5afee28cd0b6de110d73401c12a8ab1e609b"
+  },
+  "src\\t3k_runtime\\native_nise_initialization.h": {
+    "source": "tempest-profile\\native_nise_initialization.h",
+    "sha256": "63349fcdc28b02425c7f3962e45a66fe3be462ea2f05a873dc278a8af5bbd4ae"
+  },
+  "src\\t3k_runtime\\native_preparation_backend.h": {
+    "source": "tempest-profile\\native_preparation_backend.h",
+    "sha256": "47301e657f58621e2db81d2cafa974f7e06ba3a3e9376af875d05273053188c9"
+  },
+  "src\\t3k_runtime\\native_renderer_bridge.cpp": {
+    "source": "tempest-profile\\native_renderer_bridge.cpp",
+    "sha256": "3c805de96f1f55b85a5f9dd7c58f2048332e1e580eee5de6d4e614276ad261fd"
+  },
+  "src\\t3k_runtime\\native_renderer_bridge.h": {
+    "source": "tempest-profile\\native_renderer_bridge.h",
+    "sha256": "42285ae42a99b298e07b19261bb8bf9aca9d12a58549c981747ed066c276548b"
+  },
+  "src\\t3k_runtime\\native_runtime_platform.h": {
+    "source": "tempest-profile\\native_runtime_platform.h",
+    "sha256": "e3295ebae3db1d77f0e29ca68ca412783e41b343d5313457bde97e69dd7f0153"
+  },
+  "src\\t3k_runtime\\native_sdk_drawing.h": {
+    "source": "tempest-profile\\native_sdk_drawing.h",
+    "sha256": "efb75b3d5ef3c1b2c873a613b82a26247cdd986e07f3a59aad02ba1d09bc4bdd"
+  },
+  "src\\t3k_runtime\\native_sdl_input.h": {
+    "source": "tempest-profile\\native_sdl_input.h",
+    "sha256": "fcb50d2f80f50db23eed5764acd566d317c6384751e680ee0ba48018d9d19128"
+  }
+}

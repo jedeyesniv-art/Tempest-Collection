@@ -404,41 +404,65 @@ int32_t KOfDepth(int64_t depth) {   // 806A9566 + $C000: 0.75 x 2^44 / (depth + 
 // 96 particles from fixed LFSR seeds (the same set every picture), flying out along z as w3 grows; colour a mix of
 // $D2921000 and mem[$8010B154] by the low 16 bits of z << 7; projected and drawn as the 00310309 particles.
 
+void EmitModule8Point(const uint32_t* e,const Blob& blob,Picture* out){
+  if((e[7]&127)==2){
+    // Row routine 20300D02 blends a whole square by (1 - I); selectors
+    // zero and one both resolve to the radial routine at 20300C64.
+    Op op{Op::kBlendRect};op.x=std::floor(blob.x-.5f-blob.r);op.y=std::floor(blob.y+.5f-blob.r);
+    op.w=op.h=blob.r*2;op.colour=blob.colour;op.colour.a=1-blob.colour.a;out->ops.push_back(op);
+  }else out->blobs.push_back(blob);
+}
+
 void JumpBurst(const uint32_t* e, const Mem& mem, Picture* out) {
-  uint32_t cam[3] = {}, colb = 0;
-  for (int k = 0; k < 3; ++k) Read(mem, 0x800DAD80u + 4 * uint32_t(k), &cam[k]);
-  Read(mem, 0x8010B154u, &colb);
-  const uint32_t cola = 0xD2921000u;
-  auto lfsr = [](uint32_t r) { return (r >> 1) ^ ((r & 1) ? 0u : 0xA3000000u); };
-  uint32_t r8 = 0x23956329u, r9 = 0x49352850u, r10 = 0x0946354Fu;
-  const int32_t base = S32(int64_t(int32_t(e[2])) + int32_t(cam[2]));
-  for (int n = 0; n < 96; ++n) {
-    r8 = lfsr(r8);
-    const int32_t x0 = Sext(r8, 24);
-    r9 = lfsr(r9);
-    const int32_t y0 = Sext(r9, 24);
-    r10 = lfsr(r10);
-    const int32_t z = int32_t((r10 - (e[3] << 1)) & 0x1FFFFFFu);
-    r8 = lfsr(r8);
-    const int32_t x = Mul(z, x0, 26), y = Mul(z, y0, 26), s = Mul(z, int32_t(r8 & 15), 25);
-    const uint32_t f = (uint32_t(z) << 7) & 0xFFFF;
-    uint32_t col = 0;
-    for (int sh = 24; sh >= 8; sh -= 8) {
-      const int ca = int(cola >> sh & 0xFF), cb = int(colb >> sh & 0xFF);
-      col |= uint32_t((ca + (((cb - ca) * int(f)) >> 16)) & 0xFF) << sh;
+  if (!(e[4] & 1)) return;
+  uint32_t cam[3]{}, target=0;
+  for(int k=0;k<3;++k) Read(mem,0x800DAD80u+4u*k,&cam[k]);
+  Read(mem,0x8010B154,&target);
+  uint32_t sx=0x23956329,sy=0x49352850,sz=0x0946354F;
+  auto step=[](uint32_t x){return (x>>1)^((x&1)?0:0xA3000000u);};
+  for(int i=0;i<96;++i){
+    sx=step(sx);sy=step(sy);sz=step(sz);
+    const int32_t xseed=Sext(sx,24),yseed=Sext(sy,24);
+    sx=step(sx);
+    const int32_t z=int32_t((sz-(e[3]<<1))&0x1FFFFFFu);
+    const int32_t dx=Mul(z,xseed,26),dy=Mul(z,yseed,26);
+    const int32_t radius=Mul(z,int32_t(sx&15),25);
+    const int32_t depth=S32(int64_t(int32_t(e[2]))+int32_t(cam[2])+z);
+    // Original reciprocal refinement, including non-positive/overflowed
+    // denominators. Mode 1 still emits its minimum-size point when k is zero.
+    uint32_t denominator=uint32_t(depth)+0x800000,kword=0;
+    if(int32_t(denominator)>0){
+      unsigned bits=0;for(uint32_t value=denominator;value;value>>=1)++bits;
+      uint32_t normalized=bits>=10?denominator>>(bits-10):denominator<<(10-bits),resource=0,seed=0;
+      Read(mem,0x800B1740,&resource);Read(mem,resource+((normalized-512)&~3U),&seed);
+      int32_t error=S32(int64_t(0x40000000)-Mul(int32_t(seed),int32_t(denominator),int(bits)));
+      int32_t refined=Mul(error,int32_t(seed),29);
+      error=S32(int64_t(0x40000000)-Mul(refined,int32_t(denominator),int(bits)));
+      uint32_t reciprocal=uint32_t(Mul(refined,error,29));
+      uint32_t scaled=bits>=15?reciprocal>>(bits-15):reciprocal<<(15-bits);
+      kword=uint32_t(Mul(0xC000,int32_t(scaled),16));
     }
-    const int32_t k = KOfDepth(int64_t(base) + z);
-    const int32_t px = Mul(k, S32(int64_t((S32(int64_t(int32_t(e[0])) + x)) >> 1) + (int64_t(int32_t(cam[1])) << 3)), 19);
-    const int32_t py = Mul(k, S32(int64_t((S32(int64_t(int32_t(e[1])) + y)) >> 1) + (int64_t(int32_t(cam[0])) << 3)), 19);
-    const int size = std::clamp(Mul(k, s, 19), 2, 24);
-    Blob b;   // centre = the call's top-left + size / 2 = the projected point + (180.5, 120.5); pixel offsets as Particles
-    // (checked 2026-11-22 with T3K_CHECK_MASK over the jump: a pixel off in x or y, or the radius +-0.5, doubles the error)
-    b.x = float(double(px) / 65536.0 + 180.5 + 0.5);
-    b.y = float(double(py) / 65536.0 + 120.5 - 0.5);
-    b.r = float(size) / 2.f;
-    b.colour = Colour(col | 0xFF, 1.f);
-    b.colour.a = float(0x3F000000 / 1073741824.0);
-    out->blobs.push_back(b);
+    const int32_t k=int32_t(kword);
+    const int32_t x=S32(int64_t(int32_t(e[0]))+dx),y=S32(int64_t(int32_t(e[1]))+dy);
+    const int32_t px=S32(int64_t(Mul(k,S32(int64_t(x>>1)+int64_t(int32_t(cam[1]))*8),19))+0xB48000);
+    const int32_t py=S32(int64_t(Mul(k,S32(int64_t(y>>1)+int64_t(int32_t(cam[0]))*8),19))+0x788000);
+    const int32_t size=std::clamp(Mul(k,radius,19),2,24);
+    uint32_t colour=0xFF;
+    for(int channel=0;channel<3;++channel){
+      const int shift=24-channel*8;
+      int32_t a=int32_t(((0xD2921000u>>shift)&255)<<22),b=int32_t(((target>>shift)&255)<<22);
+      if(channel){a-=0x20000000;b-=0x20000000;}
+      const int32_t delta=S32(int64_t(b)-a);
+      // MUL_P ru uses the unsigned 14-bit UV fraction, not a signed scalar.
+      const int32_t fraction=int32_t((uint32_t(z)<<5)&0x3FFF);
+      const int32_t product=S32(int64_t(fraction)*(delta>>16)*4);
+      const int32_t mixed=S32(int64_t(uint32_t(a)&0xFFFF0000u)+(uint32_t(product)&0xFFFF0000u));
+      const int byte=channel?std::clamp((mixed>>22)+128,0,255):std::clamp(mixed>>22,0,255);
+      colour|=uint32_t(byte)<<shift;
+    }
+    Blob blob;blob.x=float(double(px)/65536.0+0.5);blob.y=float(double(py)/65536.0-0.5);
+    blob.r=float(size)/2;blob.colour=Colour(colour,1);blob.colour.a=float(0x3F000000)/1073741824.f;
+    EmitModule8Point(e,blob,out);
   }
 }
 
@@ -714,7 +738,7 @@ void RingPoints(const uint32_t* e, const Mem& mem, Picture* out) {
           b.r = float(size) / 2.f;
           b.colour = Colour(ycc, 1.f);
           b.colour.a = std::clamp(float(I) / 1073741824.f, 0.f, 1.f);
-          out->blobs.push_back(b);
+          EmitModule8Point(e,b,out);
         }
       }
     }
@@ -727,7 +751,7 @@ void RingPoints(const uint32_t* e, const Mem& mem, Picture* out) {
 // radius $4000 + $3000 n, intensity 1, 4, 7, 10, 63 / 64, colour word n of the list at $8010B150; disc angles
 // A = w4 + w6 (+ $4000 a disc), B = w5 (+ $800 a disc). Row routine 0 (w7 & $7F) = the plain disc blend.
 
-bool BurstDrawable(const uint32_t* e) { return (e[7] & 0x7F) == 0; }
+bool BurstDrawable(const uint32_t* e) { return (e[7] & 0x7F) <= 2; }
 
 void Burst(const uint32_t* e, const Mem& mem, Picture* out) {
   uint32_t cam[3] = {}, cols[5] = {};
@@ -759,7 +783,7 @@ void Burst(const uint32_t* e, const Mem& mem, Picture* out) {
       b.r = float(size) / 2.f;
       b.colour = Colour(cols[ring] | 0xFF, 1.f);
       b.colour.a = std::clamp(float(I) / 1073741824.f, 0.f, 1.f);
-      out->blobs.push_back(b);
+      EmitModule8Point(e,b,out);
     }
     I += 0x03000000;
     n -= 3;
@@ -953,6 +977,8 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
   static const char* const only = std::getenv("T3K_NATIVE_FORCE") ? std::getenv("NUANCE_ONLYTYPES") : nullptr;
   for (size_t i = 0; i + 17 <= entries.size(); i += 17) {
     const uint32_t* e = &entries[i + 1];
+    if((e[15]&255)==255)break;
+    if((e[15]&255)==254)continue;
     if (only) {
       char t[12];
       std::snprintf(t, sizeof t, "%08X", e[15]);
@@ -1163,6 +1189,7 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         break;
       case 0x00310108:   // 806A5FB0 mode 1 (806A630A): the jump burst, drawn only when w4 bit 0 is set
         if (e[4] & 1) {
+          if(!BurstDrawable(e)){out->first_unknown=e[15];out->complete=false;break;}
           Op op{Op::kBlobs};
           op.first = uint32_t(out->blobs.size());
           JumpBurst(e, mem, out);
@@ -1206,7 +1233,7 @@ bool BuildPictureLive(int mpe, uint32_t flip, Picture* out) {
       if (!Read(mem, a + 4 * uint32_t(k), &e[k])) return false;
     entries.push_back(a);
     entries.insert(entries.end(), e, e + 16);
-    if (e[15] == 0x000000FFu) break;
+    if ((e[15]&255) == 0xFFu) break;
   }
   BuildFrom(entries, mem, flip, out);
   return true;
@@ -1235,6 +1262,37 @@ void Renderer::Seed(SDL_Renderer* ren, SDL_Texture* picture, const SDL_FRect& ds
   const SDL_FRect game{dst.x - vw.x, dst.y - vw.y, dst.w, dst.h};   // (the emulated picture: the 4:3 part)
   Pass(ren, picture, g_ycc ? g_in : nullptr, &game);
   SDL_SetRenderTarget(ren, keep);
+}
+
+bool Renderer::CaptureFeedback(SDL_Renderer* ren,FeedbackState& out,std::string& error) {
+  FeedbackState next;
+  if(!tex_[cur_]){out=std::move(next);error.clear();return true;}
+  auto* keep=SDL_GetRenderTarget(ren);
+  if(!SDL_SetRenderTarget(ren,tex_[cur_])){error=SDL_GetError();return false;}
+  auto* surface=SDL_RenderReadPixels(ren,nullptr);
+  SDL_SetRenderTarget(ren,keep);
+  if(!surface){error=SDL_GetError();return false;}
+  next.width=surface->w;next.height=surface->h;next.format=surface->format;
+  size_t row=size_t(next.width)*SDL_BYTESPERPIXEL(surface->format);
+  next.pixels.resize(row*next.height);
+  for(int y=0;y<next.height;++y)std::memcpy(next.pixels.data()+y*row,static_cast<uint8_t*>(surface->pixels)+y*surface->pitch,row);
+  SDL_DestroySurface(surface);out=std::move(next);error.clear();return true;
+}
+bool Renderer::RestoreFeedback(SDL_Renderer* ren,const FeedbackState& in,std::string& error) {
+  if(in.width==0&&in.height==0&&in.pixels.empty()){
+    for(auto*& t:tex_){if(t)SDL_DestroyTexture(t);t=nullptr;}w_=h_=0;cur_=0;glyph_flip_=0xFFFFFFFFu;error.clear();return true;
+  }
+  if(in.width<=0||in.height<=0||in.width>8192||in.height>8192||
+     (in.format!=SDL_PIXELFORMAT_RGBA64_FLOAT&&in.format!=SDL_PIXELFORMAT_XRGB8888)||
+     uint64_t(in.width)*in.height*SDL_BYTESPERPIXEL(in.format)!=in.pixels.size()){
+    error="Invalid native feedback image";return false;
+  }
+  Resize(ren,{0,0,float(in.width),float(in.height)});
+  float width=0,height=0;SDL_GetTextureSize(tex_[0],&width,&height);
+  auto actual=SDL_GetNumberProperty(SDL_GetTextureProperties(tex_[0]),SDL_PROP_TEXTURE_FORMAT_NUMBER,0);
+  if(actual!=in.format){error="Native feedback texture precision changed";return false;}
+  if(!SDL_UpdateTexture(tex_[0],nullptr,in.pixels.data(),in.width*SDL_BYTESPERPIXEL(in.format))){error=SDL_GetError();return false;}
+  cur_=0;glyph_flip_=0xFFFFFFFFu;error.clear();return true;
 }
 
 void Renderer::Resize(SDL_Renderer* ren, const SDL_FRect& dst) {
@@ -1297,9 +1355,10 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
   for (const Op& op : pic.ops) brightening |= op.kind == Op::kZoom && op.fade > 1.f;
   for (const Op& op : pic.ops) {
     switch (op.kind) {
-      case Op::kFill: {
-        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
-        SDL_SetRenderDrawColorFloat(ren, op.colour.r, op.colour.g, op.colour.b, 1.f);
+      case Op::kFill: case Op::kBlendRect: {
+        const bool blend=op.kind==Op::kBlendRect;
+        SDL_SetRenderDrawBlendMode(ren, blend?SDL_BLENDMODE_BLEND:SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawColorFloat(ren, op.colour.r, op.colour.g, op.colour.b, blend?op.colour.a:1.f);
         float x0 = op.x, x1 = op.x + op.w, y0 = op.y, y1 = op.y + op.h;
         if (x0 <= 0.f && x1 >= 360.f) x0 = std::min(x0, gx0), x1 = std::max(x1, gx1);   // full width: to the edges
         if (y0 <= 0.f && y1 >= 240.f) y0 = std::min(y0, gy0), y1 = std::max(y1, gy1);
@@ -1749,7 +1808,15 @@ void SetLineStyle(bool sharp, float core, float glow, float max_size) {
   g_sharp_size = max_size;
 }
 
+void ShutdownPipeline() {
+  for(auto* state:{g_fade,g_out,g_in,g_ripple})if(state)SDL_DestroyGPURenderState(state);
+  g_fade=g_out=g_in=g_ripple=nullptr;
+  for(auto*& shader:g_shader){if(shader&&g_device)SDL_ReleaseGPUShader(g_device,shader);shader=nullptr;}
+  g_device=nullptr;g_ycc=false;
+}
+
 bool InitPipeline(SDL_Renderer* ren) {
+  ShutdownPipeline();
   g_ycc = false;
   if (SDL_getenv("T3K_NATIVE_RGB")) return false;   // tests: the old RGB path
   g_device = SDL_GetGPURendererDevice(ren);

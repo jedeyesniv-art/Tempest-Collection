@@ -13,7 +13,7 @@ enum Action { kRestart = menu::kGameAction };
 // from_launcher: the last item says "Return to launcher".
 void Install(bool from_launcher);
 
-// The Nuon button bits (1 << nuon::Btn) of the functions held in `held` (controls::Held).
+// Native hardware button mask of the functions held in `held` (controls::Held).
 uint16_t NuonButtons(uint32_t held);
 
 }  // namespace t3k_menu

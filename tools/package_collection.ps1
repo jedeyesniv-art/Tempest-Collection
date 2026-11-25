@@ -4,9 +4,8 @@
 #   TempestCollection.exe          the launcher (build\tempest.exe)
 #   libsndfile_x64.dll + "libsndfile COPYING.txt"   the launcher's Vorbis encoder (T3K disc compression; LGPL)
 #   t2k.exe t3k.exe txk.exe t81.exe   the games' programs (the launcher starts them by these names)
-#   nuance_libretro.dll vita3k_libretro.dll tempest_libretro.dll   the emulator cores
+#   vita3k_libretro.dll tempest_libretro.dll   the emulator cores
 #   msvcp140*.dll vcruntime140*.dll    the C++ runtime the Vita3K core needs (app-local; the rest are static)
-#   system\nuance\                 Nuon BIOS stubs + nuance.cfg (from the Nuance source)
 #   system\vita3k\                 the PS Vita firmware, already installed (vs0 / sa0 / os0 ...; no .pup files)
 #   game\                          the games: Tempest 2000 .jag, Tempest 3000 .nuz (or .iso), TxK folder, tempest.zip (MAME)
 #   userdata\                      the owner's settings, saves and save states (fullscreen on for every program)
@@ -18,7 +17,7 @@
 # -Release: the PUBLIC package instead - dist\release\TempestCollection\ + dist\TempestCollection-<date>.zip:
 #   no game files (game\ holds a note), no PS Vita firmware (vita_firmware\ holds a note; nothing in system\vita3k),
 #   an empty userdata\ (each program writes its defaults on first start), licences\ with the cores' licence texts and
-#   our changes to each core as patches. The Nuon BIOS replacement (Nuance's own, open source) is shipped.
+#   our changes to each core as patches. Tempest 3000 runs natively and needs no Nuon BIOS.
 param([switch]$SkipBuild, [switch]$Release)
 
 $ErrorActionPreference = "Stop"
@@ -84,7 +83,7 @@ if (Test-Path $steamart) {
 } else {
     Write-Warning "no art\steam (run tools\steam_art.py): no Steam library art in the package"
 }
-foreach ($f in @("t2k.exe", "t3k.exe", "txk.exe", "t81.exe", "nuance_libretro.dll", "vita3k_libretro.dll",
+foreach ($f in @("t2k.exe", "t3k.exe", "txk.exe", "t81.exe", "vita3k_libretro.dll",
                  "tempest_libretro.dll")) {
     Copy-Item (Join-Path $build $f) $dist
 }
@@ -96,10 +95,7 @@ foreach ($f in @("msvcp140.dll", "msvcp140_atomic_wait.dll", "vcruntime140.dll",
     Copy-Item (Join-Path $crt.FullName $f) $dist
 }
 
-# System files: the Nuon BIOS stubs, the installed Vita firmware (the core's own data it unpacks again if missing).
-Copy-Item -Recurse (Join-Path $build "system\nuance") (Join-Path $dist "system\nuance")
-# (FlashEEPROM.bin is the Nuon's save memory, written while playing: a release starts with none.)
-if ($Release) { Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dist "system\nuance\FlashEEPROM.bin") }
+# System files: installed Vita firmware, unpacked again by its core if missing.
 if (-not $Release) {
 $vsrc = Join-Path $build "system\vita3k"
 $vdst = Join-Path $dist "system\vita3k"
@@ -262,6 +258,7 @@ $added | Where-Object { $_.Name -like "*settings.txt" } | ForEach-Object {
 # too) on the upstream commits tools/get_third_party.sh fetches.
 $lic = Join-Path $dist "licences"
 New-Item -ItemType Directory -Force $lic | Out-Null
+Copy-Item (Join-Path $repo "src\t3k_runtime\THIRD-PARTY.txt") (Join-Path $lic "Tempest 3000 native attribution.txt")
 $tp = Join-Path $repo "third_party"
 $texts = @(
     @("Virtual Jaguar (libretro) - LICENSE.txt", "virtualjaguar\LICENSE"),
@@ -288,6 +285,7 @@ SOURCE
 The complete source of this collection - our programs and every change we made to the emulator cores - is in the
 Tempest Collection's GitHub repository:
 
+  src\t3k_runtime\                native Tempest 3000 reconstruction and standalone NUZ / Vorbis readers
   src\                            the launcher and the four game programs (t2k, t3k, t81, txk)
   third_party\virtualjaguar\      Virtual Jaguar (GPL-3), with our changes (LLAMASOFT-NOTES.txt)
   third_party\NuanceResurrection\ Nuance Resurrection, with our changes (LLAMASOFT-NOTES.txt)
@@ -304,7 +302,7 @@ if ($Release) {
 $gamesText = @"
   TEMPEST (1981 arcade)       MAME core           game\tempest.zip
   TEMPEST 2000 (Jaguar)       Virtual Jaguar      game\<name>.jag  (or .j64)
-  TEMPEST 3000 (Nuon)         Nuance              game\<name>.iso  (or .mdf)
+  TEMPEST 3000 (Nuon)         Native reconstruction              game\<name>.iso  (or .mdf)
   SPACE GIRAFFE               opens Steam (if it is installed there); "Space Giraffe helper\" sets it up
   TxK (PS Vita)               Vita3K              game\PCSB00494\  + the PS Vita firmware in vita_firmware\
   TEMPEST 4000                opens Steam (if it is installed there); "Tempest 4000 helper\" skips its
@@ -320,7 +318,7 @@ Licences and the source of the emulator cores: licences\.
 $gamesText = @"
   TEMPEST (1981 arcade)       MAME core           game\tempest.zip
   TEMPEST 2000 (Jaguar)       Virtual Jaguar      game\Tempest 2000 (1994).jag
-  TEMPEST 3000 (Nuon)         Nuance              game\$t3kDisc
+  TEMPEST 3000 (Nuon)         Native reconstruction              game\$t3kDisc
   SPACE GIRAFFE               opens Steam (if it is installed there); "Space Giraffe helper\" sets it up
   TxK (PS Vita)               Vita3K              game\PCSB00494\  (firmware already installed in system\vita3k)
   TEMPEST 4000                opens Steam (if it is installed there); "Tempest 4000 helper\" skips its
@@ -335,7 +333,7 @@ TEMPEST COLLECTION
 ==================
 
 Run TempestCollection.exe and pick a game. Each game runs fullscreen on top of the launcher and comes back to it
-when you quit (Back / View on the pad opens a game's settings menu, which has "Return to launcher").
+when you quit (Back / View opens settings in the other games; T3K uses Guide / Esc and keeps Back as NUON).
 
 $gamesText
 
@@ -360,11 +358,12 @@ PAD (each game's menu can remap its buttons)
  Launcher: left / right choose, up / down Space Giraffe's flavour (Acid / Nuxx), A start, Y Steam, B quit.
  Tempest (1981): left stick / d-pad spin, A / RT fire, B / RB / X Superzapper, Y coin, Start start.
  Tempest 2000: A fire, X / RT jump, B / RB Superzapper, Y Option, Start pause, LB camera view.
- Tempest 3000: left stick claw, A fire, B Superzapper, RB / RT jump (Nuon R), X / Y as the Nuon C-left / C-up,
-               LB L, LT C-down, Start start.
+ Tempest 3000: left stick claw, A fire, B Superzapper, RB jump (Nuon R), X / Y as the Nuon C-left / C-up,
+               LB L, LT C-down, RT C-right, Start start, Back NUON. Guide / Esc opens settings.
+                Select mouse / trackball in settings: left fire, right jump, middle Superzapper.
  TxK: A Cross, B Circle, X Square, Y Triangle, LB Select, LT hold (L), RT jump (R), Start start, sticks;
       touch the screen (or click) for the touchscreen.
- Back (View) = the game's settings menu (the game pauses).
+ Back (View) = settings in the other games; Guide / Esc in Tempest 3000 (the game pauses).
 "@ | Set-Content -Encoding ascii (Join-Path $dist "README.txt")
 
 $files = Get-ChildItem $dist -Recurse -File
