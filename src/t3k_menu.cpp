@@ -32,7 +32,7 @@ void Install(bool from_launcher) {
            {"Off", "25%", "50%", "75%", "100%", "125%", "150%"})->def_value = "1";
   p.Button("Restart the game", kRestart, true);
   // play / menus / warp each at their own speed (t3k_main.cpp SpeedControl)
-  p.Number("Play speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 21);
+  p.Number("Play speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 20);
   p.Number("Menu speed (pictures/s)", "menu_speed", 15, 60, 1, "%.0f", 30);
   p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60/s (original)", "Play speed"});
   p.Number("  Speed change (s)", "warp_ramp", 0, 2, 0.1, "%.1f", 0.5);

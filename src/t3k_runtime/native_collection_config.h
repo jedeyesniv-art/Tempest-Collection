@@ -25,7 +25,7 @@ inline void load_collection_settings(){
     settings::SetDefaultText(R"(# Tempest 3000 native settings.
 fullscreen = 1
 vsync = 1
-game_speed = 21
+game_speed = 20
 menu_speed = 30
 warp_speed = 60
 warp_ramp = 0.5

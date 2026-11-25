@@ -141,7 +141,7 @@ public:
             }
         }
         auto clamp=[](double value){return (std::clamp)(value,15.0,60.0);};
-        double play=clamp(settings::Num("game_speed",21)),warp=settings::Num("warp_speed",60),menus=settings::Num("menu_speed",30);
+        double play=clamp(settings::Num("game_speed",20)),warp=settings::Num("warp_speed",60),menus=settings::Num("menu_speed",30);
         double target=zoom&&!web?(warp>0?clamp(warp):play):web&&claw?play:menus>0?clamp(menus):play;
         auto now=SDL_GetTicksNS();
         if(!speedTime_){rate_=target;speedFrom_=target;speedTo_=target;}

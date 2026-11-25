@@ -1145,6 +1145,19 @@ To do, at the end:
 3. Depending on 1: run-ahead 1 on the Deck (or adaptive), cap catch-up so one late frame can't cascade.
 4. Small: cache the game select menu's text (15,700 sprite rects drawn every frame) as a texture.
 
+## Native T3K: next (owner, 2026-11-25; branch t3k-native, commit 000dacf, NOT pushed)
+Frogacuda's native T3K is in (CLAUDE.md "NATIVE T3K"). The owner's plan, in order:
+1. Controls again: tune the top speed, and sort out nudges - the native analog path is more accurate but a step back
+   from our Step mode there (measured 2026-11-25: speed = x * 768/65536 lanes a picture, deadzone ~20/127, cap at
+   x 90; nothing below 0.234 lanes a picture). Also ask: jump on RT as well as RB (our old layout; native has RT =
+   C-right).
+2. Bonus rounds: a report says they don't fully work - find them in src/t3k_runtime/game (TempestSessionWarpBonus.h
+   and around) and test them.
+3. DONE: game speed works (ported by Frogacuda; the owner had it set too high). Default play speed now 20 (owner: "feels really good").
+4. General performance fixes.
+Before release: README (Emulation++ / T3K paragraphs out of date, credit Frogacuda with his GitHub link), commit author
+-> his GitHub identity, package + smoke test, play folder for the Deck.
+
 ## Collection status and open items (refreshed 2026-11-17 with the owner; the 2026-11-15 list is below as history)
 
 ### Verified on the Steam Deck (owner, 2026-11-17)
