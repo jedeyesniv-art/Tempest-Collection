@@ -124,6 +124,10 @@ greys a game out with "game files needed" + what / where (launcher.cpp MissingGa
 .img (a DVD .mdf == .iso). Release defaults = the owner's tune (T3K game_speed 21 + sp_top_speed 23 + sp_ramp_time 0.44 + menu_speed 30 + run_ahead 2, T2K lr ramp 20 /
 0.05 / 3 + particles 1.4 + fullscreen, TxK sharp + aniso 16). README.md = the GitHub page (header res/github/,
 tools/github_art.py). Tested: a copy of the release + hard-linked games (logs\reltest), all four from first start.
+OWNER'S MAIN PLAY FOLDER (2026-11-26): C:\JohnGames\TempestCollection - hooked to Steam, played most; its own
+userdata (never overwrite). "Refresh the play copy" = copy the changed exes / DLLs from build\ there (dated backup of
+each replaced file), then test from it with --userdata=logs\... dist\TempestCollection is only packaging output. The owner copies JohnGames to the Deck themselves.
+Owner 2026-11-26: Frogacuda's stable native T3K runs very well on the Deck (his handoff had only tested Windows).
 Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
 -> dist\TempestCollection\ (TempestCollection.exe launcher, t2k / t3k / txk / t81 + cores + C++ runtime, system\ with the
 installed Vita firmware, game\ = the four games hard-linked (T3K as the .nuz), userdata\ = the play folder's own, KEPT across
