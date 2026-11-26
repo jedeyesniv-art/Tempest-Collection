@@ -5,6 +5,8 @@
 #include "crt_menu.h"
 #include "pads.h"
 #include "settings.h"
+#include <algorithm>
+#include "t3k_runtime/native_timing_profile.h"
 
 namespace t3k_menu {
 namespace {
@@ -15,7 +17,14 @@ const uint16_t kBit[kFnCount] = {0,0x4000,0x0008,0x0004,0x0002,0x8000,0x0001,0x0
 
 }  // namespace
 
-void Install(bool from_launcher) {
+void FillControllerChoice(menu::Item& item) {
+    pads::FillChoice(item);item.names[0]="Any gamepad (last used)";
+    auto found=std::find(item.values.begin(),item.values.end(),"mouse");
+    if(found!=item.values.end()){auto index=size_t(found-item.values.begin());item.values.erase(found);item.names.erase(item.names.begin()+index);}
+    item.values.insert(item.values.begin()+1,"mouse");item.names.insert(item.names.begin()+1,"Mouse / trackball");
+}
+
+void Install(bool from_launcher,bool profile_mode) {
   // Native NUON layout. Back / Guide / Escape open the collection menu, as in every game (owner 2026-11-25: Back did
   // nothing in play as the Nuon button; Steam owns Guide on the Deck); the Nuon button is on LB (L does nothing in
   // play). Existing bind_* choices retain their meanings.
@@ -31,20 +40,31 @@ void Install(bool from_launcher) {
   p.Choice("Volume", "volume", {"0", "0.25", "0.5", "0.75", "1", "1.25", "1.5"},
            {"Off", "25%", "50%", "75%", "100%", "125%", "150%"})->def_value = "1";
   p.Button("Restart the game", kRestart, true);
-  // play / menus / warp each at their own speed (t3k_main.cpp SpeedControl)
-  p.Number("Play speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 20);
-  p.Number("Menu speed (pictures/s)", "menu_speed", 15, 60, 1, "%.0f", 30);
-  p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60/s (original)", "Play speed"});
-  p.Number("  Speed change (s)", "warp_ramp", 0, 2, 0.1, "%.1f", 0.5);
-  p.Choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"});
-  p.Button("  Save state", menu::kSaveState)->slot_info = true;
-  p.Button("  Load state", menu::kLoadState, true)->slot_info = true;
+  auto originalCadence=[profile_mode]{return !profile_mode;};
+  // Both sampling modes use the scene profile; legacy diagnostics keep their controls.
+  p.Number("Play speed (pictures/s)", "game_speed", 15, 60, 1, "%.0f", 20)->when=originalCadence;
+  p.Number("Menu speed (pictures/s)", "menu_speed", 15, 60, 1, "%.0f", 30)->when=originalCadence;
+  p.Choice("Warp between levels", "warp_speed", {"60", "0"}, {"60/s (original)", "Play speed"})->when=originalCadence;
+  p.Number("  Speed change (s)", "warp_ramp", 0, 2, 0.1, "%.1f", 0.5)->when=originalCadence;
+  p.Choice("Save slot", "state_slot", {"1", "2", "3", "4", "5"}, {"1", "2", "3", "4", "5"})->when=originalCadence;
+  auto* save=p.Button("  Save state", menu::kSaveState);save->slot_info=true;save->when=originalCadence;
+  auto* load=p.Button("  Load state", menu::kLoadState, true);load->slot_info=true;load->when=originalCadence;
   p.Header("CONTROLS");
-  p.Choice("Controller", "controller", {"auto"}, {"Any (last used)"})->refresh = pads::FillChoice;
-  p.Choice("Input device", "control_device", {"gamepad", "mouse"},
-           {"Gamepad (native NUON)", "Mouse / trackball"});
+  p.Choice("Controller", "controller", {"auto", "mouse"}, {"Any gamepad (last used)", "Mouse / trackball"})->refresh = FillControllerChoice;
+  p.Number("Stick response curve", "t3k_stick_curve", 1, 5, 0.1, "%.1f", 2.5)->when=[] { return settings::Str("controller","auto")!="mouse"; };
+  p.Number("Sensitivity", "t3k_input_gain", 0.25, 3, 0.05, "%.2fx", 1);
   p.Binds();
+  if(profile_mode){
+    p.Header("TIMING");
+    p.Button("Restart to apply timing", kRestart, true)->when=tempest_native::timing_changes_pending;
+    for(size_t i=0;i<tempest_native::timingFields.size();++i){
+      if(i==8)p.Sub("More scenes");
+      const auto& f=tempest_native::timingFields[i];
+      p.Number(std::string(f.label)+" (ticks/s)",f.key,15,60,1,"%.0f",f.initial);
+    }
+  }
   p.Header("PICTURE");
+  if(profile_mode)p.Choice("Framerate (restart to apply)", "native_high_framerate", {"0","60","1"}, {"Original","60Hz","120Hz"})->def_value="1";
   p.Button("Fullscreen", menu::kToggleFullscreen);
   // the picture drawn at most this tall, then stretched over the window (lighter for weaker GPUs)
   p.Choice("Resolution", "resolution", {"0", "1440", "1080", "900", "720", "540"},
@@ -54,7 +74,12 @@ void Install(bool from_launcher) {
   auto sharp = [] { return settings::Num("native_view", 1) == 1 && settings::Num("sharp_vectors", 1) != 0; };
   p.Choice("Renderer", "native_view", {"1", "0"}, {"Remaster", "Original resolution (native)"});
   p.Choice("  Wide screens", "widescreen", {"1", "0"}, {"Fill the width", "4:3 with bars"})->when = rem;
+#ifndef TEMPEST_T3K_TIMING_RESEARCH
   p.Choice("  Smooth motion", "native_interpolate", {"1", "0"}, {"On", "Off"})->when = rem;
+#endif
+#ifdef TEMPEST_T3K_TIMING_RESEARCH
+  p.Choice("  Geometry precision", "native_precise_web", {"1", "0"}, {"Subpixel", "Original grid"});
+#endif
   p.Choice("  Vector lines", "sharp_vectors", {"1", "0"}, {"Sharp", "Original"})->when = rem;
   p.Number("    Line core width", "sharp_core", 0.1, 1.0, 0.05, "%.2f", 0.35)->when = sharp;
   p.Number("    Glow", "sharp_glow", 0, 1, 0.05, "%.2f", 0.4)->when = sharp;

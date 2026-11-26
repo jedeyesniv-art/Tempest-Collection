@@ -4,7 +4,7 @@
 #include "TempestLifecycle.h"
 namespace tempest_native {
 struct FrameWorkerRequest{uint32_t type;std::array<uint32_t,4> context;};
-struct FrameServices:CallbackServices{
+struct FrameServices:CallbackServices,ObjectValueServices{
     // The recovered dispatcher forces preparation onto worker 1 and waits for
     // its previous job before installing the next. Submission may return with
     // this job pending; the final frame barrier completes it. A backend must
@@ -19,11 +19,12 @@ inline bool frame_vector_store(CommandMemory& m,uint32_t address,const std::arra
     for(unsigned k=0;k<4;++k)if(!m.write32((address&~15U)+k*4,v[k]))return false;return true;
 }
 inline bool frame_dispatch(CommandMemory& m,uint32_t selector,uint32_t object,uint32_t draw,const FrameObjectLayout& layout,
-                           const std::array<uint32_t,8>& args,FrameServices& services,FramePassResult& out,bool argumentWordsKnown=false){
+                           const std::array<uint32_t,8>& args,FrameServices& services,FramePassResult& out,bool argumentWordsKnown=false,bool eventDispatch=false){
     selector&=255;
     if(selector&128){FrameWorkerRequest request{selector&127,{}};if(!services.prepare_worker_slot()||!callback_vector(m,0x80112C40,request.context)||!services.submit_worker(request))return services.frame_failure("preparation worker",object,request.type);++out.workers;return true;}
     uint32_t offset;if(!m.read32(0x801131E4+selector*4,offset))return false;
     CallbackInput input{0x800113B4+offset,object,draw,layout.values,layout.parameters,args};
+    if(!services.callback_opportunity(input.entry,eventDispatch))return true;
     // These entries preserve incoming volatile words in opaque event payloads.
     // Normal event dispatch establishes them below. Do not fabricate zeros for
     // an unobserved unconditional caller with no recovered argument contract.
@@ -54,7 +55,7 @@ inline bool frame_object_events(CommandMemory& m,uint32_t object,uint32_t draw,c
     if(!selection.route)return true;
     if(!m.write32(0x801131B4,status)||!m.write32(object+0x38,selection.status))return false;
     std::array<uint32_t,8> args{};args[2]=status&65535;args[3]=status>>16;
-    return frame_dispatch(m,selection.index|(selection.route==2?128:0),object,draw,layout,args,services,out,true);
+    return frame_dispatch(m,selection.index|(selection.route==2?128:0),object,draw,layout,args,services,out,true,true);
 }
 inline bool frame_countdown(CommandMemory& m,uint32_t object){
     uint32_t state;if(!m.read32(0x800DC250,state))return false;
@@ -78,7 +79,8 @@ inline bool frame_countdown(CommandMemory& m,uint32_t object){
 inline bool run_frame_object_pass(CommandMemory& m,const FramePassInput& input,FramePassResult& out,FrameServices& services,unsigned budget=65536){
     out={};uint32_t object,draw,countdown;
     if(!m.read32(0x80113150,object)||!m.read32(0x80113154,draw)||!m.write32(0x800DBCD0,0xFFFFFFFF)||
-       !m.write32(0x801131B0,0x800DBCD0)||!append_selected_object_event(m,object)||!m.write32(0x801131B0,0x800DBCD0)||!m.read32(0x800DC250,countdown)||!frame_countdown(m,object))return false;
+       !m.write32(0x801131B0,0x800DBCD0)||!append_selected_object_event(m,object)||!m.write32(0x801131B0,0x800DBCD0)||!m.read32(0x800DC250,countdown)||
+       (services.simulation_step().legacy_boundary()&&!frame_countdown(m,object)))return false;
     uint32_t colliders=0,records=0x80112D50,accumulator=input.accumulator,scratch22=input.scratch22;
     // 800116EC establishes r3 before the loop; the active timer path replaces
     // it with the selected-record word's address (80011768).
@@ -87,7 +89,7 @@ inline bool run_frame_object_pass(CommandMemory& m,const FramePassInput& input,F
     // The original enters the body unconditionally, even for an invalid null
     // head. The memory adapter, rather than an invented empty-scene path, rejects it.
     for(unsigned count=0;count<budget;++count){
-        FrameObjectLayout layout;if(!prepare_frame_object(m,object,false,layout))return services.frame_failure("object attributes",object,0);
+        FrameObjectLayout layout;if(!prepare_frame_object(m,object,false,layout,&services))return services.frame_failure("object attributes",object,0);
         uint32_t source;if(!m.read32(object+0x18,source))return false;
         if(source){for(unsigned i=0;i<4;++i){std::array<uint32_t,4> words;if(!callback_vector(m,source+i*16,words)||!frame_vector_store(m,draw+i*16,words))return false;}arguments.second=0;}
         // The shared save vector's r21/r23 are opaque scratch. The pass assigns
@@ -138,7 +140,7 @@ inline bool run_frame_object_pass(CommandMemory& m,const FramePassInput& input,F
         LaneContactResult contact;if(!resolve_lane_contact(m,{object,record[1]},contact,&services))return services.frame_failure("lane contact",object,record[1]);
         if(!frame_object_events(m,object,record[1],layout,services,out)||out.trap)return false;
     }
-    if(!m.read32(0x80113174,draw)||!m.write32(draw+60,0xFF)||!append_object_event(m,0xFFFFFFFF,object)||!frame_finish(m))return false;
+    if(!m.read32(0x80113174,draw)||!m.write32(draw+60,0xFF)||!append_object_event(m,0xFFFFFFFF,object)||!frame_finish(m,services.simulation_step()))return false;
     out.drawEnd=draw;out.colliders=colliders;return true;
 }
 }

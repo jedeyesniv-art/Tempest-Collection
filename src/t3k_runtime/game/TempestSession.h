@@ -7,6 +7,9 @@
 namespace tempest_native {
 struct GameSessionInput {std::array<uint32_t,4> arguments;OpeningAnimationInput caller;};
 struct GameSessionServices:OpeningAnimationServices,LevelDefinitionServices {
+    virtual SimulationStep simulation_step()const{return {};}
+    virtual unsigned simulation_divisions()const{return simulation_step().divisions;}
+    virtual bool fractional_jump(uint32_t&,uint32_t&,uint32_t&,bool,uint32_t,unsigned){return false;}
     virtual bool select_music(uint32_t)=0;
     virtual bool show_asset(uint32_t source,uint32_t mode,const std::array<uint32_t,20>&)=0;
     virtual bool gameplay_frame(const std::array<uint32_t,20>&)=0;
@@ -93,12 +96,13 @@ inline bool prepare_session_player(CommandMemory& m,GameSessionServices& service
 // Original 8001D8D2..8001DE44: first scene-7 transition, scene-1 player setup,
 // both original preparation fades, and the live gameplay-loop boundary.
 inline bool enter_session_play(CommandMemory& m,GameSessionServices& services,GameSessionState& state,unsigned budget=4096){
+    SceneTimingScope cadence(services,SceneTimingKind::entry);if(!cadence.divisions)return false;uint64_t remainingBudget=cadence.budget(budget);
     if(state.phase!=GameSessionPhase::levelPrepared)return false;auto c=state.context;uint32_t base=state.frameBase,value,flags,buttons,random;
     auto write=[&](uint32_t address,uint32_t v){return m.write32(address,v);};
     auto local=[&](uint32_t offset,uint32_t v){return write(base-offset,v);};
     auto load=[&](uint32_t offset,uint32_t& v){return m.read32(base-offset,v);};
     auto finish=[&](){if(!write(0x800B850C,0)||!write(0x801133F0,0))return false;state.context=c;state.phase=GameSessionPhase::finished;return true;};
-    auto frame=[&](uint32_t link){if(!budget--)return false;if(!services.gameplay_frame(c))return false;c[17]=link;return true;};
+    auto frame=[&](uint32_t link){if(!remainingBudget--)return false;if(!services.gameplay_frame(c))return false;c[17]=link;return true;};
     auto blend=[&](uint32_t factor,uint32_t link){if(!blend_session_parameters(m,factor,base-0x200,base-0x300,base-0x100))return false;c[17]=link;return true;};
     if(!write(0x800B9520,0x20000)||!write(0x800B9524,0x20000)||!write(0x800B9528,0xCFFF)||!write(0x800B952C,0x00200020)||!m.read32(0x800DC100,value)||!local(0x37C,uint32_t(int32_t(value)>>16))||!write(0x800DC118,0)||!m.read32(0x800DC274,flags)||!write(0x800DC274,flags&3))return false;
     const std::array<std::array<uint32_t,2>,14> setup{{{0x800BA088,0x3F00},{0x800DC10C,0x800000},{0x800DC114,0},{0x800DC118,0},{0x800DC11C,0x20000},{0x800DC120,0x20000},{0x800DC260,0x0F000000},{0x800DC268,0},{0x800DC2C8,0},{0x800DC2D8,0},{0x800DC2E0,0},{0x800B4F64,0},{0x800B4F7C,0x400000},{0x800B18C8,0}}};
@@ -111,8 +115,8 @@ inline bool enter_session_play(CommandMemory& m,GameSessionServices& services,Ga
         if(!m.read32(0x806B992C,buttons)||!m.read32(0x800DC274,flags))return false;
         if(buttons&0xFF3F){flags|=2;if(!write(0x800DC274,flags))return false;}
         if((flags&3)==3){if(!write(0x801133C8,1))return false;return finish();}
-        if(!m.read32(0x800BA088,c[15])||!write(0x800BA088,int32_t(c[15])>0?c[15]-0x80:0))return false;c[5]-=0x200;
-        if(!blend(c[5],0x8001DAE2)||!apply_menu_parameters(m,base-0x100,c[13]))return false;c[17]=0x8001DAF0;c[15]=0x80016704;
+        if(!m.read32(0x800BA088,c[15])||!write(0x800BA088,int32_t(c[15])>0?c[15]-uint32_t(cadence.delta(0x80,0)):0))return false;c[5]-=uint32_t(cadence.delta(0x200,1));
+        if(!blend(c[5],0x8001DAE2)||!apply_menu_parameters(m,base-0x100,c[13],cadence.step()))return false;c[17]=0x8001DAF0;c[15]=0x80016704;
         if(!frame(0x8001DAFA))return false;
     }
     c[4]=0;for(unsigned i=0;i<17;++i){if(!m.read32(0x80110AC8+i*4,value)||!write(0x80110B14+i*4,value))return false;++c[4];}
@@ -134,10 +138,10 @@ inline bool enter_session_play(CommandMemory& m,GameSessionServices& services,Ga
             if(buttons&0xFF3F){c[15]=flags;flags|=2;if(!write(0x800DC274,flags))return false;}
             if(!m.read32(0x801133C8,value))return false;if(value)return finish();
             if((flags&3)==3){if(!write(0x800B850C,1))return false;return finish();}
-            c[5]=int32_t(c[5])>0?c[5]-0x100:0;
+            c[5]=int32_t(c[5])>0?c[5]-uint32_t(cadence.delta(0x100,2)):0;
             if(!blend(c[5],0x8001DDB4))return false;c[15]=0x8001F70A;
-            if(!apply_menu_parameters(m,base-0x100,c[13])||!write(0x800B84B0,c[8]))return false;c[17]=0x8001DDC2;
-            c[3]=int32_t(c[3])>0?c[3]-0x400000:0;c[8]=int32_t(c[8])>0?c[8]-0x100:0;
+            if(!apply_menu_parameters(m,base-0x100,c[13],cadence.step())||!write(0x800B84B0,c[8]))return false;c[17]=0x8001DDC2;
+            c[3]=int32_t(c[3])>0?c[3]-uint32_t(cadence.delta(0x400000,3)):0;c[8]=int32_t(c[8])>0?c[8]-uint32_t(cadence.delta(0x100,4)):0;
             if(!write(0x800B907C,(c[16]<<16)+c[3])||!frame(0x8001DDFC))return false;
         }while(int32_t(c[5])>0);
     }

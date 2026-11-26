@@ -2,6 +2,7 @@
 #include "TempestCommands.h"
 #include <array>
 #include <cstdlib>
+#include <cmath>
 namespace tempest_native {
 inline uint32_t preparation_shift(uint32_t value,int amount,bool arithmetic=false){
     if(amount<0)return -amount>=32?0:value<<unsigned(-amount);
@@ -44,6 +45,25 @@ inline uint32_t preparation_screen_position(uint32_t y,uint32_t x,uint32_t scale
     y=command_mul(scale,y,19)+0x780000;x=command_mul(scale,x,19)+0xB40000;
     return (x&0xFFFF0000)|(y>>16);
 }
+inline bool preparation_store_screen_position(CommandMemory& m,uint32_t y,uint32_t x,uint32_t scale){
+    uint32_t packed=preparation_screen_position(y,x,scale);
+    if(!m.write32(0x20100030,packed))return false;
+    if(m.precise_web_geometry()){
+        uint32_t destination;if(!m.read32(0x20100A30,destination))return false;
+        uint32_t px=command_mul(scale,x,19)+0xB40000,py=command_mul(scale,y,19)+0x780000;
+        m.render_transform_point(destination,packed,double(int32_t(px))/65536,double(int32_t(py))/65536);
+    }return true;
+}
+inline bool preparation_store_projected_size(CommandMemory& m,uint32_t packed,uint32_t source,uint32_t scale){
+    if(!m.write32(0x20100040,packed))return false;
+    if(m.precise_web_geometry()){
+        uint32_t destination;if(!m.read32(0x20100A30,destination))return false;
+        auto wrap=[](double value){return value-std::floor((value+512)/1024)*1024;};
+        double low=double(int32_t(scale))*(int32_t(source)>>16)/524288;
+        double high=double(int32_t(scale))*int32_t(source&65535)/524288;
+        m.render_transform_point(destination+16,packed,wrap(low),wrap(high));
+    }return true;
+}
 inline bool preparation_reciprocal(CommandMemory& m,uint32_t denominator,int precision,int shift,uint32_t& out){
     if(int32_t(denominator)<=0){out=0;return true;}
     unsigned bits=0;for(uint32_t v=denominator;v;v>>=1)++bits;uint32_t seed;
@@ -60,7 +80,7 @@ inline bool prepare_projection_position(CommandMemory& m){
     uint32_t y=uint32_t(int32_t(sample.atY)>>1)+(cameraA<<3)+extraA;
     uint32_t x=uint32_t(int32_t(sample.atX)>>1)+(cameraB<<3)+extraB,scale;
     if(!preparation_projection_scale(m,depth+cameraDepth,scale))return false;
-    return m.write32(0x20100030,preparation_screen_position(y,x,scale));
+    return preparation_store_screen_position(m,y,x,scale);
 }
 inline bool prepare_projection_unscaled(CommandMemory& m){
     uint32_t position,a,b;if(!m.read32(0x20100030,position)||!m.read32(0x20100B80,a)||!m.read32(0x20100B84,b))return false;
@@ -98,7 +118,7 @@ inline bool preparation_project_record(CommandMemory& m,uint32_t angle,uint32_t 
     if(!preparation_projection_scale(m,depth,scale)||!m.read32(0x20100B8C,atX)||!m.read32(0x20100B90,atY)||!preparation_camera_scratch(m,atX,atY)||!m.read32(0x20100040,size)||!m.read32(0x20100044,detail))return false;
     uint32_t lo=command_mul(scale,uint32_t(int32_t(size)>>16),19)&65535,hi=command_mul(scale,size&65535,19);
     uint32_t lod=command_mul(scale,detail>>16,18);if(int32_t(lod)>=0xEFFF)lod=0xEFFF;
-    return m.write32(0x20100040,(hi<<16)|lo)&&m.write32(0x20100044,(detail&65535)|(lod<<16))&&m.write32(0x20100030,preparation_screen_position(y,x,scale));
+    return preparation_store_projected_size(m,(hi<<16)|lo,size,scale)&&m.write32(0x20100044,(detail&65535)|(lod<<16))&&preparation_store_screen_position(m,y,x,scale);
 }
 inline bool preparation_emit_point(CommandMemory& m,uint32_t packed,uint32_t depth){
     if(int32_t(depth)<=0xA0000)return true;
@@ -168,7 +188,10 @@ inline bool preparation_morph(CommandMemory& m,uint32_t phase,unsigned budget=19
             uint32_t x=a<<16,y=uint32_t(int32_t(a)>>16)<<16;
             uint32_t outX=x+command_mul(fraction,(b<<16)-x,15),outY=y+command_mul(fraction,(uint32_t(int32_t(b)>>16)<<16)-y,15);
             if(!(descriptor&0x80000000)&&(phase&0x8000))outX=0U-outX;
-            if(!m.write32(to,((outY>>16)<<16)|(outX>>16)|1))return false;to+=4;
+            uint32_t packed=((outY>>16)<<16)|(outX>>16)|1;
+            if(!m.write32(to,packed))return false;
+            if(m.precise_web_geometry())m.web_render_point(cursor+to-0x201006F0,packed,double(int32_t(outX))/65536,double(int32_t(outY))/65536);
+            to+=4;
         }
         if(!remaining)return false;
         if(iterations+1==budget)return false;

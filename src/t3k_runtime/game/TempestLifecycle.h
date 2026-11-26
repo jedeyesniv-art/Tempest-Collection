@@ -2,18 +2,20 @@
 #include "TempestTemplates.h"
 #include "TempestQueueDecode.h"
 #include "TempestLists.h"
+#include "TempestObjects.h"
 namespace tempest_native {
 struct QueueConsumption {uint32_t cursor,records;};
 // Native composition of the complete template operation, including its
 // post-initializer reset. Unsupported initializer requests fail explicitly.
 // On failure writes can be partial: callers must use a transaction/overlay.
-inline bool instantiate_object(CommandMemory& memory,uint32_t index,uint32_t object,InitializerState& state){
+inline bool instantiate_object(CommandMemory& memory,uint32_t index,uint32_t object,InitializerState& state,ObjectValueServices* integration=nullptr){
     InitializerRequest request;
     if(!prepare_object_template(memory,{index,object},request))return false;
     if(request.target!=0x80011DF6&&!initialize_with_state(memory,request.target,object,state))return false;
-    return memory.write32(0x80112C90,0);
+    if(!memory.write32(0x80112C90,0))return false;
+    if(integration)integration->object_instantiated(object);return true;
 }
-inline bool activate_queued_object(CommandMemory& memory,uint32_t selector,uint32_t after,InitializerState& state){
+inline bool activate_queued_object(CommandMemory& memory,uint32_t selector,uint32_t after,InitializerState& state,ObjectValueServices* integration=nullptr){
     uint32_t node,header;
     if(!memory.read32(0x800BA470+selector*4,node))return false;
     if(!node)return true;
@@ -21,12 +23,12 @@ inline bool activate_queued_object(CommandMemory& memory,uint32_t selector,uint3
     ListMoveOutput moved;
     if(!move_object_list(memory,{node,after,0x800BA470+(header&15)*4,0x800BA470},moved)||!memory.read32(0x80112C94,header))return false;
     uint32_t index=(header>>8)&255;
-    return !index||instantiate_object(memory,index,moved.node,state);
+    return !index||instantiate_object(memory,index,moved.node,state,integration);
 }
 // Complete semantic consumer loop at 800105BC. Uses the original dispatch
 // pointers, not assumed opcode meanings. Unknown handlers/initializers and
 // exhausted work budgets fail; callers must discard partial writes on failure.
-inline bool consume_object_queue(CommandMemory& memory,uint32_t configuration,QueueConsumption& out,unsigned budget=4096){
+inline bool consume_object_queue(CommandMemory& memory,uint32_t configuration,QueueConsumption& out,unsigned budget=4096,ObjectValueServices* integration=nullptr){
     if(!memory.write32(0x80112C8C,configuration))return false;
     InitializerState state;
     uint32_t* words[4]{&state.polynomial,&state.first,&state.second,&state.third};
@@ -44,9 +46,9 @@ inline bool consume_object_queue(CommandMemory& memory,uint32_t configuration,Qu
         uint32_t header;ListMoveOutput moved;
         switch(record.handler){
         case 0x800106A4:if(!transfer_queued_object(memory,record.selector,record.argument,moved))return false;break;
-        case 0x80010642:if(!activate_queued_object(memory,record.selector,record.argument,state))return false;break;
+        case 0x80010642:if(!activate_queued_object(memory,record.selector,record.argument,state,integration))return false;break;
         case 0x80010780:
-            if(!memory.read32(0x80112C94,header)||!instantiate_object(memory,(header>>8)&255,record.argument,state))return false;break;
+            if(!memory.read32(0x80112C94,header)||!instantiate_object(memory,(header>>8)&255,record.argument,state,integration))return false;break;
         case 0x8001073E:if(!consume_payload_packet(memory,cursor,cursor))return false;break;
         default:return false;
         }

@@ -1,4 +1,5 @@
 #include "native_preparation_backend.h"
+#include "native_fractional_values.h"
 #include "native_frame_platform.h"
 #include "native_audio_backend.h"
 #include "native_audio_stream.h"
@@ -125,7 +126,7 @@ int main(int argc,char** argv){
     if(!SDL_Init(SDL_INIT_VIDEO))return 2;SDL_Window* window=SDL_CreateWindow("Native whole-frame validation",720,480,SDL_WINDOW_HIDDEN);SDL_Renderer* renderer=window?t3knative::CreateRenderer(window):nullptr;if(!renderer)return 2;
     auto pipeline=std::make_unique<NativeFrameRenderer>(),referencePipeline=std::make_unique<NativeFrameRenderer>();std::string error;if(!pipeline->initialize(renderer,error)||(gpu&&!referencePipeline->initialize(renderer,error))){std::fprintf(stderr,"%s\n",error.c_str());return 2;}
     std::vector<std::filesystem::path> cases;for(const auto& e:std::filesystem::directory_iterator(folder)){auto name=e.path().filename().string();if(name.starts_with("frame-")&&!name.ends_with("-platform.bin")&&e.path().extension()==".bin")cases.push_back(e.path());}std::sort(cases.begin(),cases.end());
-    unsigned failures=0,completed=0,rollbacks=0,gpuChecks=0,framebufferChecks=0,readOnlyChecks=0;
+    unsigned failures=0,completed=0,rollbacks=0,gpuChecks=0,framebufferChecks=0,readOnlyChecks=0,webClockChecks=0,preciseWebPoints=0;double maximumPrecisionShift=0;
     for(const auto& path:cases){
         Binary file(path);uint32_t magic=0,index=0;uint64_t field=0;GameFrameInput input{};file.value(magic);file.value(index);file.value(field);file.value(input);if(magic!=0x57463032)return 2;
         std::array<std::array<uint8_t,0x2000>,3> local{};file.bytes(local.data(),sizeof(local));
@@ -140,6 +141,8 @@ int main(int argc,char** argv){
         for(auto& d:deliveries){file.value(d.engine);file.value(d.address);file.value(d.bytes);file.value(d.block);file.value(d.hash);uint32_t length=0;file.value(length);if(length>4096)return 2;d.path.resize(length);file.bytes(d.path.data(),length);}if(!file.good||endField<field)return 2;
         PlatformInput platformInput;if(!platformInput.read(path.parent_path()/(path.stem().string()+"-platform.bin")))return 2;TraceAudioClock audioClock(platformInput);
         ObservedCompute compute(actual,requests);ObservedAudio audio(actual,sounds);Checkpoint checkpoint(expected,compute.backend,afterLocal[1],platformInput);ObservedPlatform platform(disc,deliveries,endField-field,audio.backend,platformInput);NativeFrameIntegration integration(compute,audio,&checkpoint,&platform);
+        NativeFractionalValues values;if(!values.set_divisions(1)||!integration.set_value_services(&values))return 2;
+        if(!compute.backend.set_simulation_step({},true))return 2;
         if(!compute.backend.restore_worker_data(local[1]))return 2;
         if(platformInput.clock){if(!audio.backend.restore_processor_checkpoint(local[2],platformInput.context[0],platformInput.context[41],{platformInput.blocks[0],platformInput.blocks[2],platformInput.exact?platformInput.blocks[4]:~uint64_t(0)})||!audio.backend.set_clock(&audioClock))return 2;}
         else if(!audio.backend.restore_processor_data(local[2]))return 2;
@@ -151,6 +154,12 @@ int main(int argc,char** argv){
         auto afterClock=audio.backend.clock_state();rejected=rejected&&std::equal(beforeAudio.begin(),beforeAudio.end(),audio.backend.processor_data().begin())&&std::equal(local[1].begin(),local[1].end(),compute.backend.local_data().begin())&&beforeClock.cores==afterClock.cores&&beforeClock.outputs==afterClock.outputs&&beforeClock.voices==afterClock.voices&&audio.backend.take_audio().empty()&&audio.stream.take_reads().empty();if(rejected)++rollbacks;
         actual.track_accesses();
         bool step=integration.step(actual,input,uint64_t(index)+1,error);auto result=integration.take();
+        if(step&&result){t3knative::Picture precise;t3knative::PictureBuildClocks precision{};precision.preciseWeb=true;
+            if(!build_renderer_picture(actual.renderer_view(),index,precise,error,precision)||precise.webs.size()!=result->picture.webs.size()||precise.segs.size()!=result->picture.segs.size())return 2;
+            for(size_t w=0;w<precise.webs.size();++w){if(precise.webs[w].quads.size()!=result->picture.webs[w].quads.size())return 2;
+                for(size_t v=0;v<precise.webs[w].quads.size();++v){auto a=precise.webs[w].quads[v],b=result->picture.webs[w].quads[v];double shift=std::max(std::abs(double(a.x-b.x)),std::abs(double(a.y-b.y)));maximumPrecisionShift=std::max(maximumPrecisionShift,shift);if(shift>0)++preciseWebPoints;}
+            }
+        }
         auto nativeReads=audio.stream.take_reads();bool readRequestsOK=true;uint64_t linkedBytes=0;
         char requestName[64];std::snprintf(requestName,sizeof(requestName),"media-requests-%06u.bin",index);auto requestPath=folder/requestName;
         if(std::filesystem::exists(requestPath)){Binary requestsFile(requestPath);std::vector<std::array<uint32_t,7>> expectedRequests;requestsFile.list(expectedRequests,4096);if(!requestsFile.good||expectedRequests.size()!=nativeReads.size())readRequestsOK=false;
@@ -168,13 +177,36 @@ int main(int argc,char** argv){
             independent=independent&&build_renderer_picture(view,result->picture.flip,withoutFramebuffers,auditError)&&picture_hash(withoutFramebuffers)==picture_hash(result->picture);
             readOnly=readOnly&&poisonedMain==poisonBefore&&std::equal(originalSystem.begin(),originalSystem.end(),view.system.begin())&&std::equal(originalLocal.begin(),originalLocal.end(),view.local.begin());
         }
+        if(result){
+            auto view=actual.renderer_view();auto systemBefore=std::vector<uint8_t>(view.system.begin(),view.system.end());auto localBefore=std::vector<uint8_t>(view.local.begin(),view.local.end());
+            t3knative::Picture held;std::string why;
+            bool isolated=build_renderer_picture(view,result->picture.flip,held,why,{true,17});
+            if(isolated&&held.ops.size()==result->picture.ops.size()){
+                for(size_t i=0;i<held.ops.size();++i)if(held.ops[i].kind==t3knative::Op::kWeb){isolated&=held.ops[i].fade==8.5f;++webClockChecks;held.ops[i].fade=result->picture.ops[i].fade;}
+                isolated&=picture_hash(held)==picture_hash(result->picture);
+            }else isolated=false;
+            readOnly=readOnly&&isolated&&std::equal(systemBefore.begin(),systemBefore.end(),view.system.begin())&&std::equal(localBefore.begin(),localBefore.end(),view.local.begin());
+        }
         if(independent)++framebufferChecks;
         if(readOnly)++readOnlyChecks;
         bool gpuOK=true;if(gpu&&result&&referenceOK){SDL_FRect destination{0,0,720,480};SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);gpuOK=pipeline->submit_picture(renderer,result->picture,uint64_t(index)+1,destination,error);auto nativePixels=gpu_pixels(renderer,folder/"native-last.bmp");SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);gpuOK=gpuOK&&referencePipeline->submit_picture(renderer,reference,uint64_t(index)+1,destination,error);auto expectedPixels=gpu_pixels(renderer);gpuOK=gpuOK&&!nativePixels.empty()&&nativePixels==expectedPixels;if(gpuOK)++gpuChecks;}
+        if(gpu&&result){
+            t3knative::Picture effects;t3knative::PictureBuildClocks clocks{};clocks.gpuNumbers=clocks.gpuRings=true;
+            bool decoded=build_renderer_picture(actual.renderer_view(),index,effects,error,clocks);
+            auto capture=[&](const t3knative::Picture& picture){t3knative::Renderer draw;SDL_FRect dst{0,0,720,480};draw.Draw(renderer,picture,picture.segs,dst,1);return gpu_pixels(renderer);};
+            auto cpu=capture(result->picture),shader=capture(effects);double total=0;unsigned maximum=0;
+            if(cpu.size()==shader.size()&&!cpu.empty()){for(size_t i=0;i<cpu.size();++i){unsigned d=unsigned(std::abs(int(cpu[i])-int(shader[i])));total+=d;maximum=std::max(maximum,d);}}
+            else decoded=false;
+            double mean=cpu.empty()?1e9:total/cpu.size();gpuOK=gpuOK&&decoded&&mean<.1&&maximum<12;
+            std::printf("Original-frame GPU effects index=%u mean=%.6f max=%u\n",index,mean,maximum);
+        }
         bool ok=rejected&&step&&result&&checkpoint.called&&checkpoint.good&&compute.good&&audio.good&&compute.cursor==requests.size()&&audio.cursor==sounds.size()&&pictures&&gpuOK&&independent&&readOnly&&readRequestsOK&&(!platformInput.clock||audioClock.cursor==platformInput.events.size());
         if(!ok){++failures;std::fprintf(stderr,"whole frame index=%u field=%llu step=%u checkpoint=%u differences=%llu jobs=%zu/%zu sounds=%zu/%zu picture=%u rollback=%u gpu=%u framebuffer=%u read-only=%u read-requests=%u error=%s ref=%s\n",index,field,step,checkpoint.called,checkpoint.differences,compute.cursor,requests.size(),audio.cursor,sounds.size(),pictures,rejected,gpuOK,independent,readOnly,readRequestsOK,error.c_str(),referenceError.c_str());unsigned shown=0;for(auto [page,count]:checkpoint.pages){std::fprintf(stderr," page %08X: %u differing words\n",page,count);if(++shown==12)break;}}
         else std::printf("whole frame %u: %zu workers, %zu sound requests, %zu ops, %zu segments, %llu verified disc bytes, %zu native stream reads (%llu linked arrival bytes), %llu disjoint SDK-private stack words; matched\n",index,requests.size(),sounds.size(),result->picture.ops.size(),result->picture.segs.size(),platform.delivered_bytes(),nativeReads.size(),linkedBytes,checkpoint.privateStackWords);
         ++completed;
     }
+    std::printf("Explicit held web clock: %u web operations checked independently of native frame/geometry clocks\n",webClockChecks);
+    std::printf("Precise web: %u subpixel vertices, maximum coarse-coordinate shift %.6f game pixels; original memory comparisons retained\n",preciseWebPoints,maximumPrecisionShift);
+    if(!preciseWebPoints||maximumPrecisionShift>8)++failures;
     pipeline.reset();referencePipeline.reset();SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();std::printf("native whole-frame replay: %u cases, %u mismatches, %u rollback checks, %u GPU comparisons, %u framebuffer-independence checks, %u read-only decoder checks\n",completed,failures,rollbacks,gpuChecks,framebufferChecks,readOnlyChecks);return !completed||failures?1:0;
 }

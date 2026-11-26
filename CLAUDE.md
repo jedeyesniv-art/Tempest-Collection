@@ -22,6 +22,12 @@ userdata. Changes vs ours: stick = the game's own analog path (Step / Stiff mode
 native save states (t3k_slot<N>.native-state). Ours on top (owner 2026-11-25): Back / Guide / Esc = our menu again
 (Back did nothing in play as Nuon; Steam owns Guide on the Deck), Nuon button = LB; --menu / --menu=all (opens at
 picture 30, --winshot counts menu presents). Smoke test: t3k play = --check (window), t3k menu = --menu=all.
+**2026-11-26: Frogacuda's STABLE checkpoint** (handoff zip, tempest-native-stable-after-native.patch) merged on top: native
+boot / menus / audio, scene timing (menu TIMING: ticks/s per scene, gameplay 24; Picture Framerate Original / 60 / 120
+Hz, no interpolation; restart to apply), mouse / trackball, stick curve + gain. Save states only in the legacy
+--logic-hz=24 --scene-hz=0 path. As received = local branch frog-stable (47bdc7a + both patches + our two commits).
+Old game_speed / menu_speed rows only show in that legacy path. Checks: ctest in build\ (4 tests); his
+tools\run_t3k_*_checks.ps1; smoke t3k play = --check --fine-check-limit=600 (plain --check plays forever now).
 Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): arcade Tempest (1981, MAME),
 T2K (Jaguar), T3K (Nuon), Space Giraffe (Steam), TxK (Vita), Tempest 4000 (Steam) - all six run from the launcher;
 PLAN.md "Tempest Collection" and "Collection status and open items".

@@ -30,7 +30,8 @@ inline ObjectValue approach_parameter(ObjectValue value,uint32_t target,bool pau
 // 800121DA..80012408, ending at its RTS: update the object's value-record list.
 // Parameter views can refer to attributes modified earlier in this same call.
 // Unsupported handler numbers are errors, never successful no-ops.
-inline bool update_object_values(const ObjectUpdateInput& in,ObjectUpdateOutput& out) {
+template<class Move,class Approach>
+inline bool update_object_values_integrated(const ObjectUpdateInput& in,ObjectUpdateOutput& out,Move move,Approach approach) {
     if(in.values.size()>255)return false;
     ObjectUpdateOutput result{in.objectStatus,in.values};
     for(const auto& aliases:{in.parameterAliases,in.globalAliases})for(auto a:aliases)
@@ -50,15 +51,31 @@ inline bool update_object_values(const ObjectUpdateInput& in,ObjectUpdateOutput&
         unsigned handler=(value.flags>>12)&15;
         if(handler>2)return false;
         if(handler==1) {
-            value=approach_parameter(value,parameter(value.flags&15,false),(in.paused&1)!=0);
+            if(!approach(size_t(&value-result.values.data()),value,parameter(value.flags&15,false),(in.paused&1)!=0))return false;
             continue;
         }
         if(((value.flags>>8)&15)>5)return false;
         MovementInput movement{value.position,value.velocity,value.scale,value.flags,
             parameter((value.flags>>4)&15,handler==2),parameter(value.flags&15,handler==2),in.paused,in.topologyMask,in.topologyPhase,result.objectStatus};
-        auto next=movement_step(movement);
+        MovementOutput next;
+        if(!move(size_t(&value-result.values.data()),movement,next))return false;
         value={next.position,next.velocity,next.scale,next.flags};result.objectStatus=next.objectStatus;
     }
     out=std::move(result);return true;
 }
+inline bool update_object_values(const ObjectUpdateInput& in,ObjectUpdateOutput& out) {
+    return update_object_values_integrated(in,out,
+        [](size_t,const MovementInput& input,MovementOutput& result){result=movement_step(input);return true;},
+        [](size_t,ObjectValue& value,uint32_t target,bool paused){value=approach_parameter(value,target,paused);return true;});
+}
+// Optional integration policy. The baseline owns no fractional state. A policy
+// must participate in the frame transaction and forget reused pool objects.
+struct ObjectValueServices {
+    virtual bool begin_values(){return true;}
+    virtual void commit_values(){}
+    virtual void abort_values(){}
+    virtual void object_instantiated(uint32_t){}
+    virtual bool object_values(uint32_t,uint32_t,const ObjectUpdateInput& in,ObjectUpdateOutput& out){return update_object_values(in,out);}
+    virtual ~ObjectValueServices()=default;
+};
 }

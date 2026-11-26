@@ -1,7 +1,7 @@
 // Included inside tempest_native by TempestPreparation.h.
 struct PreparationDepth{
     CommandMemory& m;PreparationShapeWriter& out;
-    bool good=true;
+    bool good=true;SimulationStep simulation{};
     uint32_t read(uint32_t address){uint32_t value=0;good=m.read32(address,value)&&good;return value;}
     void store(uint32_t address,uint32_t value){good=m.write32(address,value)&&good;}
     void copy(uint32_t from,uint32_t to,unsigned count){good=preparation_copy(m,from,to,count)&&good;}
@@ -14,28 +14,33 @@ struct PreparationDepth{
     void bonus_slot(uint32_t phase,uint32_t y,uint32_t depth,uint32_t rowSpacing,uint32_t frequency,unsigned row){
         uint32_t index=int32_t(phase)>0?(phase>>1)&127:0,address=0x201009C0+index*4,word=read(address);store(0x2010082C,0);store(0x20100874,address);store(0x20100834,word);
         int32_t velocity=int32_t((word>>8)&15)-8;
+        uint32_t visiblePosition=word&0xFF000000;
         if(velocity){uint32_t previous=uint32_t(int32_t(word)>>24),next=(previous+uint32_t(velocity))<<24;
             if((previous>>31)!=(next>>31)&&((int32_t(next)<0&&velocity>=0)||(int32_t(next)>=0&&velocity<0))){velocity=-velocity;next+=uint32_t(velocity)<<24;}
-            word=(word&0x00FFF0FF)|next|((uint32_t(velocity+8)&15)<<8);store(address,word);
+            uint32_t endWord=(word&0x00FFF0FF)|next|((uint32_t(velocity+8)&15)<<8);
+            int64_t displacement=int64_t(int32_t(next))-int32_t(word&0xFF000000);
+            visiblePosition=uint32_t(int64_t(int32_t(word&0xFF000000))+displacement*(simulation.index+simulation.numerator)/simulation.divisions);
+            if(simulation.legacy_boundary()){word=endWord;store(address,word);}
         }
         if(!(word&255))return;
         for(unsigned i=0;i<8;++i){uint32_t bulletAddress=0x201009A0+i*4,bullet=read(bulletAddress);if(!(bullet&255))continue;
             uint32_t target=read(0x20100820)+(rowSpacing<<3)-command_mul(uint32_t(int32_t(rowSpacing)>>2),bullet&255,0);
             if(std::abs(int64_t(int32_t(target-depth)))>0x80000)continue;
-            uint32_t observed=read(0x20100834);if(std::abs(int64_t(int32_t(observed)>>23)-int64_t(int32_t(bullet)>>16))>int64_t((observed>>16)&255))continue;
+            uint32_t observed=read(0x20100834);if(std::abs(int64_t(int32_t(visiblePosition)>>23)-int64_t(int32_t(bullet)>>16))>int64_t((observed>>16)&255))continue;
             if(word&0x1000){unsigned width=(word>>16)&255;if(width<=128)width+=5;word=(word&0xFF00FFFF)|(width<<16);store(address,word);}
             if(word&0x2000){word=(word&0xFFFFF0FF)|0x800;store(address,word);}
             store(0x20100834,word);store(0x201008B0,read(0x201008B0)|0x80000000);store(bulletAddress,bullet|0x100);break;
         }
         uint32_t shade=63-(((depth>>16)-128)>>2);store(0x20100824,read(0x20100924)|shade);
-        uint32_t x=read(0x20100828)+uint32_t(int32_t(word)>>7);
+        uint32_t x=read(0x20100828)+uint32_t(int32_t(visiblePosition)>>7)+((word&0x00FFFFFF)>>7);
         if(row==8&&(read(0x201008B4)&65535)<read(0x201008AC)){store(0x2010082C,x|1);store(0x20100830,read(0x20100834));}
         uint32_t h=int32_t(phase)<0?0U-(phase<<22):command_mul(preparation_sincos(command_mul(phase,frequency,0)+0x4000)[0],0x180,14);
         circle(x,y+h,depth,32,(read(0x20100834)>>16)&255,(read(0x201008B4)&0xFFFFF)>>4);
     }
     bool bonus(const PreparationInput& in){
+        simulation=in.step;
         copy(0x8010F550,0x201009A0,8);copy(in.context[2],0x201008A0,16);store(0x201008B0,0);
-        uint32_t old=read(0x201008D8);for(unsigned i=0;i<7;++i)store(0x201008DC-i*4,read(0x201008D8-i*4));
+        uint32_t old=read(0x201008D8);for(unsigned i=0;i<(simulation.legacy_boundary()?7u:0u);++i)store(0x201008DC-i*4,read(0x201008D8-i*4));
         uint32_t startX=0U-(old&0xFFFF0000);store(0x20100828,startX);store(0x2010082C,0);
         copy(0x8010F570,0x201009C0,200);copy(0x8010D2E4,0x20100920,16);store(0x20100900,0x4000-read(0x201008A8));
         uint32_t reciprocal=0;good=preparation_reciprocal(m,8,0,30,reciprocal)&&good;
@@ -52,16 +57,17 @@ struct PreparationDepth{
             depth+=rowSpacing;
         }
         depth=baseDepth+rowSpacing*8;uint32_t x=read(0x201008BC)+read(0x20100828);phase=stage-0x90000;
-        for(unsigned i=0;i<8&&good;++i){uint32_t address=0x201009A0+i*4,bullet=read(address),age=bullet&127;if(!bullet)continue;uint32_t next=bullet+1;store(address,next);if((next&127)>=65){store(address,0);continue;}
-            phase=stage-0x90000+(age<<14);uint32_t h=height(phase,frequency,int32_t(phase)>0),detail=uint32_t(std::abs(int32_t((phase>>6)&255)-128))<<24|0x50000;
+        for(unsigned i=0;i<8&&good;++i){uint32_t address=0x201009A0+i*4,bullet=read(address),age=bullet&127;if(!bullet)continue;uint32_t next=bullet+unsigned(simulation.legacy_boundary());store(address,next);if((next&127)>=65){store(address,0);continue;}
+            uint32_t fractionalAge=(age<<16)-(age?65536-uint32_t(uint64_t(simulation.index+simulation.numerator)*65536/simulation.divisions):0);
+            phase=stage-0x90000+(fractionalAge>>2);uint32_t h=height(phase,frequency,int32_t(phase)>0),detail=uint32_t(std::abs(int32_t((phase>>6)&255)-128))<<24|0x50000;
             if(bullet&0x100){store(address,0);detail=0xF0100000;}
-            good=line(x+next,y+h,depth-command_mul(age,uint32_t(int32_t(rowSpacing)>>2),0),0,0,0xFFF00000,detail)&&good;
+            good=line(x+next,y+h,depth-command_mul(fractionalAge,uint32_t(int32_t(rowSpacing)>>2),16),0,0,0xFFF00000,detail)&&good;
         }
         depth=baseDepth+rowSpacing*8;uint32_t player=read(0x201008BC),angle=player<<10; x=player<<16;phase=stage-0x90000;
         uint32_t candidate=read(0x2010082C);
         if(candidate){uint32_t selected=read(0x20100830),difference=uint32_t(std::abs(int64_t(int32_t(candidate-(x+read(0x20100828))))))>>16,width=(selected>>16)&255;
             if(difference>width)store(0x201008B0,0xFE);
-            else{store(0x201008B0,(selected&0x00FF00FF)|((width-difference)<<24)|((read(0x201008B0)>>16)&255));store(0x2010082C,0);}
+            else if(simulation.legacy_boundary()){store(0x201008B0,(selected&0x00FF00FF)|((width-difference)<<24)|((read(0x201008B0)>>16)&255));store(0x2010082C,0);}
         }
         store(0x201008C0,(player<<16)|(angle&65535));
         for(unsigned ring=0;ring<6&&good;++ring){
@@ -132,6 +138,9 @@ inline bool prepare_depth(CommandMemory& m,const PreparationInput& in){
     for(unsigned i=0;i<4;++i)if(!m.write32(0x201008E0+i*4,in.context[i]))return false;
     if(!m.write32(0x201007FC,0)||!preparation_copy(m,0x800DACB0,0x201006F0,1)||!preparation_copy(m,0x201006F0,in.context[0]+28,1)||!preparation_resources(m))return false;
     uint32_t destination,entry;if(!m.read32(0x201006F0,destination)||!m.read32(0x20100CF0+(in.context[1]&255)*4,entry))return false;
+    // Packed obstacle/bullet state advances at authored boundaries while
+    // current geometry and spatial checks are evaluated at each fine sample.
+
     PreparationShapeWriter out{m,0x201006F0,destination};PreparationDepth depth{m,out};bool ok=false;
     switch(entry){case 0x20300DDA:ok=true;break;case 0x203004E6:ok=depth.bonus(in);break;case 0x20300452:ok=depth.rings(in.context[2]);break;case 0x20300200:ok=depth.particles(in);break;case 0x203002D2:ok=depth.tunnel(in);break;default:return false;}
     return ok&&out.finish()&&m.write32(0x20100030,0)&&m.write32(0x8003DE50+in.worker*4,0);

@@ -1,8 +1,16 @@
 #pragma once
 #include "TempestEvents.h"
 #include "TempestCommands.h"
+#include <cmath>
 namespace tempest_native {
-struct CallbackServices{virtual bool play_sound(uint32_t cue,uint32_t& handle)=0;virtual ~CallbackServices()=default;};
+struct CallbackTimingServices {
+    virtual SimulationStep simulation_step()const{return {};}
+    virtual bool fire_opportunity()const{return true;}
+    virtual bool surface_response(uint32_t,uint32_t){return true;}
+    virtual bool callback_opportunity(uint32_t,bool)const{return true;}
+    virtual ~CallbackTimingServices()=default;
+};
+struct CallbackServices:CallbackTimingServices{virtual bool play_sound(uint32_t cue,uint32_t& handle)=0;virtual ~CallbackServices()=default;};
 struct CallbackSoundCall{uint32_t cue,handle;};
 struct CallbackInput{uint32_t entry,object,draw,values,parameters;std::array<uint32_t,8> arguments{};};
 // A few legacy branches unwind a saved caller vector. Preserve that explicit
@@ -59,6 +67,7 @@ inline bool callback_emit_12602(CommandMemory& m,const CallbackInput& in,Callbac
     return append_event_packet(m,0x30004,payload)&&append_object_event(m,0x12602,in.object);
 }
 inline bool callback_optional_event(CommandMemory& m,const CallbackInput& in,CallbackServices* services){
+    if(services&&!services->simulation_step().legacy_boundary())return true;
     uint32_t paused,frame,y,value;
     if(!m.read32(0x80110AC4,paused))return false;if(paused&1)return true;
     if(!m.read32(0x80110AA0,frame))return false;if((frame&7)!=7)return true;
@@ -67,6 +76,7 @@ inline bool callback_optional_event(CommandMemory& m,const CallbackInput& in,Cal
     return m.write32(0x80110AA0,frame+1)&&callback_emit_12602(m,in,services);
 }
 inline bool callback_periodic_event(CommandMemory& m,const CallbackInput& in,uint32_t limit,CallbackServices* services){
+    if(services&&!services->simulation_step().legacy_boundary())return true;
     uint32_t cap,frame;if(!m.read32(0x801095A0,cap))return false;if(int32_t(limit)>int32_t(cap))return true;
     if(!m.read32(0x80110AA0,frame))return false;
     return (frame&15)||callback_emit_12602(m,in,services);
@@ -81,6 +91,7 @@ inline bool callback_track_appearance(CommandMemory& m,const CallbackInput& in,u
     if(int32_t(y)<int32_t(minimum)){
         if(!m.write32(0x800DC264,minimum)||!m.write32(0x800DC260,y)||!m.read32(0x800DC268,oldPosition)||!m.write32(0x800DC268,x)||!m.write32(0x800DC26C,oldPosition))return false;
     }
+    if(services&&!services->simulation_step().legacy_boundary())return true;
     if(!m.read32(0x800DC244,flags))return false;bool near=false;
     if(flags&0x40000){std::array<uint32_t,4> reference;
         if(!callback_vector(m,0x800DC2D0,reference)||!m.read32(in.draw+0x20,x)||!m.read32(in.draw+0x24,y))return false;
@@ -153,7 +164,9 @@ inline bool callback_turn_velocity(CommandMemory& m,const CallbackInput& in){
     return m.write32(in.values+4,command_mul(factor,velocity,16))&&m.write32(in.values+0x3C,0);
 }
 struct CallbackMotion{uint32_t position,velocity,flags;};
-inline CallbackMotion callback_motion(uint32_t position,uint32_t velocity,uint32_t limit,uint32_t acceleration,uint32_t drag,uint32_t target){
+inline CallbackMotion callback_motion(uint32_t position,uint32_t velocity,uint32_t limit,uint32_t acceleration,uint32_t drag,uint32_t target,SimulationStep step={}){
+    acceleration=uint32_t(step.delta(int32_t(acceleration)));
+    if(step.divisions!=1)drag=uint32_t(std::llround(std::pow(double(drag)/65536,step.fraction())*65536));
     bool negative=int32_t(velocity)<0;uint32_t flag=0;
     if(int32_t(target)<=int32_t(position)){
         velocity-=acceleration;
@@ -164,7 +177,7 @@ inline CallbackMotion callback_motion(uint32_t position,uint32_t velocity,uint32
         if(negative){velocity=command_mul(drag,velocity,16);flag=4;}
         else if(int32_t(velocity)>int32_t(limit))velocity=limit;
     }
-    return {position+velocity,velocity,flag};
+    return {position+uint32_t(step.delta(int32_t(velocity))),velocity,flag};
 }
 inline bool callback_record_lane(CommandMemory& m,uint32_t x,uint32_t& y){
     uint32_t address=0x800AF7B4+((x>>16)&15)*4,old;
@@ -180,7 +193,7 @@ inline bool callback_track_lanes(CommandMemory& m,const CallbackInput& in,bool a
     else if(!m.read32(in.draw+0x20,x)||!callback_record_lane(m,x,y))return false;
     if(!m.read32(0x80113164,parameters)||!m.read32(parameters+0x1C,upper))return false;
     bool flip=int32_t(upper)>=int32_t(y);
-    if(!flip){if(!m.read32(parameters+0x10,count)||!m.write32(parameters+0x10,count-1))return false;flip=int64_t(int32_t(count))-1<0;}
+    if(!flip&&(!services||services->simulation_step().legacy_boundary())){if(!m.read32(parameters+0x10,count)||!m.write32(parameters+0x10,count-1))return false;flip=int64_t(int32_t(count))-1<0;}
     return !flip||m.write32(in.values+0x14,0U-velocity);
 }
 inline uint32_t callback_shifted_one(uint32_t shift){
@@ -206,7 +219,8 @@ inline bool callback_player_terminate(CommandMemory& m,const CallbackInput& in,u
 }
 inline bool callback_player_actions(CommandMemory& m,const CallbackInput& in,CallbackServices* services){
     uint32_t volatile3=in.arguments[3],flags,a,b,word;
-    if(!callback_global_emit(m,in,services,volatile3)||!m.read32(0x800DC274,flags))return false;
+    if((!services||services->simulation_step().legacy_boundary())&&!callback_global_emit(m,in,services,volatile3))return false;
+    if(!m.read32(0x800DC274,flags))return false;
     if(flags&0x20)return callback_player_terminate(m,in,0x800DC274,in.arguments[2]);
     if(flags&0x40){
         if(!m.write32(0x800DC274,flags&~0x40U)||!append_event_packet(m,0x30004,{0x8010CF70,0x800DC274,in.arguments[2],volatile3})||!append_object_event(m,0x12D05,in.object))return false;
@@ -217,6 +231,7 @@ inline bool callback_player_actions(CommandMemory& m,const CallbackInput& in,Cal
     if(!bypass){if(!m.read32(0x800DC244,word))return false;bypass=(word&0x10000)!=0;}
     if(!bypass){if(!m.read32(0x80113160,word))return false;if(word&0x1000000)return true;}
     if(!m.read32(0x80110AC4,word))return false;if(word&1)return true;
+    if(services&&!services->fire_opportunity())return true;
     if(!m.read32(0x800DC244,flags))return false;
     if(flags&0x20000){if(!m.read32(0x80113160,word))return false;if(!(word&0x1000000))return callback_sound(services,0x80001F1D)&&append_object_event(m,0x13701,in.object);}
     return callback_sound(services,0x80001F04)&&append_object_event(m,0x11301,in.object);
@@ -245,7 +260,8 @@ inline bool callback_count_prepared_object(CommandMemory& m){
     if(kind==0x8010A2F4)return m.read32(0x800DC2D8,value)&&m.write32(0x800DC2D8,(value&0xFFFF0000)|((value&65535)+1));
     return m.read32(0x800DC27C,value)&&m.write32(0x800DC27C,(value&0xFFFF00FF)|((((value>>8)&255)+1)<<8));
 }
-inline bool callback_select_lane(CommandMemory& m,const CallbackInput& in){
+inline bool callback_select_lane(CommandMemory& m,const CallbackInput& in,CallbackTimingServices* timing=nullptr){
+    SimulationStep step=timing?timing->simulation_step():SimulationStep{};
     uint32_t paused,configuration,mode,position;
     if(!m.read32(0x80110AC4,paused))return false;if(paused&1)return true;
     if(!m.read32(0x800AF7B0,configuration)||!m.read32(0x8010F170,mode)||!m.read32(in.values,position))return false;
@@ -266,24 +282,28 @@ inline bool callback_select_lane(CommandMemory& m,const CallbackInput& in){
     uint32_t acceleration=current==best?0:int32_t(current)<int32_t(best)?0x1C00:0xFFFFE400;
     uint32_t marker,velocity;
     if(!m.read32(0x800DC27C,marker)||!m.read32(in.values+4,velocity))return false;
-    velocity+=acceleration;if(!m.write32(in.values+4,velocity))return false;
-    uint32_t x=(position&0xFFFFF)+velocity,maximum=((lanes-1)<<16)|65535;
+    velocity+=uint32_t(step.delta(int32_t(acceleration)));if(!m.write32(in.values+4,velocity))return false;
+    uint32_t x=(position&0xFFFFF)+uint32_t(step.delta(int32_t(velocity))),maximum=((lanes-1)<<16)|65535;
     if(int32_t(velocity)>0){if(int32_t(x)>int32_t(maximum))x=wrap?x-maximum:maximum;}
     else if(int32_t(x)<0)x=wrap?x+maximum:0;
     if(!m.write32(in.values,x))return false;
     uint32_t drawX,drawY,parameters,packed;
     if(!m.read32(0x80113164,parameters)||!m.read32(in.draw+0x20,drawX)||!m.read32(in.draw+0x24,drawY))return false;
     packed=(((drawX>>8)&65535)<<16)|(drawY>>16);
-    for(unsigned k=0;k<3;++k){uint32_t destination=parameters+0x18-k*4,old;if(!m.read32(destination-4,old)||!m.write32(destination,old?old:packed))return false;}
-    if(!m.read32(in.draw+0x20,drawX)||!m.read32(in.draw+0x24,drawY)||!m.write32(parameters+0xC,(((drawX>>8)&65535)<<16)|(drawY>>16))||!m.read32(parameters+0x18,packed)||!m.write32(in.draw+4,packed))return false;
+    if(step.legacy_boundary()){
+        for(unsigned k=0;k<3;++k){uint32_t destination=parameters+0x18-k*4,old;if(!m.read32(destination-4,old)||!m.write32(destination,old?old:packed))return false;}
+        if(!m.read32(in.draw+0x20,drawX)||!m.read32(in.draw+0x24,drawY)||!m.write32(parameters+0xC,(((drawX>>8)&65535)<<16)|(drawY>>16)))return false;
+    }
+    if(!m.read32(parameters+0x18,packed)||!m.write32(in.draw+4,packed))return false;
     // Original entry falls through into the object-category counter at 1346E.
     return callback_count_prepared_object(m);
 }
 inline uint32_t callback_magnitude(uint32_t value){return int32_t(value)<0?0U-value:value;}
 inline bool callback_evade_player(CommandMemory& m,const CallbackInput& in,CallbackServices* services){
+    SimulationStep step=services?services->simulation_step():SimulationStep{};
     uint32_t parameters,target,y,velocity;
     if(!m.read32(0x80113164,parameters)||!m.read32(parameters+0x20,target)||!m.read32(in.values+0x10,y)||!m.read32(in.values+0x14,velocity))return false;
-    velocity+=int32_t(target)>int32_t(y)?0x8000:0xFFFF8000;
+    velocity+=uint32_t(step.delta(int32_t(target)>int32_t(y)?0x8000:-0x8000));
     if(int32_t(callback_magnitude(velocity))<0xC0000&&!m.write32(in.values+0x14,velocity))return false;
     uint32_t player,configuration,x,mode,lanes;
     if(!m.read32(0x800DC248,player)||!m.read32(0x800AF7B0,configuration)||!m.read32(in.values,x)||!m.read32(in.values+4,velocity)||!m.read32(parameters+0x24,mode))return false;
@@ -291,7 +311,7 @@ inline bool callback_evade_player(CommandMemory& m,const CallbackInput& in,Callb
     uint32_t chosen=player;
     if(!(mode&8)){
         uint32_t distance=callback_magnitude(player-own);
-        if(int32_t(distance)>5){mode&=~1U;velocity=command_mul(0xF000,velocity,16);if(!m.write32(in.values+4,velocity))return false;goto after_acceleration;}
+        if(int32_t(distance)>5){mode&=~1U;uint32_t drag=step.divisions==1?0xF000:uint32_t(std::llround(std::pow(15.0/16,step.fraction())*65536));velocity=command_mul(drag,velocity,16);if(!m.write32(in.values+4,velocity))return false;goto after_acceleration;}
         uint32_t topology;if(!m.read32(0x8010F170,topology))return false;
         bool wrap=(configuration&((topology>>1)^1)&1)!=0,endpoint=false;
         chosen=lanes;
@@ -312,11 +332,11 @@ inline bool callback_evade_player(CommandMemory& m,const CallbackInput& in,Callb
         if(endpoint){lanes>>=1;if(int32_t(lanes)<=int32_t(player))chosen=0;}
     }
     if(!m.read32(in.values,x))return false;
-    velocity+=int32_t(chosen<<16)>int32_t(x)?0x800:0xFFFFF800;
+    velocity+=uint32_t(step.delta(int32_t(chosen<<16)>int32_t(x)?0x800:-0x800));
     if(int32_t(callback_magnitude(velocity))<0x2000&&!m.write32(in.values+4,velocity))return false;
     after_acceleration:
     if(!m.write32(parameters+0x24,mode))return false;
-    if(mode&1){uint32_t blocked,paused;
+    if((mode&1)&&step.legacy_boundary()){uint32_t blocked,paused;
         if(!m.read32(0x801131B8,blocked))return false;
         if(!(blocked&3)){
             if(!m.read32(0x80110AC4,paused))return false;
@@ -327,7 +347,7 @@ inline bool callback_evade_player(CommandMemory& m,const CallbackInput& in,Callb
             }
         }
     }
-    if(mode&6){uint32_t timer;if(!m.read32(parameters+0x28,timer))return false;uint32_t high=timer>>16,remaining=(timer&65535)-1;
+    if((mode&6)&&step.legacy_boundary()){uint32_t timer;if(!m.read32(parameters+0x28,timer))return false;uint32_t high=timer>>16,remaining=(timer&65535)-1;
         if(int32_t(remaining)<=0){remaining=high;if(!m.write32(parameters+0x20,0x01000000)||!m.write32(parameters+0x24,mode|8))return false;}
         if(!m.write32(parameters+0x28,remaining|(high<<16)))return false;
     }
@@ -352,6 +372,7 @@ inline bool callback_power_hit(CommandMemory& m,const CallbackInput& in,uint32_t
 }
 inline bool execute_callback(CommandMemory& m,const CallbackInput& in,CallbackResult& out,CallbackServices* services=nullptr){
     out={0};uint32_t a,b,c,d,command=0;bool prepare=false;
+    SimulationStep step=services?services->simulation_step():SimulationStep{};if(!step.valid())return false;
     switch(in.entry){
     case 0x80013998:return callback_track_appearance(m,in,0x8010A2A0,services);
     case 0x800139A4:
@@ -360,6 +381,7 @@ inline bool execute_callback(CommandMemory& m,const CallbackInput& in,CallbackRe
             if(!m.read32(0x800DC274,a)||!m.write32(0x800DC274,a|0x24)||!m.read32(0x80113164,b)||!m.read32(b+8,c)||!m.write32(b+8,0x200))return false;
             if(int32_t(c)<=100&&!m.write32(0x800DC2DC,0x8010F20C))return false;
         }
+        if(services&&!services->simulation_step().legacy_boundary())return true;
         if(!m.read32(0x80113164,b)||!m.read32(b+8,c)||!m.write32(b+8,c-1))return false;
         return callback_counter_positive(c)||append_object_event(m,2,in.object);
     case 0x800138AE:
@@ -433,7 +455,7 @@ inline bool execute_callback(CommandMemory& m,const CallbackInput& in,CallbackRe
         if(!m.read32(0x801131B4,a))return false;
         if(!(a&0x100000)){CallbackInput shared=in;shared.entry=0x80013BB4;return execute_callback(m,shared,out,services);}
         return callback_score(m,in.object,150,services)&&m.write32(0x800DC2DC,0x8010F274)&&callback_mark_collision(m,in,0x801095C0)&&callback_disable_hit(m,in,services);
-    case 0x800132C0:return callback_select_lane(m,in);
+    case 0x800132C0:return callback_select_lane(m,in,services);
     case 0x800131DA:
         if(!m.read32(0x801131B4,a))return false;
         if((a&0x100000)||!(a&0x2000000)){out.unwindWords=4;return callback_mark_collision(m,in,0x8010A488)&&callback_sound(services,0x80003F1F)&&callback_disable_common(m,in);}
@@ -526,16 +548,16 @@ inline bool execute_callback(CommandMemory& m,const CallbackInput& in,CallbackRe
         if(!m.read32(0x800DC244,a))return false;if(!(a&0x40000))return true;
         if(!m.read32(0x80113164,a)||!m.write32(a,0x208)||!m.read32(0x800DC2D8,b)||!m.write32(0x800DC2D8,b|0x8000))return false;
         {std::array<uint32_t,4> payload;if(!callback_vector(m,in.draw+0x20,payload)||!m.write32(0x800DC2D0,payload[0])||!m.write32(0x800DC2D4,payload[1])||!m.read32(a+4,b)||!m.read32(a+8,c))return false;
-        bool positive=callback_counter_positive(b);--b;if(!positive){b=0x50;c^=1;if(!callback_sound(services,0x80001F28))return false;}
+        if(step.legacy_boundary()){bool positive=callback_counter_positive(b);--b;if(!positive){b=0x50;c^=1;if(!callback_sound(services,0x80001F28))return false;}}
         if(!m.write32(a+4,b)||!m.write32(a+8,c))return false;
         uint32_t nearest=0x08000000,lane=0;
         for(unsigned k=0;k<16;++k){if(!m.read32(0x800DC280+k*4,b))return false;if(int32_t(b)<=int32_t(nearest)){nearest=b;lane=k;}}
         if(!m.read32(a+8,c))return false;
         if(c&&nearest==0x08000000)return m.write32(a+8,0)&&m.write32(a+4,0x50);
         if(!callback_vector(m,in.values,payload))return false;
-        CallbackMotion movement=callback_motion(payload[0],payload[1],0x18000,0x1000,0xE800,(lane<<16)|0x8000);
+        CallbackMotion movement=callback_motion(payload[0],payload[1],0x18000,0x1000,0xE800,(lane<<16)|0x8000,step);
         if(!m.write32(in.values+4,movement.velocity)||!callback_vector(m,in.values+0x10,payload))return false;
-        movement=callback_motion(payload[0],payload[1],0x800000,c?0x80000:0x40000,c?0xE800:0xE000,c?nearest:0x800000);
+        movement=callback_motion(payload[0],payload[1],0x800000,c?0x80000:0x40000,c?0xE800:0xE000,c?nearest:0x800000,step);
         if(!m.write32(in.values+0x14,movement.velocity))return false;
         if(c)return true;
         if(!m.read32(in.values+0x10,b))return false;if((b>>16)>0x140)return true;
@@ -543,8 +565,8 @@ inline bool execute_callback(CommandMemory& m,const CallbackInput& in,CallbackRe
     case 0x80013FEE:
         if(!m.read32(0x80113164,a)||!m.read32(a+0xC,b)||!m.read32(0x80110AC4,c))return false;
         if(!(c&1)){
-            if(int32_t(b)>0x05000000){b-=0x004C0000;if(!m.write32(a+0xC,b))return false;}
-            else if(int32_t(b)==0x05000000){b-=0x004C0000;if(!m.write32(a+0xC,b))return false;}
+            if(int32_t(b)>0x05000000){b-=uint32_t(step.delta(0x004C0000));if(!m.write32(a+0xC,b))return false;}
+            else if(int32_t(b)==0x05000000){b-=uint32_t(step.delta(0x004C0000));if(!m.write32(a+0xC,b))return false;}
             else{
                 if(!m.read32(a+0x14,c)||!m.write32(in.draw+0x20,c)||!m.read32(a+0x10,d))return false;
                 if(d){std::array<uint32_t,4> payload;
@@ -615,11 +637,11 @@ inline bool execute_callback(CommandMemory& m,const CallbackInput& in,CallbackRe
         return callback_track_then_event(m,in,services);
     case 0x8001242E:
         if(!callback_periodic_event(m,in,0x40,services)||!m.read32(in.values+4,a)||!m.read32(0x80113164,b))return false;
-        if(!a){if(!m.read32(b+0x38,c)||!m.write32(b+0x38,c+0x300))return false;}
+        if(!a){if(!m.read32(b+0x38,c)||!m.write32(b+0x38,c+uint32_t(step.delta(0x300))))return false;}
         else if(!m.write32(b+0x38,(a&0x80000000)?0xFFFFC000:0x4000))return false;
         if(!m.read32(in.draw+0x20,a)||!m.read32(0x8010F170,b)||!m.write32(0x8010F170,b|1))return false;
         c=0x8010F174+((a>>16)&15)*4;
-        return m.read32(c,b)&&m.write32(c,(b&0xFFFF0000)|((b+0x400)&65535))&&callback_track_appearance(m,in,0x8010A178,services);
+        return m.read32(c,b)&&m.write32(c,(b&0xFFFF0000)|((b+uint32_t(step.delta(0x400)))&65535))&&callback_track_appearance(m,in,0x8010A178,services);
     case 0x80012B12:return callback_hit_effect(m,in,services);
     case 0x80012CE6:
         if(!m.read32(0x801131B4,a))return false;

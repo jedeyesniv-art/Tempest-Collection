@@ -18,6 +18,7 @@ struct HighScoreEntryInput {uint32_t content,scene,scores,player;OpeningAnimatio
 // name editor. The alphabetical controller UI is preserved, not replaced by a
 // host text box or a canned name. Private C formatting buffers are native data.
 inline bool run_high_score_entry(CommandMemory& m,const HighScoreEntryInput& input,GameSessionServices& services,uint32_t& output,unsigned budget=8192){
+    SceneTimingScope cadence(services,SceneTimingKind::nameEntry);if(!cadence.divisions)return false;uint64_t remainingBudget=cadence.budget(budget);
     uint32_t stack=input.caller.incoming[19];if(input.player>1||(stack&15)||stack<128)return false;auto c=input.caller.incoming;c[18]=stack-16;c[19]=stack-128;c[17]=input.caller.returnAddress;
     uint32_t alphabet=stack-60,latch=stack-64,score,value,random;uint8_t byte;
     c[8]=input.content;c[13]=input.scene;c[0]=input.scores;c[16]=input.player;c[10]=3;c[5]=0;c[12]=1;c[9]=16;c[3]=0x806A25D8;c[4]=0x806A25E0;c[14]=0x80033AA0;
@@ -45,15 +46,15 @@ inline bool run_high_score_entry(CommandMemory& m,const HighScoreEntryInput& inp
     do{if(!write_session_byte(m,0x8010C1A8+c[0],'<'))return false;++c[16];c[0]+=3;}while(c[16]<=6);
     c[17]=0x8010C1A8+c[0]-3;c[14]=0x80010200;
     if(!m.write32(0x800B850C,1)||!services.initialize_scene({input.scene,c}))return false;c[17]=0x8001B91A;
-    auto frame=[&](uint32_t link){c[14]=0x80015C74;if(!budget--||!services.menu_frame(c))return false;c[17]=link;return true;};
+    auto frame=[&](uint32_t link){c[14]=0x80015C74;if(!remainingBudget--||!services.menu_frame(c))return false;c[17]=link;return true;};
     if(!m.read32(0x800B6A94,value))return false;
     if(int32_t(value)>0){c[16]=0x800B6A94;c[0]=0x800B92D4;
-        do{if(!m.read32(0x800B6A94,value)||!m.write32(0x800B6A94,int32_t(value)>0?value-0x400:0)||!frame(0x8001B95E)||!m.read32(0x800B92D4,value)||!m.write32(0x800B92D4,value+0x2000)||!m.read32(0x800B6A94,c[14]))return false;}while(int32_t(c[14])>0);
+        do{if(!m.read32(0x800B6A94,value)||!m.write32(0x800B6A94,int32_t(value)>0?value-uint32_t(cadence.delta(0x400,0)):0)||!frame(0x8001B95E)||!m.read32(0x800B92D4,value)||!m.write32(0x800B92D4,value+uint32_t(cadence.delta(0x2000,2)))||!m.read32(0x800B6A94,c[14]))return false;}while(int32_t(c[14])>0);
     }
     if(!m.write32(0x801133B8,64))return false;c[8]=latch;c[4]=alphabet;c[13]=0x806B992C;
     while(c[12]){uint32_t delta,held,buttons;c[14]=0x80017A04;
         if(!services.vertical_axis(latch,0xA00,delta)||!m.read32(latch,held))return false;c[17]=0x8001B9B8;c[0]=delta;
-        if(!held){if(!delta)c[9]=16;}else{--c[9];if(int32_t(c[9])<=0){if(!m.write32(latch,0))return false;c[9]=4;}}
+        if(!held){if(!delta)c[9]=16;}else{c[9]-=unsigned(cadence.step().legacy_boundary());if(int32_t(c[9])<=0){if(!m.write32(latch,0))return false;c[9]=4;}}
         c[1]-=delta;c[16]=40;if(int32_t(c[1])<0)c[1]=40;if(int32_t(c[1])>40)c[1]=0;
         c[16]=0x8010C1A8+c[10];c[17]=alphabet+c[1];c[0]=c[16]<<3;c[2]=0-c[0];c[3]=0xFFFFFFE8;
         if(!m.read8(alphabet+c[1],byte)||!write_session_byte(m,c[16],byte)||!m.read32(0x806B992C,buttons))return false;
@@ -68,12 +69,12 @@ inline bool run_high_score_entry(CommandMemory& m,const HighScoreEntryInput& inp
             if(buttons&0x4000){c[0]=0x806B992C;c[16]=0x4000;
                 do{if(!frame(0x8001BB60)||!m.read32(0x806B992C,buttons))return false;}while(buttons&0x4000);}
         }
-        if(!frame(0x8001BB76)||!m.read32(0x800B92D4,c[14])||!m.write32(0x800B92D4,c[14]+0x2000)||!m.read32(0x806B992C,buttons))return false;
+        if(!frame(0x8001BB76)||!m.read32(0x800B92D4,c[14])||!m.write32(0x800B92D4,c[14]+uint32_t(cadence.delta(0x2000,2)))||!m.read32(0x806B992C,buttons))return false;
         if(buttons&0xFF3F){if(!m.read32(0x800DC274,c[14])||!m.write32(0x800DC274,c[14]|2))return false;}else c[14]=4;
     }
     c[14]=0x80015602;if(!services.play_sound(46,0x1000)||!m.read32(0x800B6A94,value))return false;c[17]=0x8001BBD0;
     if(int32_t(value)<=65535){c[17]=65535;c[16]=0x800B6A94;c[0]=0x800B92D4;
-        do{if(!m.read32(0x800B6A94,value)||!m.write32(0x800B6A94,value+0x400)||!frame(0x8001BC24)||!m.read32(0x800B92D4,value)||!m.write32(0x800B92D4,value-0x8000)||!m.read32(0x800B6A94,c[14]))return false;}while(int32_t(c[14])<=65535);
+        do{if(!m.read32(0x800B6A94,value)||!m.write32(0x800B6A94,value+uint32_t(cadence.delta(0x400,1)))||!frame(0x8001BC24)||!m.read32(0x800B92D4,value)||!m.write32(0x800B92D4,value-uint32_t(cadence.delta(0x8000,3)))||!m.read32(0x800B6A94,c[14]))return false;}while(int32_t(c[14])<=65535);
     }
     c[16]=0;c[14]=0x80016BE6;if(!m.write32(0x800B850C,0)||!services.transition({0x3F00,0x10808000,0x10100,0,40},c))return false;
     for(unsigned i=0;i<8;++i){if(!m.read8(0x8010C1AB+i*3,byte)||!write_session_byte(m,c[11]+i,byte)||!write_session_byte(m,c[6]+i,(byte>='<'&&byte<='>')?' ':byte))return false;}

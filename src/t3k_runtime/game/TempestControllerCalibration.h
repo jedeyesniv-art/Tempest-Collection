@@ -8,11 +8,12 @@ struct ControllerCalibrationServices {
 // Original 8001C05A..8001C7E4. Preserve the original staged analog calibration
 // and the rotary branch, rather than replacing either with host movement edits.
 inline bool run_controller_calibration(CommandMemory& m,const OpeningAnimationInput& input,GameSessionServices& services,ControllerCalibrationServices& rotary,unsigned budget=0xFFFFFFFF){
+    SceneTimingScope cadence(services,SceneTimingKind::tool);if(!cadence.divisions)return false;uint64_t remainingBudget=cadence.budget(budget);
     auto c=input.incoming;uint32_t stack=c[19];c[18]=stack-16;c[19]=stack-64;c[17]=input.returnAddress;
     uint32_t value,random,table,port,record,buttons;uint8_t byte;
     auto write=[&](uint32_t a,uint32_t v){return m.write32(a,v);};
-    auto frame=[&](uint32_t link){if(!budget--||!services.menu_frame(c))return false;c[17]=link;return true;};
-    auto rotate=[&](uint32_t delta){return m.read32(0x800B92D4,value)&&write(0x800B92D4,value+delta);};
+    auto frame=[&](uint32_t link){if(!remainingBudget--||!services.menu_frame(c))return false;c[17]=link;return true;};
+    auto rotate=[&](uint32_t delta){return m.read32(0x800B92D4,value)&&write(0x800B92D4,value+uint32_t(cadence.delta(int32_t(delta),0)));};
     auto controller=[&](uint32_t player){return player<2&&m.read32(0x801133E8+player*4,port)&&m.read32(0x806B9910,table)&&(record=table+port*16,true);};
     auto held=[&](uint32_t player,uint32_t mask,bool& result){if(!controller(player)||!m.read8(record+4,byte))return false;buttons=uint32_t(byte)<<8;if(!m.read8(record+5,byte))return false;buttons|=byte;result=bool(buttons&mask);return true;};
     c[16]=0x800B6A90;c[0]=0x80015500;c[1]=0;

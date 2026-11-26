@@ -20,10 +20,11 @@ struct SelectionMenuServices:OpeningAnimationServices {
 // Complete original 8001817C..8001867C, with explicit scene/frame dependencies.
 // Positive menu sizes up to 32 and nonnegative palette cycles are supported.
 inline bool run_selection_menu(CommandMemory& m,const SelectionMenuInput& input,SelectionMenuServices& services,uint32_t& output,unsigned budget=4096){
+    SceneTimingScope cadence(services,SceneTimingKind::particleCrawl);if(!cadence.divisions)return false;uint64_t remainingBudget=cadence.budget(budget);
     if(!input.choices||input.choices>32)return false;uint32_t stack=input.caller.incoming[19];if((stack&15)||stack<96)return false;
     auto context=input.caller.incoming;context[0]=input.content;context[2]=input.choices;context[16]=input.label;
     context[7]=1;context[17]=input.caller.returnAddress;context[18]=stack-16;context[19]=stack-96;
-    auto frame=[&](){return budget--&&services.menu_frame(context);};
+    auto frame=[&](){return remainingBudget--&&services.menu_frame(context);};
     auto write=[&](uint32_t a,uint32_t v){return m.write32(a,v);};
     uint32_t flags,buttons,random,selection=0;bool fresh=true,edge=false;
     if(!services.select_music(0)||!write(0x800B6BC4,input.label)||!write(0x800DC274,0)||!advance_menu_palette(m))return false;
@@ -39,8 +40,8 @@ inline bool run_selection_menu(CommandMemory& m,const SelectionMenuInput& input,
     context[0]=0x800B9778;context[1]=0x800B6A94;context[4]=0xFF3F;context[5]=0x806B992C;context[17]=0x80018312;
     uint32_t fade=0xF800;
     do {if(!m.read32(0x806B992C,buttons))return false;if(buttons&0xFF3F)fade=0;
-        uint32_t angle;if(!write(0x800B6A94,fade)||!m.read32(0x800B9778,angle)||!write(0x800B9778,angle+0x8000))return false;
-        fade-=0x400;context[16]=fade;if(!frame())return false;context[17]=0x80018372;
+        uint32_t angle;if(!write(0x800B6A94,fade)||!m.read32(0x800B9778,angle)||!write(0x800B9778,angle+uint32_t(cadence.delta(0x8000,0))))return false;
+        fade-=uint32_t(cadence.delta(0x400,1));context[16]=fade;if(!frame())return false;context[17]=0x80018372;
     }while(int32_t(fade)>0);
     if(!m.read32(0x806B992C,buttons))return false;
     if(buttons&0xFF3F){context[0]=0x806B992C;context[16]=0xFF3F;do{if(!frame()||!m.read32(0x806B992C,buttons))return false;context[17]=0x800183AA;}while(buttons&0xFF3F);}
@@ -50,8 +51,8 @@ inline bool run_selection_menu(CommandMemory& m,const SelectionMenuInput& input,
     if(!m.read32(0x806B992C,buttons)||!m.read32(0x800DC274,flags))return false;
     while(!(buttons&0x4008)&&!(flags&1)){
         uint32_t idle,angle;if(!m.read32(0x800DC270,idle))return false;
-        if(int32_t(idle)>600){if(!write(0x800DC274,1))return false;selection=0;}
-        if(!m.read32(0x800B9778,angle)||!write(0x800B9778,angle+0x8000)||!write(0x800B6A90,selection)||!m.read32(0x800DC270,idle)||!write(0x800DC270,idle+1))return false;
+        if(cadence.step().legacy_boundary()&&int32_t(idle)>600){if(!write(0x800DC274,1))return false;selection=0;}
+        if(!m.read32(0x800B9778,angle)||!write(0x800B9778,angle+uint32_t(cadence.delta(0x8000,0)))||!write(0x800B6A90,selection)||!m.read32(0x800DC270,idle)||!write(0x800DC270,idle+unsigned(cadence.step().legacy_boundary())))return false;
         for(unsigned i=0;i<input.choices;++i){uint32_t delta;
             if(!services.vertical_axis(latch,0xA00,delta))return false;
             context[17]=0x8001849A;
@@ -74,8 +75,8 @@ inline bool run_selection_menu(CommandMemory& m,const SelectionMenuInput& input,
             }else if(!edge){fade=0x10000;edge=true;}
         }else edge=false;
         if(!m.read32(0x800DC274,flags))return false;if((flags&3)==3)break;
-        uint32_t angle;if(!write(0x800B6A94,fade)||!m.read32(0x800B9778,angle)||!write(0x800B9778,angle+0x8000))return false;
-        fade+=0x400;context[3]=edge?1:0;context[7]=fresh?1:0;context[16]=fade;if(!frame())return false;context[17]=0x8001861A;
+        uint32_t angle;if(!write(0x800B6A94,fade)||!m.read32(0x800B9778,angle)||!write(0x800B9778,angle+uint32_t(cadence.delta(0x8000,0))))return false;
+        fade+=uint32_t(cadence.delta(0x400,2));context[3]=edge?1:0;context[7]=fresh?1:0;context[16]=fade;if(!frame())return false;context[17]=0x8001861A;
     }while(fade<=0xFFFF);
     if(!write(0x800B4BDC,0x00B40078)||!write(0x800B4BD0,0x40000)||!m.read32(0x800DC274,flags))return false;
     output=cancel||flags==1?0xFFFFFFFF:selection;return true;

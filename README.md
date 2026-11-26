@@ -88,13 +88,13 @@ greys that game out and tells you exactly which file it is looking for and where
 | PS Vita firmware (for TxK) | `vita_firmware\PSVUPDAT.PUP` and `vita_firmware\PSP2UPDAT.PUP` | Both are free downloads from Sony's PS Vita system software pages. Installed automatically on TxK's first start (the `.PUP` files can be deleted afterwards). |
 | Space Giraffe, Tempest 4000 | Install them in Steam | Not installed? The launcher's A button opens their store page. |
 
-The Nuon BIOS and Nuance core are not needed: Tempest 3000 now runs as native reconstructed C++ with the GPU renderer. See [native integration notes](docs/T3K-NATIVE.md) for settings, controls, saves, and validation.
+The Nuon BIOS and Nuance core are not needed: Tempest 3000 now runs as native reconstructed C++ with the GPU renderer. See the [stable handoff notes](docs/T3K-STABLE-HANDOFF.md) for current settings, controls, limitations and validation.
 
 ### Requirements
 
 - Windows 10 / 11 (64-bit) with a Direct3D 12 capable GPU; a gamepad (Xbox layout) recommended. Keyboard works too.
-- Steam Deck: works through Proton (see below). Run-ahead for Tempest 3000 is too costly there; everything else plays well.
-- Tempest 3000 is the demanding one: a recent desktop CPU is comfortable; with run-ahead, more so.
+- Steam Deck uses Proton (see below); this native T3K checkpoint was validated on Windows, not on the Deck.
+- Tempest 3000 uses native game functions and GPU rendering; no Nuance runtime or run-ahead is required.
 
 ### Installing
 
@@ -127,17 +127,17 @@ shows the exact line to paste when it is missing.
 - Cheats menu, including Beastly mode.
 
 **Tempest 3000**
-- Every picture is drawn natively from the game's display lists: high resolution, wide screens, and smooth motion
-  interpolated between the game's own frames - the web, vectors, particles, power-ups and numbers all move smoothly
-  at your display's refresh rate, whatever the game speed.
-- Three speeds (pictures per second, 15-60): play (default 21), menus (default 30) and the warp between levels (60),
-  with a short ramp between them, so the game's feel is yours to set without slowing the menus.
-- The jump: RB or RT (the Nuon's R button; the number at the top right is the jumps left). A fires, B is the
-  Superzapper.
-- Stick modes: Step (default: a push = one lane, hold to sweep), Stiff (Tempest 2000-like) and Left / right.
-- Run-ahead (0-4, default 2; lowered automatically when the CPU can't keep up - set it to Off on the Steam Deck).
-  No "controller configuration" screen at boot. High scores kept between sessions.
-- Save states, infinite lives cheat, "Restart the game".
+- Native reconstructed gameplay and GPU rendering, including the game's framebuffer effects.
+- Picture > Framerate: Original, 60Hz or 120Hz. The latter two run real 120 Hz internal updates;
+  60Hz caps displayed frames. No motion interpolation is used.
+- Timing below Controls adjusts scene pacing (reference ticks/s). Defaults: gameplay/menus 24,
+  level-end travel 20, level clear 48, bonus sequence 36, all other phases 24.
+  Timing and framerate edits apply when restarting the game.
+- Native Nuon gamepad input: A fires, B activates the zapper, RB is R/jump; buttons are remappable.
+  Mouse/trackball is another controller choice: left click fires, right click jumps, middle click zaps.
+  Stick response curve (1–5, default 2.5) and sensitivity are adjustable.
+- High scores, volume, resolution, widescreen, vector style and optional CRT settings remain integrated.
+  Save states are unavailable in the normal scene-timing mode; existing state files remain untouched.
 - The disc compression tool (`.nuz`: the music re-encoded as Ogg Vorbis, the rest untouched).
 
 **Space Giraffe** (Steam)
@@ -167,7 +167,8 @@ shows the exact line to paste when it is missing.
 - Space Giraffe: the in-game "hi-res objects" option is not remembered between sessions (a bug in the game itself).
 - Tempest 3000 on the Steam Deck: possibly a brief hitch at the start of a level while its music track is decoded.
 - TxK: touchscreen input on the Steam Deck is untested.
-- Tempest 3000's run-ahead is turned down automatically if your CPU can't keep up.
+- Tempest 3000: high-rate framebuffer effects are visually tuned approximations; repeated fractional
+  resampling can soften displaced trails. Original uses full per-tick effects.
 
 ### Building from source
 

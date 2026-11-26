@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include "native_frame_integration.h"
 #include <fstream>
 #include "disc_image.h"

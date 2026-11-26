@@ -1,5 +1,10 @@
 # Native Tempest 3000 integration
 
+**Stable follow-up:** see [T3K-STABLE-HANDOFF.md](T3K-STABLE-HANDOFF.md)
+for the cumulative patch, current default build, timing modes and limitations.
+The original integration notes below describe the earlier 24 Hz handoff; where
+they differ, the stable follow-up takes precedence.
+
 This contribution replaces the T3K hybrid Nuance runtime inside Tempest Collection.
 The launcher still starts `t3k.exe --from-launcher`. The other games keep their
 existing backends. No second launcher or competing release is introduced.

@@ -35,7 +35,8 @@ inline bool sample_driver_controller(CommandMemory& m){
 }
 // 800165FC: signed rotary byte, discontinuity suppression, sensitivity,
 // clamping, optional inversion, and persistent position/phase state.
-inline bool sample_driver_rotary(CommandMemory& m,uint32_t& result){
+inline bool sample_driver_rotary(CommandMemory& m,uint32_t& result,unsigned subdivisions=1,unsigned numerator=1){
+    if(!subdivisions||subdivisions>65536||!numerator||numerator>subdivisions)return false;
     uint32_t active,port,controllers,previous,last,multiplier,invert,phase;uint8_t raw;
     if(!m.read32(0x801133F0,active)||!m.read32(0x801133E8+active*4,port)||!m.read32(0x806B9910,controllers)||!m.read8(controllers+port*16+10,raw)||!m.read32(0x806B9944+port*4,previous)||!m.read32(0x801133B4,last))return false;
     uint32_t current=uint32_t(int32_t(int8_t(raw)))&~1U,delta=current-previous;
@@ -45,15 +46,21 @@ inline bool sample_driver_rotary(CommandMemory& m,uint32_t& result){
     }
     if(!m.read32(0x801133BC,multiplier))return false;
     delta=command_mul(multiplier,delta,0);
-    if(int32_t(delta)<-80)delta=uint32_t(-80);if(int32_t(delta)>80)delta=80;
+    // A rotary sample is displacement since polling, whereas the object input
+    // channel is a rate in original-tick units. Normalize once, before the
+    // original rate cap. Analog input already represents a rate.
+    int64_t rate=int64_t(int32_t(delta))*subdivisions/numerator;
+    if(rate<-80)rate=-80;if(rate>80)rate=80;delta=uint32_t(rate);
     if(!m.write32(0x806B9944+port*4,current)||!m.read32(0x801133C0,invert))return false;
     if(invert)delta=0U-delta;
-    if(!m.read32(0x801133B8,phase)||!m.write32(0x801133B8,phase+delta))return false;
+    if(!m.read32(0x801133B8,phase)||!m.write32(0x801133B8,phase+uint32_t(int64_t(int32_t(delta))*numerator/int32_t(subdivisions))))return false;
     result=delta;return true;
 }
 // 80016714..80016982: gameplay control-packet preparation, before connection
 // enumeration and pause handling in the complete outer gameplay-frame caller.
-inline bool prepare_driver_controls(CommandMemory& m){
+inline bool prepare_driver_controls(CommandMemory& m,unsigned subdivisions=1,unsigned substep=0,unsigned numerator=1){
+    if(!subdivisions||subdivisions>65536||substep>=subdivisions||!numerator||numerator>subdivisions)return false;
+    uint32_t ramp=uint32_t((uint64_t(substep+numerator)*20)/subdivisions-(uint64_t(substep)*20)/subdivisions);
     uint32_t buttons;if(!m.read32(0x806B992C,buttons))return false;
     uint32_t flags=((buttons&0x4000)?0x100:0)|((buttons&8)?0x800:0)|((buttons&0x2000)?0x10:0)|((buttons&16)?0x20:0)|((buttons&32)?0x40:0);
     if(!m.write32(0x806B9930,(flags<<16)^0xFFFF0000))return false;
@@ -63,13 +70,13 @@ inline bool prepare_driver_controls(CommandMemory& m){
         if(buttons&0x400){
             if(!m.read32(0x801133D8,phase))return false;
             if(int32_t(phase)>0){phase=0;if(!m.write32(0x801133D8,phase))return false;}
-            phase=int32_t(phase)<=-80?uint32_t(-80):phase-20;
+            phase=int32_t(phase)<=-80?uint32_t(-80):phase-ramp;
             if(!m.write32(0x801133D8,phase)||!merge((phase<<8)&0xFE00))return false;
         }
         if(buttons&0x100){
             if(!m.read32(0x801133D8,phase))return false;
             if(int32_t(phase)<0){phase=0;if(!m.write32(0x801133D8,phase))return false;}
-            phase=int32_t(phase)>79?80:phase+20;
+            phase=int32_t(phase)>79?80:phase+ramp;
             if(!m.write32(0x801133D8,phase)||!merge((phase<<8)&0xFE00))return false;
         }
         return true;
@@ -77,7 +84,7 @@ inline bool prepare_driver_controls(CommandMemory& m){
     if(!m.write32(0x801133D8,0))return false;
     auto controller=[&](uint32_t& address,uint32_t& capabilities){uint32_t active,port,base;if(!m.read32(0x801133F0,active)||!m.read32(0x801133E8+active*4,port)||!m.read32(0x806B9910,base))return false;address=base+port*16;return m.read32(address,capabilities);};
     uint32_t address,capabilities;if(!controller(address,capabilities))return false;
-    if(capabilities&0x1000){uint32_t delta;if(!sample_driver_rotary(m,delta)||!merge((delta<<8)&0xFC00))return false;}
+    if(capabilities&0x1000){uint32_t delta;if(!sample_driver_rotary(m,delta,subdivisions,numerator)||!merge((delta<<8)&0xFC00))return false;}
     if(!controller(address,capabilities))return false;
     if(capabilities&16){uint8_t raw;if(!m.read8(address+6,raw))return false;int32_t axis=int8_t(raw);if(axis>=-19&&axis<=19)axis=0;if(axis<-90)axis=-90;if(axis>90)axis=90;if(!merge((uint32_t(axis)<<8)&0xFF00))return false;}
     return true;
@@ -93,10 +100,10 @@ inline bool advance_driver_color(CommandMemory& m){
 }
 // 800159F0..80015A44, before advance_driver_color. The pending pointer's
 // address load is in a branch delay slot, so it applies for both flag paths.
-inline bool advance_driver_counters(CommandMemory& m){
+inline bool advance_driver_counters(CommandMemory& m,bool advancePicture=true){
     uint32_t index,flags,value;const uint32_t address=0x800DC2DC;
     if(!m.read32(0x806B9920,index)||!m.write32(0x806B9920,index+1)||!m.read32(0x80110AC4,flags))return false;
-    if(!(flags&1)){
+    if(advancePicture&&!(flags&1)){
         uint32_t frame;
         if(!m.read32(0x806B991C,frame)||!m.write32(0x806B991C,frame+1))return false;
     }
@@ -107,6 +114,7 @@ inline bool advance_driver_counters(CommandMemory& m){
 inline bool finish_driver_ring(CommandMemory& m){uint32_t index;if(!m.read32(0x806B9920,index))return false;return index<=2||m.write32(0x806B9920,0);}
 struct DriverPresentation{uint32_t buffer,flags,width,height,extra;};
 struct DriverPresentationServices{
+    virtual SimulationStep simulation_step()const{return {};}
     virtual bool present(const DriverPresentation&)=0;
     virtual bool maintain_music()=0;
     virtual ~DriverPresentationServices()=default;
@@ -145,7 +153,8 @@ inline bool maintain_driver_music(CommandMemory& m,DriverMusicServices& services
 // sampling, then counters/color/ring. Presentation does not advance game logic.
 inline bool finish_driver_frame(CommandMemory& m,DriverPresentationServices& services){
     uint32_t buffer;if(!m.read32(0x806B9934,buffer)||!services.present({buffer,0x002DC840,360,240,0})||!services.maintain_music())return false;
-    return sample_driver_controller(m)&&advance_driver_counters(m)&&advance_driver_color(m)&&finish_driver_ring(m);
+    bool legacy=services.simulation_step().legacy_boundary();
+    return sample_driver_controller(m)&&advance_driver_counters(m,legacy)&&(!legacy||advance_driver_color(m))&&finish_driver_ring(m);
 }
 struct DriverSound {virtual bool play_request(const SoundRequest&,uint32_t& handle)=0;virtual ~DriverSound()=default;};
 // 80015D68: gameplay's deferred sound queue uses a six-bit resource index,
@@ -161,6 +170,8 @@ inline bool consume_driver_sounds(CommandMemory& m,DriverSound& sound,unsigned b
     return false;
 }
 struct DriverSceneServices{
+    virtual unsigned frame_divisions()const{return 1;}
+    virtual unsigned frame_numerator()const{return 1;}
     virtual bool initialize_scene(uint32_t scene)=0;
     virtual bool menu_frame()=0;
     virtual ~DriverSceneServices()=default;
@@ -171,15 +182,16 @@ struct DriverTransitionInput{uint32_t flags,color,parameter,argument,frames;};
 inline bool run_driver_transition(CommandMemory& m,DriverSceneServices& services,const DriverTransitionInput& in,unsigned budget=4096){
     uint32_t saved;
     if(!m.write32(0x800B84B0,in.flags)||!m.write32(0x800B84B4,in.color)||!m.write32(0x800B84B8,in.parameter)||!m.write32(0x800B84C8,in.parameter)||!m.write32(0x800B84BC,in.argument)||!m.read32(0x800B850C,saved)||!m.write32(0x800B850C,0)||!services.initialize_scene(2))return false;
-    uint32_t frame=0;
-    while(int32_t(frame)<int32_t(in.frames)){
-        if(!budget--)return false;uint32_t flags,buttons;
+    unsigned divisions=services.frame_divisions(),numerator=services.frame_numerator();if(!divisions||divisions>120||!numerator||numerator>divisions)return false;uint64_t remainingBudget=uint64_t(budget)*divisions;
+    uint64_t frame=0;
+    while(frame<uint64_t(int32_t(in.frames)>0?in.frames:0)*divisions){
+        if(!remainingBudget--)return false;uint32_t flags,buttons;
         if(!m.read32(0x800DC274,flags))return false;
         if((flags&3)==3)break;
         if(!m.read32(0x806B992C,buttons))return false;
         if((buttons&0xFF3F)&&!m.write32(0x800DC274,flags|2))return false;
         if(!services.menu_frame())return false;
-        ++frame;
+        frame+=numerator;
     }
     return m.write32(0x800B850C,saved);
 }

@@ -101,7 +101,7 @@ public:
     // A function-level coroutine: complete voice transfers, then master state,
     // then PCM output. It never decodes or executes a NUON instruction. Separating
     // these observable events also permits exact checks at asynchronous fences.
-    bool advance_to(AudioClockState target){
+    bool advance_to(AudioClockState target){profiling::Scope profile(profiling::audio);
         bool exactVoices=target.voices!=~uint64_t(0);
         if(!active_||failed_||target.cores<time_.cores||target.outputs<time_.outputs||target.outputs>target.cores||target.cores-target.outputs>1||target.cores-time_.cores>4096||(exactVoices&&target.voices<time_.voices))return fail("inconsistent audio event timestamp");
         while(time_.cores<target.cores||time_.outputs<target.outputs||(exactVoices&&time_.voices<target.voices)){
@@ -139,11 +139,18 @@ private:
         bool write32(uint32_t a,uint32_t value)override{a&=~3U;if(a>=0x20100000&&a<0x20102000){put(owner.local_,a-0x20100000,value);return true;}return external(a)&&owner.memory_.write32(a,value);}
     };
     struct StagingView:View{
-        std::map<uint32_t,uint32_t> staged;std::vector<std::pair<uint32_t,uint32_t>> order;
-        explicit StagingView(NativeAudioBackend& value):View(value){}
-        bool read8(uint32_t a,uint8_t& value)override{auto it=staged.find(a&~3U);if(it!=staged.end()){value=uint8_t(it->second>>(24-(a&3)*8));return true;}return View::read8(a,value);}
-        bool read32(uint32_t a,uint32_t& value)override{a&=~3U;auto it=staged.find(a);if(it!=staged.end()){value=it->second;return true;}return View::read32(a,value);}
-        bool write32(uint32_t a,uint32_t value)override{a&=~3U;if(a>=0x20100000&&a<0x20102000)return View::write32(a,value);if(!external(a))return false;staged[a]=value;order.push_back({a,value});return true;}
+        // The supported mixer publishes 32 voice records and a 12-word master
+        // record. Keep an indexed overlay; order retains every original write.
+        static constexpr unsigned words=12+32*24;
+        uint32_t pool;std::array<uint32_t,words> staged;std::array<uint8_t,words> valid{};
+        std::vector<std::pair<uint32_t,uint32_t>> order;
+        explicit StagingView(NativeAudioBackend& value):View(value),pool(word(value.local_,0x1010)){order.reserve(words);}
+        const uint32_t* find(uint32_t a)const{a&=~3U;if(a<pool||uint64_t(a)-pool>=words*4||(pool&3))return nullptr;unsigned i=(a-pool)/4;return valid[i]?&staged[i]:nullptr;}
+        bool read8(uint32_t a,uint8_t& value)override{if(auto* p=find(a)){value=uint8_t(*p>>(24-(a&3)*8));return true;}return View::read8(a,value);}
+        bool read32(uint32_t a,uint32_t& value)override{a&=~3U;if(auto* p=find(a)){value=*p;return true;}return View::read32(a,value);}
+        bool write32(uint32_t a,uint32_t value)override{a&=~3U;if(a>=0x20100000&&a<0x20102000)return View::write32(a,value);
+            if(!external(a)||a<pool||uint64_t(a)-pool>=words*4||(pool&3))return false;
+            unsigned i=(a-pool)/4;staged[i]=value;valid[i]=1;order.push_back({a,value});return true;}
     };
     bool prepare_block(){
         uint32_t remaining=word(local_,0x100c);

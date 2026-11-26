@@ -6,6 +6,7 @@
 cbuffer Params : register(b0, space3) {
   float4 ripple;   // base_a, slope_a (w4 / 65536), base_b, slope_b (w5 / 65536)
   float4 colour;   // w2 (YCrCb / 255), fade (w7) in w
+  float4 timing; // x: elapsed authored ticks from committed history
   float4 view;     // the target's extent in game pixels: x0, y0, width, height (0, 0, 360, 240 at 4:3)
 };
 
@@ -32,8 +33,9 @@ PSOutput main(PSInput input) {
   float x = view.x + input.v_uv.x * view.z - 0.5, y = view.y + input.v_uv.y * view.w - 0.5;   // game pixel centres
   float a = ripple.x + x * ripple.y;
   float b = ripple.z + y * ripple.w + a;
-  float2 s = float2(x + tab(a), y + tab(b));
+  float2 s = float2(x + tab(a) * timing.x, y + tab(b) * timing.x);
   float3 c = u_texture.SampleLevel(u_sampler, (s + 0.5 - view.xy) / view.zw, 0).rgb;
-  output.o_color = float4(saturate(c + (colour.rgb - c) * colour.w), 1.0);
+  float fade = timing.x == 1.0 ? colour.w : 1.0 - pow(saturate(1.0 - colour.w), timing.x);
+  output.o_color = float4(saturate(c + (colour.rgb - c) * fade), 1.0);
   return output;
 }

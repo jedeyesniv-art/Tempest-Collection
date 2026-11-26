@@ -4,8 +4,9 @@
 #include <array>
 #include <algorithm>
 #include <cstdio>
+#include <cmath>
 namespace tempest_native {
-struct PreparationInput{uint32_t module,worker;std::array<uint32_t,4> context;};
+struct PreparationInput{uint32_t module,worker;std::array<uint32_t,4> context;SimulationStep step{};};
 inline bool preparation_copy(CommandMemory& m,uint32_t from,uint32_t to,uint32_t words,unsigned budget=65536){
     if(words>budget)return false;
     for(uint32_t i=0;i<words;++i){uint32_t value;if(!m.read32(from+i*4,value)||!m.write32(to+i*4,value))return false;}return true;
@@ -65,6 +66,9 @@ inline uint32_t preparation_blend(uint32_t oldPixel,uint32_t target,uint32_t fac
 // Module 3 (806A4F20): 16x16 texture evolution and masked colour stamps. All
 // transfers precede their consumers, including descriptor/mask-buffer aliases.
 inline bool prepare_texture(CommandMemory& m,const PreparationInput& in){
+    if(!in.step.legacy_boundary()){
+        uint32_t flags;return m.read32(0x2010000C,flags)&&m.write32(0x2010000C,flags&~7U)&&m.write32(0x20100030,0)&&m.write32(0x8003DE50+in.worker*4,0);
+    }
     uint32_t count=in.context[0],texture=in.context[2],source=in.context[3];
     uint32_t descriptors=int32_t(count)>0?count:1;
     if(descriptors>8)return false;
@@ -137,7 +141,7 @@ inline bool prepare_projected_record(CommandMemory& m,const PreparationInput& in
 #include "TempestDepthPreparation.h"
 #include "TempestWebPreparation.h"
 inline bool execute_preparation(CommandMemory& m,const PreparationInput& in){
-    if(in.worker>2)return false;
+    if(in.worker>2||!in.step.valid())return false;
     switch(in.module){case 2:return prepare_shapes(m,in);case 3:return prepare_texture(m,in);case 6:return prepare_animation(m,in);case 7:return prepare_numeric_overlay(m,in);case 10:return prepare_web(m,in);case 12:return prepare_projected_record(m,in);case 17:return prepare_depth(m,in);default:return false;}
 }
 }

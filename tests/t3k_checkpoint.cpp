@@ -7,7 +7,35 @@
 using namespace tempest_native;
 static void require(bool value,const char* why){if(!value){std::fprintf(stderr,"checkpoint test: %s\n",why);std::exit(1);}}
 int main(){
+    {
+        NativeFrameMemory bulk;NativeFrameMemory::Snapshot expected,original,phaseImage;
+        for(unsigned bank=0;bank<4;++bank){auto data=bulk.bank(NativeFrameMemory::Bank(bank));expected[bank].assign(data.begin(),data.end());}original=expected;
+        require(bulk.begin_checkpoint(),"bulk phase checkpoint");uint32_t random=0x154977AB;
+        for(unsigned frame=0;frame<8;++frame){auto before=expected;require(bulk.begin(),"mixed bulk frame");
+            for(unsigned op=0;op<80;++op){random=random*1664525+1013904223;unsigned bank=(random>>27)%3;uint32_t offset=((random>>5)%0x10000)&~3u;if(bank==2)offset+=0x100000;
+                uint32_t base=bank==0?0x80000000:bank==1?0x40000000:0x20000000;
+                if(op%3){uint32_t value=random^op;require(bulk.write32(base+offset,value),"interleaved word write");for(unsigned k=0;k<4;++k)expected[bank][offset+k]=uint8_t(value>>(24-k*8));}
+                else{std::vector<uint8_t> bytes(8192+(op%5)*4);for(unsigned k=0;k<bytes.size();++k)bytes[k]=uint8_t(k+op+frame);require(bulk.write_bytes(base+offset,bytes),"cross-page bulk write");std::copy(bytes.begin(),bytes.end(),expected[bank].begin()+offset);}
+            }
+            std::array<uint8_t,8> tail{1,2,3,4,5,6,7,8};require(!bulk.write_bytes(0x807FFFFC,tail)&&!bulk.write_bytes(0x80000001,tail),"reject bulk range/unaligned address atomically");
+            require(bulk.write_bytes(0x807FFFF8,tail),"bulk write at exact bank end");std::copy(tail.begin(),tail.end(),expected[0].end()-8);
+            auto written=bulk.written_offsets(NativeFrameMemory::system);require(std::binary_search(written.begin(),written.end(),0x7FFFF8u)&&!std::binary_search(written.begin(),written.end(),0x7FFFF0u),"write masks retain exact word set within snapshotted pages");
+            if(frame%2){bulk.commit();}else{bulk.rollback();expected=std::move(before);}
+            for(unsigned bank=0;bank<4;++bank)require(std::equal(expected[bank].begin(),expected[bank].end(),bulk.bank(NativeFrameMemory::Bank(bank)).begin()),"mixed writes/rollback preserve every native bank byte");
+        }
+        require(bulk.checkpoint(phaseImage)&&phaseImage==original,"phase originals survive committed and aborted cross-page bulk writes");
+        require(bulk.restore(phaseImage),"restore bulk phase image");
+    }
     NativeFrameMemory memory;NativeFrameMemory::Snapshot phase;
+    {
+        double x=0,y=0;constexpr uint32_t point=0x40181800,packed=0x00010002;
+        require(memory.write32(point,packed),"seed packed render point");memory.web_render_point(point,packed,2.125,1.25);
+        require(memory.renderer_view().webPrecision->read(point,packed,x,y)&&x==2.125&&y==1.25,"fractional render metadata is retained separately");
+        require(memory.begin(),"render metadata transaction");memory.web_render_point(point,packed,2.25,1.5);memory.rollback();
+        require(!memory.renderer_view().webPrecision->read(point,packed,x,y),"rollback discards unpublished render metadata");
+        memory.web_render_point(point,packed,2.125,1.25);memory.begin_render_precision_frame();
+        require(!memory.renderer_view().webPrecision->read(point,packed,x,y),"new picture cannot inherit stale precision data");
+    }
     uint32_t value=0;
     require(memory.write32(0x80000000,7),"initial write");
     require(memory.begin_checkpoint(),"phase start");

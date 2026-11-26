@@ -33,7 +33,7 @@ inline bool prepare_game_frame(CommandMemory& m,const GameFrameInput& in,GameFra
     out.stage=GameFrameStage::computeFence;
     if(!m.write32(0x800DC230,1)||!services.wait_compute())return false;
     out.stage=GameFrameStage::queue;
-    if(!m.write32(0x800DC230,2)||!consume_object_queue(m,0x800BA7CC,out.queue)||!m.write32(0x800DC230,3))return false;
+    if(!m.write32(0x800DC230,2)||!consume_object_queue(m,0x800BA7CC,out.queue,4096,&services)||!m.write32(0x800DC230,3))return false;
     // Exact original boundary 800103D0: preparation and queue consumption have
     // finished; the renderer has not touched the work buffer or framebuffers.
     out.stage=GameFrameStage::render;return true;

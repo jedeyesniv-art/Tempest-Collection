@@ -95,10 +95,11 @@ def main():
                          '--shot=2290:' + o('t2k_play.bmp')], [o('t2k_play.bmp')], ['loaded'], 900, 0.10))
     if 't3k' in want:
         # native T3K (2026-11-25): no headless mode; --check plays a scripted game in a small window (boot -> level
-        # select -> play -> name entry, ~30 s) and exits. Picture 900 is in play on level 1.
-        headless.append(('t3k play', [os.path.join(B, 't3k.exe'), '--check', '--winsize=960x720', ud('t3k'),
-                         '--winshot=900:' + o('t3k_play.bmp')], [o('t3k_play.bmp')],
-                         ['Native selected level', 'name entry'], 300, 0.10))
+        # select -> play). Since Frogacuda's stable checkpoint (2026-11-26, 120 Hz scene timing) it plays on until
+        # --fine-check-limit gameplay updates (~35 s, ~4000 pictures); picture 3900 is in play on level 1.
+        headless.append(('t3k play', [os.path.join(B, 't3k.exe'), '--check', '--fine-check-limit=600',
+                         '--winsize=960x720', ud('t3k'), '--winshot=3900:' + o('t3k_play.bmp')], [o('t3k_play.bmp')],
+                         ['Native selected level', 'Native bounded soak'], 300, 0.10))
     if 't81' in want:
         for v in ('tempest', 'temptube'):
             headless.append((f't81 {v}', [os.path.join(B, 't81.exe'), '--headless', '--frames=610', ud('t81_' + v),

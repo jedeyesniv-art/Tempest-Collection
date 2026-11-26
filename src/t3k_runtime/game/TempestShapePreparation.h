@@ -1,10 +1,16 @@
 // Included inside tempest_native by TempestPreparation.h.
 struct PreparationShapeWriter{
     CommandMemory& m;uint32_t base,destination,used=0;
+    SimulationStep step{};
     bool flush(unsigned count){if(!preparation_copy(m,base,destination,count))return false;destination+=count*4;used=0;return true;}
     bool word(uint32_t value){if(!m.write32(base+used*4,value))return false;return ++used!=64||flush(64);}
     bool pair(uint32_t a,uint32_t b){return word(a)&&word(b);}
-    bool point(uint32_t x,uint32_t y){return word(((x>>16|1)<<16)|(y>>16));}
+    bool point(uint32_t x,uint32_t y){
+        uint32_t at=destination+used*4,packed=((x>>16|1)<<16)|(y>>16);
+        if(!word(packed))return false;
+        if(m.precise_web_geometry())m.web_render_point(at,packed,double(int32_t(y))/65536,double(int32_t(x))/65536);
+        return true;
+    }
     bool colour(uint32_t a,uint32_t b){return word(0x80000004)&&pair(b,a);}
     bool finish(){
         if(!word(0x80000001)||(used&&!flush(used+1)))return false;
@@ -42,7 +48,7 @@ struct PreparationLightning{
     bool seeds(){
         if(!m.read32(0x2010080C,seedA)||!m.read32(0x20100810,seedB))return false;
         seedA=preparation_rng(seedA);seedB=preparation_rng(seedB);
-        return m.write32(0x2010080C,seedA)&&m.write32(0x20100810,seedB)&&preparation_copy(m,0x20100808,0x8010CFC0,4);
+        return m.write32(0x2010080C,seedA)&&m.write32(0x20100810,seedB)&&(!out.step.legacy_boundary()||preparation_copy(m,0x20100808,0x8010CFC0,4));
     }
     bool segment(uint32_t x,uint32_t y,uint32_t endX,uint32_t endY,uint32_t depth){
         uint32_t dx=endX-x,dy=endY-y,extent=uint32_t(std::max(std::abs(int64_t(int32_t(dx))),std::abs(int64_t(int32_t(dy)))));
@@ -171,7 +177,7 @@ inline bool prepare_shapes(CommandMemory& m,const PreparationInput& in){
     for(unsigned i=0;i<4;++i)if(!m.write32(0x20100850+i*4,in.context[i]))return false;
     if(!m.write32(0x201007FC,0)||!preparation_copy(m,0x800DACB0,0x201006F0,1)||!preparation_copy(m,0x201006F0,in.context[0]+28,1)||!preparation_resources(m))return false;
     uint32_t destination,entry;if(!m.read32(0x201006F0,destination)||!m.read32(0x20100EC0+(in.context[1]&255)*4,entry))return false;
-    PreparationShapeWriter out{m,0x201006F0,destination};bool ok=false;
+    PreparationShapeWriter out{m,0x201006F0,destination};out.step=in.step;bool ok=false;
     switch(entry){
     case 0x20300BA6:ok=true;break;
     case 0x20300804:{PreparationLightning lightning{m,out};ok=lightning.run(in.context[2],in.context[3]);break;}

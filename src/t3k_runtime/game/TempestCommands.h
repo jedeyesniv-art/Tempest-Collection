@@ -1,9 +1,22 @@
 #pragma once
 #include <cstdint>
 namespace tempest_native {
+struct SimulationStep {
+    unsigned divisions=1,index=0,numerator=1;
+    bool valid()const{return divisions&&divisions<=65536&&numerator&&numerator<=divisions&&index<divisions;}
+    bool legacy_boundary()const{return index+numerator>=divisions;}
+    bool interval_start()const{return index<numerator;}
+    double fraction()const{return double(numerator)/divisions;}
+    int32_t delta(int32_t original)const{
+        return int32_t((int64_t(original)*(index+numerator))/divisions-(int64_t(original)*index)/divisions);
+    }
+};
 // Interpreter for the GAME'S object command language, not Nuon instructions.
 // Memory is an explicit data interface; a standalone corpus can supply it.
 struct CommandMemory {
+    virtual bool precise_web_geometry()const{return false;}
+    virtual void web_render_point(uint32_t,uint32_t,double,double){}
+    virtual void render_transform_point(uint32_t,uint32_t,double,double){}
     virtual bool read8(uint32_t address,uint8_t& value)=0;
     virtual bool read32(uint32_t address,uint32_t& value)=0;
     virtual bool write32(uint32_t address,uint32_t value)=0;

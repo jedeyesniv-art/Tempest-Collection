@@ -9,10 +9,11 @@ struct AnimatedMenuServices:SelectionMenuServices,MenuPresetServices {
 // Original 8001867E..80018F20. Caller-owned expanded presets and selector/latch
 // words retain their original memory ownership; SDK register spills are private.
 inline bool run_animated_menu(CommandMemory& m,const SelectionMenuInput& input,AnimatedMenuServices& services,uint32_t& output,unsigned budget=4096){
+    SceneTimingScope cadence(services,SceneTimingKind::animatedMenu);if(!cadence.divisions)return false;uint64_t remainingBudget=uint64_t(budget)*cadence.divisions;
     uint32_t stack=input.caller.incoming[19];if(!input.choices||input.choices>32||(stack&15)||stack<0x390)return false;
     auto c=input.caller.incoming;c[1]=input.content;c[5]=input.choices;c[16]=input.label;c[11]=1;c[9]=0;c[8]=0;c[17]=input.caller.returnAddress;c[18]=stack-16;c[19]=stack-0x390;
     auto write=[&](uint32_t a,uint32_t v){return m.write32(a,v);};
-    auto frame=[&](uint32_t link){if(!budget)return false;--budget;if(!services.menu_frame(c))return false;c[17]=link;return true;};
+    auto frame=[&](uint32_t link){if(!remainingBudget)return false;--remainingBudget;if(!services.menu_frame(c))return false;c[17]=link;return true;};
     uint32_t editing,flags,buttons,random;
     if(!m.read32(0x801133D0,editing))return false;
     if(int32_t(editing)<0){if(!advance_menu_palette(m))return false;c[17]=0x800186C4;}
@@ -23,10 +24,10 @@ inline bool run_animated_menu(CommandMemory& m,const SelectionMenuInput& input,A
     if(!write(0x800B850C,1)||!write(remainingAt,0)||!write(0x800B6AA0,input.content)||!write(selector,20)||!write(other,21))return false;c[0]=0x800B6A90;
     auto animate=[&](uint32_t stepLink,uint32_t interpolationLink,uint32_t applyLink){
         MenuPresetStepInput request{{selector,other,maskAt,oldMask,remainingAt,0x800,current,target,expanded},c};
-        if(!step_menu_preset(m,services,request))return false;c[17]=stepLink;uint32_t remaining;
+        if(services.scene_timing_step().interval_start()&&!step_menu_preset(m,services,request))return false;c[17]=stepLink;uint32_t remaining;
         if(!m.read32(remainingAt,remaining))return false;
-        if(remaining){uint32_t next;if(!interpolate_menu_parameters(m,remaining,0x200,current,target,expanded,next)||!write(remainingAt,next))return false;c[17]=interpolationLink;}
-        uint32_t mask;if(!m.read32(maskAt,mask)||!apply_menu_parameters(m,expanded,mask))return false;c[17]=applyLink;return true;
+        if(remaining){uint32_t next;if(!interpolate_menu_parameters(m,remaining,uint32_t(services.scene_timing_step().delta(0x200)),current,target,expanded,next)||!write(remainingAt,next))return false;c[17]=interpolationLink;}
+        uint32_t mask;if(!m.read32(maskAt,mask)||!apply_menu_parameters(m,expanded,mask,services.scene_timing_step()))return false;c[17]=applyLink;return true;
     };
     auto randomize=[&](uint32_t firstLink,uint32_t secondLink){
         if(!next_driver_random(m,random)||!write(0x800B6A98,random))return false;c[17]=firstLink;
@@ -41,7 +42,7 @@ inline bool run_animated_menu(CommandMemory& m,const SelectionMenuInput& input,A
         do{
             if(!write(0x800B6A94,c[16])||!m.read32(0x806B992C,buttons))return false;
             c[0]=current;c[1]=target;c[2]=expanded;if(buttons&0xFF3F)c[16]=0;
-            if(!animate(0x8001885E,0x8001887E,0x800188A6))return false;c[16]-=0x400;
+            if(!animate(0x8001885E,0x8001887E,0x800188A6))return false;c[16]-=uint32_t(services.scene_timing_step().delta(0x400));
             if(!frame(0x800188B0))return false;
         }while(int32_t(c[16])>0);
     }
@@ -66,8 +67,8 @@ inline bool run_animated_menu(CommandMemory& m,const SelectionMenuInput& input,A
     if(!(buttons&c[2])&&!(flags&1)){
         c[0]=0x80015500;c[4]=0x806B992C;c[7]=0x800DC270;c[10]=0x800DC274;c[6]=remainingAt;
         do{uint32_t idle;if(!m.read32(0x800DC270,idle))return false;
-            if(int32_t(idle)>600){if(!write(0x800DC274,1))return false;c[3]=0;}
-            if(!write(0x800B6A90,c[3])||!m.read32(0x800DC270,idle)||!write(0x800DC270,idle+1))return false;
+            if(services.scene_timing_step().legacy_boundary()&&int32_t(idle)>600){if(!write(0x800DC274,1))return false;c[3]=0;}
+            if(!write(0x800B6A90,c[3])||!m.read32(0x800DC270,idle)||!write(0x800DC270,idle+unsigned(services.scene_timing_step().legacy_boundary())))return false;
             c[16]=current;c[0]=target;c[1]=expanded;
             if(!animate(0x80018A56,0x80018A78,0x80018AA0))return false;c[16]=0;c[0]=0x801133CC;
             for(unsigned i=0;i<input.choices;++i){uint32_t delta;if(!services.vertical_axis(latch,0xA00,delta))return false;
@@ -78,7 +79,7 @@ inline bool run_animated_menu(CommandMemory& m,const SelectionMenuInput& input,A
                 if(buttons&0x500){if(!write(0x801133D0,c[3])||!services.play_sound(8,0x1000))return false;c[17]=0x80018C00;
                     if(!m.read32(0x806B992C,buttons))return false;
                     if(buttons&0xFF3F){c[0]=0x806B9910;c[1]=0x801133F0;
-                        do{if(!frame(0x80018C2A))return false;uint32_t mask;if(!m.read32(maskAt,mask)||!apply_menu_parameters(m,expanded,mask))return false;c[17]=0x80018C4A;
+                        do{if(!frame(0x80018C2A))return false;uint32_t mask;if(!m.read32(maskAt,mask)||!apply_menu_parameters(m,expanded,mask,services.scene_timing_step()))return false;c[17]=0x80018C4A;
                             if(!analog(present)||!m.read32(0x806B992C,buttons))return false;
                         }while(buttons&0xFF3F);}
                     if(!m.read32(0x800DC274,flags))return false;output=c[9]||flags==1?0xFFFFFFFF:c[3];return true;
@@ -99,7 +100,7 @@ inline bool run_animated_menu(CommandMemory& m,const SelectionMenuInput& input,A
         }else c[8]=0;
         if(!m.read32(0x800DC274,flags))return false;if((flags&3)==3)break;
         if(!write(0x800B6A94,c[16]))return false;c[0]=current;c[1]=target;c[2]=expanded;
-        if(!animate(0x80018E6E,0x80018E8E,0x80018EB8))return false;c[16]+=0x400;
+        if(!animate(0x80018E6E,0x80018E8E,0x80018EB8))return false;c[16]+=uint32_t(services.scene_timing_step().delta(0x400));
         if(!frame(0x80018EC4))return false;
     }while(int32_t(c[16])<=0xFFFF);
     if(!m.read32(0x800DC274,flags))return false;output=c[9]||flags==1?0xFFFFFFFF:c[3];return true;

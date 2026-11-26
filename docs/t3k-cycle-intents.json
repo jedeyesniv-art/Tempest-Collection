@@ -1,0 +1,2346 @@
+{
+  "src/t3k_runtime/game/TempestMovement.h::movement_step": {
+    "body_sha256": "c1eb09bddd8dc1696884410e12d66090a3cce8dd2875c21302384c487a083506",
+    "domain": "gameplay",
+    "decision": "fractional-dynamics",
+    "intent_and_adaptation": "Velocity scaling, cutoff, displacement and boundary events are coupled. Preserve original velocity units and adapt all four together."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::approach_parameter": {
+    "body_sha256": "fa7f3920fbd2ebfa2f4d95acd5dcc5dc9e0d4929f14b6a937e558bf135e025f8",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Target approach may drive spatial or visual channels; use fractional steps with exact clamp after resolving destinations."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::update_object_values": {
+    "body_sha256": "14a7f00d9e1c29118314dc59a61cb578099e7b276dd269790c7eb07248b8e353",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Ordered aliased records mix motion, target approach and picture stamps. Classify records, not the entire object list. Now delegates to the common ordered traversal using original movement/approach functions. Native 1x integration adapter passes all 32 original-reference frames, including rollback."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::command_mul": {
+    "body_sha256": "8abe58dee2d06841658e9c4deb2480e73ce915d4b3fcdc0743d77f3e98140371",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Fixed-point arithmetic helper has no clock; temporal meaning belongs to callers."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::evaluate_attribute": {
+    "body_sha256": "a2ef52c7fa81e2dcc97ba775ef962d381bf0e0039a629da3045781d720d17700",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Wrapped picture plus birth phase feeds arbitrary command expressions. Resolve output destinations and retain 16-bit wrap with explicit fractional phase."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::execute_commands": {
+    "body_sha256": "c9e6d1454b19e6c40c3667bb5b0251761015017ae247a8733eda818878fd14f9",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Command programs mix input, phase functions, parameter writes and drawing. Inspect program data and aliases, not just this dispatcher."
+  },
+  "src/t3k_runtime/game/TempestFrame.h::frame_begin": {
+    "body_sha256": "90c6ab1c6a681f52baf3677026ea442fed9331df7f6bda73443af3b199398e6f",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Clears per-pass occupancy/counts and derives steering. Recompute current pass data at simulation rate; separate evolving steering terms."
+  },
+  "src/t3k_runtime/game/TempestFrame.h::frame_finish": {
+    "body_sha256": "8514f60065021e85681c42c69bf66551a0f7d345185afd61eb2b9592a782328a",
+    "domain": "shared",
+    "decision": "fractional-integration",
+    "intent_and_adaptation": "Camera/spring continuous increments use signed elapsed deltas and drag exponent numerator/denominator. Spatial bookkeeping remains freshly evaluated; no structural loop counts are multiplied."
+  },
+  "src/t3k_runtime/game/TempestFrame.h::prepare_frame_object": {
+    "body_sha256": "40a4acddcb37050e5d67e8d2681ac7418ec3d323bc6924c3e7528fc3583e91c2",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Updates values then evaluates commands with inherited aliases. Some values may be visual while others drive collisions. Ordered value update can now use an explicit integration service; default remains the original updater. The exact same aliases, storage reads and complete list writes are retained."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::initialize_driver_bss": {
+    "body_sha256": "30751b013ccba1d35a220f11c254779295b5e60b24462c072b0c631190855e13",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Power-on initialization loops count storage, not elapsed time."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::begin_driver_frame": {
+    "body_sha256": "20738c4144f0da6abab3507e582d177aba9f78e2df9c02d7aa254866634f13e7",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Video field sampling and ring selection precede native execution. Separate real field time from simulation and presentation ownership."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::sample_driver_controller": {
+    "body_sha256": "a45b92d23f7409a3311c8170573a3f630b250057a90682e08d48fb39bbdc3f88",
+    "domain": "input",
+    "decision": "fresh-samples",
+    "intent_and_adaptation": "Reads button state without applying movement/repeat. Poll per simulation step and preserve edges downstream."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::sample_driver_rotary": {
+    "body_sha256": "bf02f82d7ac69ed6159ba0a6d0e6ac7d100a233ddb7572ffdce56a32685d0bb2",
+    "domain": "input",
+    "decision": "elapsed-rate-normalization",
+    "intent_and_adaptation": "Host displacement is converted to original-rate units using denominator/numerator before native rate cap/invert handling, and the phase counter integrates the same elapsed fraction. Original wrapping, direction and signed ABI are retained; ratios are validated."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::prepare_driver_controls": {
+    "body_sha256": "4f60d108cbf90498b1ef22ef6e8c412453041146a2fc12018317ff8e28f5cf43",
+    "domain": "input",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Poll current buttons/analog every fine state; D-pad acceleration uses the rational signed interval delta. Rotary displacement normalization gets numerator as well as denominator. Analog represents a rate; edge/press semantics remain original."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::advance_driver_color": {
+    "body_sha256": "b3cba1dad46d33103b4f9dc2f1b639bbb7f315728c620de8934ab0af24f54d44",
+    "domain": "effect",
+    "decision": "legacy-effect-clock",
+    "intent_and_adaptation": "Scene colour stream advances one word per call. Preserve authored progression and verify termination/completion consumers separately."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::advance_driver_counters": {
+    "body_sha256": "204eb34743e57a0e21d9695bd00a448acb79af5e901d41c192dc665aed2d6e0f",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Ring index, pause-aware picture count and pending colour stream installation are combined. Give them explicit domains. Buffer ring always advances for a real frame operation; picture advancement is an explicit separate choice. Pending colour-stream handoff remains event-driven."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::finish_driver_frame": {
+    "body_sha256": "cd85dda3349ba4ce20e927a7646ccd73f043486b01a72d6d375bd0195dee71d8",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Presentation/music/input/counters/colour/ring are composed here. Displaying must not advance simulation or colour streams implicitly. Samples fresh controller input and advances buffer ownership each actual pass, but authored picture and colour streams advance at their explicit legacy boundary."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::consume_driver_sounds": {
+    "body_sha256": "861bec0608a57663339565b68f7bd897131301eea37980b19d584c3588656079",
+    "domain": "audio",
+    "decision": "event-once",
+    "intent_and_adaptation": "Drains sound events once. Loop budget counts queue entries, not playback time; keep mixer sample clock independent."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::run_driver_transition": {
+    "body_sha256": "e86209b9a027b78375a7ed838fed2f77f7c7c8d239e2f134abc17b6760668180",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Generic transition terminates after authored frames*denominator elapsed units, consuming numerator units per sample. Budget scales conservatively. Default24 Hz reference and actual120 Hz input/geometry are separate; invalid ratios fail."
+  },
+  "src/t3k_runtime/game/TempestFrameLoop.h::frame_countdown": {
+    "body_sha256": "855d523954792042dd3ded2e2e1e0370e0d76bcbf5e8318061c75ec9862d4fbd",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Packed low/secondary-byte timers select events and targets. Separate duration from per-pass target publication and one-shot expiry."
+  },
+  "src/t3k_runtime/game/TempestFrameLoop.h::run_frame_object_pass": {
+    "body_sha256": "45f6d66cfef0b83eb01967c630eeb07f48b5475fca2dc9eff4354fd96a1e939e",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Motion, commands, collisions, callbacks, worker jobs and queue production share ordered traversal. Adapt consumers individually. Object attribute preparation forwards the frame-owned integration service; collision/event/worker ordering is unchanged. This seam alone does not adapt callback, countdown or camera cadence. Fine passes preserve original collision/event/geometry order. Packed countdown advances at legacy boundary and camera finalization receives explicit time. Conditional event callbacks remain immediate; unconditional opportunities are selected explicitly by host policy."
+  },
+  "src/t3k_runtime/game/TempestFrameOrchestrator.h::prepare_game_frame": {
+    "body_sha256": "4a2b174ee905abde5c02bb01b94eb15e263517bd2b84dd82be27089ad0ddfeb3",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Installs frame ABI and composes resets, object updates and preparation. Workers are not uniformly cosmetic. Queue consumption forwards the integration service to identify freshly instantiated pooled objects; baseline ordering is unchanged. The service owns rollback alongside the frame."
+  },
+  "src/t3k_runtime/game/TempestFrameOrchestrator.h::complete_game_frame": {
+    "body_sha256": "6c43dca6d63c15ffe762804b44f85e7948847b768c70b27482d231451f2576c4",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Work-buffer clear and render handoff loops enumerate storage; assign cadence outside the copy loop."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::advance": {
+    "body_sha256": "e02a42bb883a21e3f24eb05e8418d8d578f1381bc2e2064b53b6de0d78f48ac3",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Consumes an instruction word and remaining-buffer count. This decrement is not elapsed animation time."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::oscillator": {
+    "body_sha256": "9fda89021527b66967a75ef46c4b8e685fd6244ff71bf77499315cdd09f9cec2",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Reads oscillator phase; evaluation consumes an instruction but does not itself advance persistent phase. Resolve destination."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::channels": {
+    "body_sha256": "71c318c29aeba3b59cabbcdb535444625cd75e386b64cea0423fa5f724756f61",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Temporary phase offset is restored; scalar versus vector channels may control colours or geometry. Do not time-scale channel arithmetic."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::rotate": {
+    "body_sha256": "e1385a183b68c6dd5bc3dbb596b7f130816eb8b9ade73e26abb516b9582a85a6",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Rearranges output bytes. Loop counts elements; invocation/program cadence may animate colours or vector data. Byte rotation now advances only at the explicit legacy effect boundary; command traversal/validation remains structural every pass."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::nibbles": {
+    "body_sha256": "df7a2a4b7eb54783404e8821f041a4addb26431f0f1711dd5875212eaa9599ab",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Nibble loop decodes packed channel values, not time."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::pixel": {
+    "body_sha256": "a4c34e302955ae9ef39dce58b20763e4dbb02533fb76c115db09994d066d8f28",
+    "domain": "effect",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Matrix/scale conversion of animation channels is stateless evaluation; phase advancement occurs elsewhere."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::run": {
+    "body_sha256": "cc247c3f2552f7b8f814dbb270a9305f497a477ac785ee5f3639ad4d9f5fbf3c",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Animation language keeps structural iteration/copy/repeat behavior. Oscillator scratch is evaluated every sample with rational phase; source oscillator and palette rotations advance only on authored boundaries. Original 1x arithmetic and memory are retained."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::prepare_animation": {
+    "body_sha256": "49da093a72e46da33cfccc9a957bec09de73448c05f3e858ec19ac0ac3b2e2ea",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Runs persistent worker animation state. Separate phase advancement from evaluation of current geometry/colour outputs. Forwards explicit worker time to the animation language, retaining resource/data preparation and completion ownership."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_random": {
+    "body_sha256": "985d827be56c4715ef393d68d3c2c2ba69ad13cc0c21b9b88f4403feb3460bde",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Persistent RNG has both behavior/event consumers. Preserve gameplay draw cadence before isolating cosmetic draws."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_score": {
+    "body_sha256": "645d5be8f21dbc533c1aeee15496386c33500ef676aae18cba1bfd1cbb37fa28",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Score/extra-life accounting is event-derived, not time. Do not multiply awards with fine collision checks."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_disable_common": {
+    "body_sha256": "adda9db21513799b35a0642d7fa354567211c0a3a32a9fc87f851ae534b8f51b",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Disables/transforms an object and decrements active-object accounting; this is not a lifetime timer."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_bit_length": {
+    "body_sha256": "88c3c18cf25f95c54f8dfc3465a8835202a96ab4eb80a3db2138d394fd7bb322",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Counts significant bits in one word, not elapsed time."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_count_prepared_object": {
+    "body_sha256": "0f800b11b792a07a9a3b99ba4ca04892b5095792ded84e5a9953a8928e6f59e7",
+    "domain": "gameplay",
+    "decision": "per-pass-recompute",
+    "intent_and_adaptation": "Accumulates current object-category counts. Recompute each actual pass; never divide counts by update multiplier."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_optional_event": {
+    "body_sha256": "5ae148ffddbdb257bd89d106570072216f8e5d225d19d2b6e5b8b07e8130d63e",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Picture-gated firing plus sound: event 0x12602 activates template 0x26, which has collision status 0x20 and initializer 7 preserves it. Keep gameplay firing/RNG cadence distinct from high-frequency detection and cosmetic emission; do not classify as effect-only. Periodic RNG/emission and its shared picture-word suppression run once at the legacy boundary, preventing repeated tests against a held clock.",
+    "consumer_evidence": {
+      "queue_event": "0x12602",
+      "template": "0x26",
+      "template_source": "0x800B7020",
+      "status": "0x20",
+      "initializer": "0x800111DA",
+      "primary_callback": "0x800124C0",
+      "secondary_callback": "0x80012E7A",
+      "worker": 12,
+      "basis": "external original reference banks plus queue/template/initializer/frame-pass source review"
+    }
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_periodic_event": {
+    "body_sha256": "5513ec532244396ee6c0f54bbed62295f10818027c790417a41bab79b470ccd7",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Picture-gated firing plus sound: event 0x12602 activates template 0x26, which has collision status 0x20 and initializer 7 preserves it. Keep gameplay firing/RNG cadence distinct from high-frequency detection and cosmetic emission; do not classify as effect-only. Periodic producer is explicitly held to one original-time opportunity despite repeated geometry passes.",
+    "consumer_evidence": {
+      "queue_event": "0x12602",
+      "template": "0x26",
+      "template_source": "0x800B7020",
+      "status": "0x20",
+      "initializer": "0x800111DA",
+      "primary_callback": "0x800124C0",
+      "secondary_callback": "0x80012E7A",
+      "worker": 12,
+      "basis": "external original reference banks plus queue/template/initializer/frame-pass source review"
+    }
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_motion": {
+    "body_sha256": "9ee50310d5c8cc451748ca3aeb6630f2a71269a13fb29a80ea012e7a81beec58",
+    "domain": "gameplay",
+    "decision": "fractional-integration",
+    "intent_and_adaptation": "Continuous motion/drag uses actual rational elapsed fraction; displacement/acceleration use signed conserved deltas. Discrete cutoff/event behavior retains authored or event boundaries. This extends existing gameplay integration to noninteger 48/120 and 36/120 ratios."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_select_lane": {
+    "body_sha256": "fe2accd18b19af0b660dae82f13e96a9649958841b9bf8b11f6d670f8e1d129f",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "AI acceleration/steering also shifts a three-position packed draw history. Increase response while sampling history by elapsed time to preserve trail duration. Fine steering scales acceleration/displacement while retaining original velocity units. Category census runs per pass; the three-sample trail shifts at original time cadence."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_hit_effect": {
+    "body_sha256": "f947ef1844f8acc276c534b347dab81c4af21502944a337052787af10d5b32b3",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "A hit-routed decrement produces level/appearance/sound effects. Do not assume the lower-halfword count is a wall-time timer."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_track_lanes": {
+    "body_sha256": "1e3385c769a395e7f3bac2c7ce673b999106df1de876406060354479eeda3d51",
+    "domain": "gameplay",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Occupancy, velocity and reversal counter affect motion. Resolve whether each template's count measures time or event budget. Lane height observations and spatial reversals stay prompt, while the repeated decrement opportunity retains legacy cadence."
+  },
+  "src/t3k_runtime/game/TempestSessionGameplay.h::step_session_gameplay": {
+    "body_sha256": "5cd69e60fa6ab065194bf4f1f9b2d87e5a3d29ebbfed85b95c34a6b81b70008e",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Spawning, per-iteration RNG, jump physics, fuel/recharge, zapper inventory and visuals/sounds share one loop. Separate continuous, time-based and event-once responsibilities. Original divisions=1 jump arithmetic remains inline. An explicit non-1 service can integrate jet position, velocity and fuel without duplicating sound/flag/display ownership. No scheduler enables this yet; spawn, RNG, zapper and scene accumulation still require adaptation. The native 120 Hz trial now supplies explicit steps: spawning and driver RNG remain legacy, accumulating scene parameters/angle are fractional, jet physics and fuel use the native fractional service, and input/physical frame logic run fine. Inventory/score awards remain event counts."
+  },
+  "src/t3k_runtime/game/TempestSessionGameplay.h::settle_session_life": {
+    "body_sha256": "0b83e1b6dd3ca110f0264740b4cd11b9d310b2d49e52803d48e5fd6fbb6e4f39",
+    "domain": "gameplay",
+    "decision": "fractional-integration",
+    "intent_and_adaptation": "Jet physical return before outcome dispatch uses default24 Hz reference and signed fractional ballistic integration with semi-implicit correction. Voice stop/outcome ownership stays once per transition; no fake intermediate rendered poses."
+  },
+  "src/t3k_runtime/game/TempestSessionSpawning.h::choose_session_spawn": {
+    "body_sha256": "d07d17a3f860b82a10bdd88075e7cb3000da8e961f93271a281839e76dbef443",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Weighted spawn choice consumes RNG per requested spawn, not once per new substep."
+  },
+  "src/t3k_runtime/game/TempestSessionSpawning.h::prepare_session_spawn": {
+    "body_sha256": "2743f8407724d3cefeafe434b2701d754bf458c0693bfbba60c1b3db8d3ebef9",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Population/pending checks schedule one queued spawn. Preserve scheduling opportunities and random draw count."
+  },
+  "src/t3k_runtime/game/TempestLifecycle.h::consume_object_queue": {
+    "body_sha256": "b866932060fdcd5ea746395d4a9f794e9f57c44f4a9ba3da9da9915db527df1a",
+    "domain": "shared",
+    "decision": "event-once",
+    "intent_and_adaptation": "Instantiates/transfers/removes objects and advances initializer RNG in order. Timing intent belongs to event producers/templates, not queue loop budget. Forwards integration ownership to activation/instantiation while retaining original queue traversal, RNG and packet ordering. Fine-state invalidation is transactional."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::prepare_object_template": {
+    "body_sha256": "92a0e80ffe37ad4358b492df72ee1f6fdd3a160782aa56edf88b935b9bec8d70",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Copies template storage and selects initializer. Word count is not a timer; retain alias order."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::draw_object_random": {
+    "body_sha256": "d2ecea2190b500d993a987e289a8ffe6350450bb7f3a2e49b2a0cc6af629c3b5",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Randomized initialization can feed both spatial/gameplay and appearance attributes. Audit destination and preserve draws per actual object."
+  },
+  "src/t3k_runtime/game/TempestOpeningAnimation.h::run_opening_animation": {
+    "body_sha256": "4786f0bcd2ff8a939841de29a77fa43f28cbf5c28bc1500acc41beca8d6216ae",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Scoped menu reference cadence evaluates authored opening movement formula at fractional positions and fade at fractional increments. Loop counts multiply by divisions; sound/completion remain phase events; skip is polled each sample. Tests match every original 30 Hz sample and 126-frame total at 120 Hz."
+  },
+  "src/t3k_runtime/game/TempestMenuInput.h::poll_driver_menu_axis": {
+    "body_sha256": "a784f86c4406851d81727cd0f31f44d51ccca374d922f74f5d03e68c05a54fc8",
+    "domain": "input",
+    "decision": "fresh-samples",
+    "intent_and_adaptation": "Release/phase latch selects menu edges; retain rotary modifier and release masks without multiplying events."
+  },
+  "src/t3k_runtime/game/TempestMenuInput.h::poll_driver_menu_action": {
+    "body_sha256": "c4f1ac0f4f6b0cded9c4ddc4adb3f240936b905ccf09165e6759ddb101453a9d",
+    "domain": "input",
+    "decision": "fresh-samples",
+    "intent_and_adaptation": "Start/NUON actions are edge-latched; fresh samples must still consume each press once."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x8001346E": {
+    "body_sha256": "9fffc092549f34057f0611e2327082c446e28d6bcc383398e5af2b4438aa6279",
+    "domain": "gameplay",
+    "decision": "per-pass-recompute",
+    "intent_and_adaptation": "Delegates to current-object category count, not a timer."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012B12": {
+    "body_sha256": "c77c7aa97697943e680bebf722f3d346f774b6b34a1ed08ee49f309f561e47ab",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Delegates to hit-routed counter/effect handling; decrement must not be assumed elapsed time."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800124C0": {
+    "body_sha256": "fd6696ffdd15ba6faf6951c2e36ba81843d18ffb1e25b2aaed6db49d745b99e4",
+    "domain": "shared",
+    "decision": "per-pass-recompute",
+    "intent_and_adaptation": "Updates appearance together with occupancy/nearest-object state used by gameplay. It is not purely a drawing callback."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800139A4": {
+    "body_sha256": "dab1a662a83ec6d9e5814d58e567e07c05d7ccc81b511e8fff665b2d85c579e3",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Per-call expiry counter combines same-lane interaction, session flags, colour stream trigger and removal; preserve duration and interaction ordering. Proximity notification remains fine; its repeated countdown decrement stays at legacy cadence."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012F08": {
+    "body_sha256": "5e649337fa7bd03e4d26d92f6d199dda5afb464a83088288e88d879dddeaadd6",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "0x50-step mode timer changes AI target motion, drag/acceleration and sound. Keep AI motion fine-grained while preserving phase duration. Seeking acceleration/drag run at fine cadence; phase counter/toggle and sound remain at original cadence."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013F56": {
+    "body_sha256": "e27dde9ca559dc8aa31f4355184d4a96a8cd44ac81f9b79620a5737239103f40",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Packed countdown reload changes a gameplay parameter and emits another object. Trace parameter ownership and template before splitting."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x8001242E": {
+    "body_sha256": "40edbcf3e318bcf9695c707cb9ccd655cba7243865d461c854fae8efdd1faab4",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Periodic firing is composed with value-dependent turning and lane-spring impulses. Each temporal responsibility requires its own adaptation. Spatial observations/topology marks stay per pass; parameter and spring displacements are fractional and periodic emission is held."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800132C0": {
+    "body_sha256": "5d555e003aa58a05a9c8d447d7e02539174d1c707b58a84b1c72250c7d61390e",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Delegates to AI lane selection plus packed position history; history sampling must preserve trail duration. Forwards explicit timing into continuous lane selection and its separately timed trail."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_sincos": {
+    "body_sha256": "502deab981e37e9ee5df040f8a4ac6249cc5b875032728d9fbd8dd126e5dc379",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Polynomial angle evaluation; angle is supplied, not advanced over time. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_projection_scale": {
+    "body_sha256": "d648dfbdb7157ad510212f2fb7597aa231978f418f6b94bc97c066efbfd10146",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Reciprocal refinement from current depth; bit-count iterations are numeric precision work. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_screen_position": {
+    "body_sha256": "847bc705c40c299a55a4bc3fac96395f6e07d13ba6eac24d0e2b7850bc429f68",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Maps current scaled world coordinates into screen coordinates; no evolving time state. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_reciprocal": {
+    "body_sha256": "6c0d45435af46da67ebaf825b4c45e8b59db1d8c0d0d0d0acc3bfaa0f4e02d38",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Reciprocal evaluation; loop counts denominator bits, not duration. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_lane": {
+    "body_sha256": "c55d3bc0fbd48f3de267ea9cae1c4e5ec1056a0b620a440ea68b75d0c56919b4",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Evaluates current lane/fraction and stores scratch coordinates; does not advance the lane. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_lane_record": {
+    "body_sha256": "0820f2bb110cf31750db19467ee0779acbd6f644dbb338e7b25f2d8b86db6c81",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Evaluates current lane/depth/angle into output record. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_rectangle": {
+    "body_sha256": "f11c64f9c19403f1dde3b60c7d9c996b2dde2788d67ae2b4ed17b296540fbb7b",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Evaluates current rectangle size/angle into vertices; loop enumerates corners. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_project_record": {
+    "body_sha256": "1aa26696f02c0bdacbf89446d5cb1edc5f439979df91ce0855ad0bbe700f6541",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Project current state and clip near depth using original native writes. Optional renderer-only origin/scale metadata retains fixed-point position and pre-packed projected size. Coordinate domains are separate and stamped by actual output words; no collision or game RAM changes."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_emit_point": {
+    "body_sha256": "f832cb176b208a0c074ccf4f22aa107a2013c08108145d3d78848aa92b41669b",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Appends current projected point records; cursor advancement counts output storage. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_standard": {
+    "body_sha256": "6acc5fdf947d761454ee73722442ba3929937d8c3e02f40b31fea2de165edbb8",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Composes current lane sample, camera angle, sizing and emitted geometry. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_flat": {
+    "body_sha256": "22bc791b54d86f330cad70e6f1312a561946d5cc30a46aefa2c72b985235c4cb",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Projects current depth/position, with disabled-record clipping; no temporal integration. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_curve_angle": {
+    "body_sha256": "f726ad910cc0c10228de05a52d46049d4af05aa356f9d3d172a4dfc63b67780a",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Evaluates curve angle between neighboring lanes; index increment selects next vertex. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_curve": {
+    "body_sha256": "8e6cbbef8d3126f006652b13596145bda0fa388536273079f6543843028f8977",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Evaluates current curve position, angle, camera and LOD. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_depth_point": {
+    "body_sha256": "8a8846cf61629641586f8449c3c569ce96d659c92938daec424e4f7d6d1c23d6",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Projects a point from current lane, depth and camera state. Recompute from each actual simulation state, without scaling the calculation itself."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_player_camera": {
+    "body_sha256": "3b169ee71048d78156035e054d9d69a23d3ccd2a79768a913891976002aedafb",
+    "domain": "shared",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Publishes current player position/depth and camera scratch used by gameplay, not just drawing. Re-evaluate each simulation step; no independent timer increment."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_particles": {
+    "body_sha256": "432510cca1c9e60af5f99c47d87d281d0bee2fe9cab0982f30193481ed31fa84",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Seed resets locally on every call; step/count enumerate deterministic points. Recompute geometry with current camera; rate belongs to the supplied phase/amplitude, not this point loop."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_morph": {
+    "body_sha256": "b67d6d3226d5e2dfc63d7f33f4f26a23ae8ecd4eb8db33fa93c10dddec75a729",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Morph geometry is freshly generated from current phase. Original packed output is unchanged; optional render-only precision records signed fixed-point vertices against final external stream addresses before packing. Preparation publishes hints after native writes, preserving buffer/alias ownership."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_morph": {
+    "body_sha256": "bccb005ecd767e46badc707cee1d0ea750419d392884129ede9faa1c11a8ed1a",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Morph phase also selects lane/camera evaluation and can publish camera scratch. Trace phase ownership; keep current geometry responsive."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::prepare_projection_depth_pair": {
+    "body_sha256": "0f50de5da6a4c51a62c488698de60e895b62524cab7c332dc1b05014bbc1603a",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Projects endpoints into the lightning input queue. Cursor advance is storage; effect consumption/reset and random realization need separate ownership from fresh endpoints."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::circle": {
+    "body_sha256": "313117686a19499f33eb39d675fb9244dec707ddf03e82b0ae82450270408773",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Angle increments enumerate circle vertices, not time. Re-evaluate with current geometry/camera; inspect supplied phase separately."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::point": {
+    "body_sha256": "3dd0d0b40245414091c6b5089baf0738feb163ede638578575dade4ac93aba6a",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Projects current point using camera angle and reciprocal depth. Re-evaluate with current geometry/camera; inspect supplied phase separately."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::line": {
+    "body_sha256": "4a0c9fe5ffe8964813aa948fa875493cbd280133ed31c42f7a001eeea97756ad",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Emits current line and optional radial detail; phase increments enumerate radial segments. Re-evaluate with current geometry/camera; inspect supplied phase separately."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::mirrored": {
+    "body_sha256": "f247a815235822f55cbf8f2da725e205219b23e00635ebe72319e495ecec4033",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Evaluates mirrored copies from current state; loop enumerates symmetry copies. Re-evaluate with current geometry/camera; inspect supplied phase separately."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::rings": {
+    "body_sha256": "b43ac20e20bd72da1e6f56f2226e845be3abfba49cea95811722740134241414",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Ring angle loop distributes vertices at supplied phase; no persistent phase advancement. Re-evaluate with current geometry/camera; inspect supplied phase separately."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::tunnel": {
+    "body_sha256": "e6a15d8654ed047966ca7adee5129b474f2dce7bb077629d287495b14b68b541",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Layer/depth increments enumerate one tunnel drawing from supplied phase; not elapsed simulation steps. Re-evaluate with current geometry/camera; inspect supplied phase separately."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::particles": {
+    "body_sha256": "716a9fb4a1be977e6f6e12c7130279306cef44b2c5dfbd2f31c0bea21189923e",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Seeds reset per call and loop enumerates a deterministic particle field; temporal phase is supplied in context. Re-evaluate with current geometry/camera; inspect supplied phase separately."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::bonus_slot": {
+    "body_sha256": "b59a4d49685f2e663d92154adad9b2e6ead1eb7ca8de4a02cd935ee970518abe",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Warp-minigame packed obstacle motion/reversal commits only at authored boundaries. Fresh geometry retains fractional obstacle position; bullet spatial checks still evaluate each fine sample. Fatal contact is immediate; nonfatal row/score emission retains authored cadence. Original 1x path matches packed updates including edge reversals."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::bonus": {
+    "body_sha256": "dfe59dffff59bf6a6d4d1a553a72dd676a2a9fb7d8dd0da00e7085b156715c28",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Interactive warp preparation owns simulation as well as geometry. Obstacle/bullet age and ring-history shifts retain authored timing; fractional bullet depth and fresh player/road geometry are rebuilt every fine sample. Collision hit flags consume actual projectiles once. No repeated unchanged physics job substitutes for fine geometry."
+  },
+  "src/t3k_runtime/game/TempestDepthPreparation.h::prepare_depth": {
+    "body_sha256": "06990ceca42ec2733d4ce85e58ea48618e025813118e15d6ff6d94de8912234e",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Dispatch current-state depth/particle/tunnel/bonus preparation. The old rejection of fine warp-minigame jobs is removed after splitting their packed state updates, spatial checks and geometry; all module dependencies remain required."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::flush": {
+    "body_sha256": "88da31354582c3eb94fb0fcd22360b959ee2cabca345367fe5b17891296439db",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Flushes words and advances output cursor. Preserve structure; classify temporal source inputs/callers separately."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::word": {
+    "body_sha256": "dbee4f05f5bcbeb01193242d0a23938b5f2c15af1f6fc8b66962489d874321f5",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Appends one shape word and flushes at buffer capacity. Preserve structure; classify temporal source inputs/callers separately."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::finish": {
+    "body_sha256": "886ee89dcebc152b24317fe763612cc81263c3206daa66a091d7a5454b9c3973",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Appends terminator and commits geometry allocator cursor. Preserve structure; classify temporal source inputs/callers separately."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::preparation_resources": {
+    "body_sha256": "b4af0cde0342e072766acde9d53f8f5f84c1053c454f1e10c046536b3fb9f10a",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Loads immutable resource tables and updates cache flags. Preserve structure; classify temporal source inputs/callers separately."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::preparation_rng": {
+    "body_sha256": "25b415ceee6f476e731eed2b210b050d00f235edf9c21c91e0acd11dc0a5bd08",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Pure LFSR transition helper; caller owns persistent state and cadence. Preserve structure; classify temporal source inputs/callers separately."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::prepare_shape_boxes": {
+    "body_sha256": "ce65abfd38266d3185d26e6ecc7b5df09f862f86c3722fbb088e86f43b06505d",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Loops enumerate shape instances/corners and spatial angles from supplied context. Preserve structure; classify temporal source inputs/callers separately."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::prepare_shape_text": {
+    "body_sha256": "1f9ec9333f5c246575bc2496314f128bd22fe4a080fcbd358e29dcbde1d3d38e",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Text/glyph/line loops and dynamicStep advance per-glyph layout; dynamic is not proof of elapsed time. Preserve structure; classify temporal source inputs/callers separately."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::seeds": {
+    "body_sha256": "b6ff3a5438b66d951aff1c7a74821106505fa9378c584bc53f8fc2b69d341cc3",
+    "domain": "effect",
+    "decision": "legacy-effect-clock",
+    "intent_and_adaptation": "Advances persistent lightning seeds and commits to 0x8010CFC0; separate from callback RNG at 0x80112C50. Contract verifies stream independence. Hold procedural realization cadence while reevaluating endpoints. Lightning seed work still produces fresh endpoint geometry; only its persistent external seed publication is held to the legacy boundary. Callback RNG is separate."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::segment": {
+    "body_sha256": "28c4de61cc57bb6ac7cf0400ed6d45238c3d0f845a75bb3ef2fe3799eb79ad36",
+    "domain": "effect",
+    "decision": "split-required",
+    "intent_and_adaptation": "Subdivision consumes persistent lightning seeds; loop counts branches, but each reevaluation changes the realization. Reuse the effect-epoch random realization with fresh endpoints, not a cached whole picture."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::bolt": {
+    "body_sha256": "3b9f87d533d4cac689285239c3f3726bb20aecf411cbb150e48c26430cad6fc8",
+    "domain": "effect",
+    "decision": "split-required",
+    "intent_and_adaptation": "Current endpoints and random branches are drawn together, with multiple segment seed consumptions. Separate realization cadence from endpoint evaluation."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::run": {
+    "body_sha256": "2c29ef7450f02542a434629a629661339fcf6e4160f6f77be4aa720f01f93de3",
+    "domain": "effect",
+    "decision": "split-required",
+    "intent_and_adaptation": "Lightning traversal loads/commits persistent seeds and consumes/resets endpoint queue 0x80110B10. Preserve one-shot queue ownership while allowing fresh geometry without accelerated flicker."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::prepare_shapes": {
+    "body_sha256": "a17ab8908d767257b531a925bc0e9208663dd4f41281549056d09d0256c54152",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Composes text/box/lightning generation and allocator state. Do not globally decimate module 2; temporal randomness is only one responsibility. Forwards explicit time into lightning preparation while keeping text/shape evaluation current."
+  },
+  "src/t3k_runtime/game/TempestWebPreparation.h::select": {
+    "body_sha256": "c4f94be7ce744575aec12538bd7fff683672e1b2c6a6e837e2a2f6e4a1928b2e",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Chooses current lane highlight from topology/current lane; count/remaining locate spatial edges."
+  },
+  "src/t3k_runtime/game/TempestWebPreparation.h::advance_colour": {
+    "body_sha256": "68387113842880985bef6f6f94bef518e3deda4e561ad772b0358e4704bbcbc3",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Colour index counts lanes within one job. Module-10 upload covers 0x20100928 and reloads it per invocation; executable contract verifies reset. Not an elapsed-time colour cycle."
+  },
+  "src/t3k_runtime/game/TempestWebPreparation.h::point": {
+    "body_sha256": "1f7849f7a72b307f7d3673f2c344809dcfad9fcc6c1d249f3b36367fcbdd9a57",
+    "domain": "effect",
+    "decision": "render-precision",
+    "intent_and_adaptation": "Retains original packed native point and publishes unrounded render-only coordinates before rounding and marker insertion. No extra temporal updates."
+  },
+  "src/t3k_runtime/game/TempestWebPreparation.h::scaled": {
+    "body_sha256": "d74d3d10f04b01eff7cd800ffea2a6ce5e9bcec82402a834112b53ccb3edf6f8",
+    "domain": "effect",
+    "decision": "render-precision",
+    "intent_and_adaptation": "Original fixed-point scale and RAM stay unchanged; parallel double projection preserves render fractions for the current simulation sample."
+  },
+  "src/t3k_runtime/game/TempestWebPreparation.h::geometry": {
+    "body_sha256": "c89c005ccd0185b6d967656ddf07f5acd42b0dda4ec57d057ff9527d8fa01ed5",
+    "domain": "effect",
+    "decision": "render-precision",
+    "intent_and_adaptation": "Web geometry uses current native parameters. Parallel render-only coordinates survive world packing, centering and projection; original memory operations and effect cadence remain unchanged."
+  },
+  "src/t3k_runtime/game/TempestWebPreparation.h::run": {
+    "body_sha256": "e5ebbb28752caac840832f58d3023d25e39d0bbe4151cb89997fd51328f4c932",
+    "domain": "shared",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Loads current topology, player/camera and context, then evaluates web geometry and gameplay lane tables. Module upload resets local traversal counters, not persistent elapsed time."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::preparation_copy": {
+    "body_sha256": "6fac8ddab89a3c25742189d41d594c748ddfce71eed9c743e19502269a6d6d38",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Word count and transfer budget describe storage; retain exact transfer and alias order."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::preparation_hex": {
+    "body_sha256": "09fb2de21d2e7074765647a725911995bfa8e31aec9af2ff3f461f1ce776aa96",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Loops consume digits and advance byte cursor; formatting is not a temporal update."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::prepare_numeric_overlay": {
+    "body_sha256": "822c1ec7b4aad994ea0f622860f1ac0064c817f5a09a44a8938bd04d6de2faac",
+    "domain": "effect",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Formats current values/status into HUD/debug glyphs. Row loops enumerate records; rendering current information can follow presentation/geometry without changing time."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::preparation_ycc_pack": {
+    "body_sha256": "123c2d1d381e308be78ab19298b6f042562a8d5c40155b5a5405cad82b1bad64",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Packs converted channels; scalar arithmetic is not a tick."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::preparation_blend": {
+    "body_sha256": "55b5ec99a40f0e37207b278112a453d0b87ba4dfbf20ff2ed25cf64e18086e2d",
+    "domain": "effect",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Pure one-application pixel blend; temporal cadence is set by caller, and repeated application is not invariant."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::prepare_texture": {
+    "body_sha256": "ba814e4545f94b276ca44808deef4336f6648c40a2cee6af877b89c533913de9",
+    "domain": "effect",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Module 3 blends existing 16x16 pixels toward targets or stamps masks; repeated calls evolve persistent texture. Candidate for legacy effect cadence, pending resource/destination consumer audit. Texture evolution is held between legacy effect boundaries, with resource-cache invalidation and completion words maintained. This is an explicit effect cadence, not a missing worker implementation."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::load_preparation_data": {
+    "body_sha256": "f32922b0cfd620ac425ad3d9a0c43eb3264e252060cf98dd31d5deca314f4bb7",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Reloads module-local immutable payload each job, including an extra word. Local counters covered by this range are reset, not global clocks."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::prepare_projected_record": {
+    "body_sha256": "0c2f2f8339b90e9d20c03ec257372329828b220826eb508042f1bae8cc5820d6",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Dispatcher evaluates most geometry from current state, but depth-pair path also appends lightning queue and player path publishes gameplay position. Preserve per-operation side effects."
+  },
+  "src/t3k_runtime/game/TempestNise.h::copy": {
+    "body_sha256": "1d4abda5c63ccc522064e61337bae39ff2ad2c29804f3ab2010c141f11f04787",
+    "domain": "audio",
+    "decision": "audio-sample-clock",
+    "intent_and_adaptation": "Copies requested audio storage; index counts bytes. Retain audio sample/block cadence independently of simulation frequency."
+  },
+  "src/t3k_runtime/game/TempestNise.h::clear": {
+    "body_sha256": "f53e21899c538adc74f67162f0a371d0a15f8db59093d6ef8edfc91b78f7082a",
+    "domain": "audio",
+    "decision": "audio-sample-clock",
+    "intent_and_adaptation": "Clears requested audio storage; index counts bytes. Retain audio sample/block cadence independently of simulation frequency."
+  },
+  "src/t3k_runtime/game/TempestNise.h::sample": {
+    "body_sha256": "a96bcd69abb9d7cb44bac0c7b03e9280cce03b04e03cbe5c7a54434f0b7a4575",
+    "domain": "audio",
+    "decision": "audio-sample-clock",
+    "intent_and_adaptation": "Reads one big-endian PCM16 value; address increment selects its second byte. Retain audio sample/block cadence independently of simulation frequency."
+  },
+  "src/t3k_runtime/game/TempestNise.h::shorts": {
+    "body_sha256": "cc98a85aa09990acbc60447740c9492bc9f8c0733da0461ef7d2d487a533bf82",
+    "domain": "audio",
+    "decision": "audio-sample-clock",
+    "intent_and_adaptation": "Packs 64 mono samples; index counts samples in this fixed block. Retain audio sample/block cadence independently of simulation frequency."
+  },
+  "src/t3k_runtime/game/TempestNise.h::resample": {
+    "body_sha256": "ba1cf6d7006e98d4a90edf80055f2de63272f644af23dc5d77c3dd1631d24e15",
+    "domain": "audio",
+    "decision": "audio-sample-clock",
+    "intent_and_adaptation": "Advances voice sample phase/rate over 64 audio samples; linear interpolation is audio resampling, not motion interpolation. Retain audio sample/block cadence independently of simulation frequency."
+  },
+  "src/t3k_runtime/game/TempestNise.h::pan": {
+    "body_sha256": "99312ea17a9f7be244b4dbbb120f8f9729e10a9d63305bff94083b4430e37025",
+    "domain": "audio",
+    "decision": "audio-sample-clock",
+    "intent_and_adaptation": "Accumulates one 64-sample mono voice into stereo with native rounding. Retain audio sample/block cadence independently of simulation frequency."
+  },
+  "src/t3k_runtime/game/TempestNise.h::mix_nise_block": {
+    "body_sha256": "ef3442a56d7612279c74766671b4d84ba8f1492403a22d49c937aeea69b6dc30",
+    "domain": "audio",
+    "decision": "audio-sample-clock",
+    "intent_and_adaptation": "Advances streaming cursor and voice resampling by a 64-sample block; voice/guard loops enumerate channels and buffers. Retain audio sample/block cadence independently of simulation frequency."
+  },
+  "src/t3k_runtime/game/TempestNiseVoice.h::prepare_nise_voice": {
+    "body_sha256": "33194973f52fbdac4f4d32b31dc1dc931cb1dc940a443c5f9ce2ee6481774f33",
+    "domain": "audio",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Builds descriptor sample bounds/rate/panning from a sound request. No elapsed-time iteration; keep original pitch and format."
+  },
+  "src/t3k_runtime/game/TempestNiseVoice.h::start_nise_sound": {
+    "body_sha256": "901bee0182c54204f7f17e71cd5b16d9914824532623d2a0be3d3196dcd25347",
+    "domain": "audio",
+    "decision": "event-once",
+    "intent_and_adaptation": "Allocates/publishes a voice under pause/resume handshakes. Voice-search/copy loops are structural; one gameplay sound event starts one voice regardless of simulation rate."
+  },
+  "src/t3k_runtime/game/TempestNiseStream.h::request_nise_stream_read": {
+    "body_sha256": "918c3d915441f8ce9064a3df0e78dc99bc34f2428b12bd7b905059bc0317c8e2",
+    "domain": "audio",
+    "decision": "io-event",
+    "intent_and_adaptation": "Read counters describe sectors/blocks and bounded immediate callback depth, not animation duration. Submit actual I/O once."
+  },
+  "src/t3k_runtime/game/TempestNiseStream.h::complete_nise_stream_read": {
+    "body_sha256": "b5691a93c4977622b47d986e83949c86bce360e7d8bc92a8e11b522ae44c5e2a",
+    "domain": "audio",
+    "decision": "io-event",
+    "intent_and_adaptation": "Retries failures and advances sector cursor on I/O completion. Retry count is not elapsed ticks; do not scale it."
+  },
+  "src/t3k_runtime/game/TempestNiseStream.h::handle_nise_stream_message": {
+    "body_sha256": "5c851bbd8f5c9d3f8e33190a0ef0e284fdbdd385dd899b5a94064c6fea7f7343",
+    "domain": "audio",
+    "decision": "audio-sample-clock",
+    "intent_and_adaptation": "Consumed-half and pause messages drive ring refill/wrap/zero padding; retain mixer/sample ownership, not gameplay substep cadence."
+  },
+  "src/t3k_runtime/game/TempestSessionWarpSkip.h::run_session_warp_skip": {
+    "body_sha256": "8847257914243cc36c7346372740b588399ca62a8a9f21ec8be7260d4178a2c0",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Interactive warp minigame is unspecified gameplay, so24 Hz reference. Actual120 Hz steering/input/geometry, fractional road travel and return/success/failure fades; new fire presses are prompt, held fire repeats on authored opportunities. Packed obstacle/projectile physics is split inside preparation. Existing event scoring and success/failure contracts remain original."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800134E6": {
+    "body_sha256": "a42f12aea4ca3e5efb07f24ee356495ed32cf286f87120441d603b444de3da00",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 1 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013500": {
+    "body_sha256": "a38587238167494f2c19be36de1f52b6f21886cca0e941cc62fdb3545d916a46",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 4 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013532": {
+    "body_sha256": "d01b7747662189bdbc9c95fe38208c33fbbc9cb6637192f83e06916d2196753f",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 5 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012E7A": {
+    "body_sha256": "468b51a2b08723c40a7cb72677e8dd8e50dec6e3699e89946de275793d7d631c",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 6 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800134F2": {
+    "body_sha256": "5135ef6dab2e52db820e94c884f00da226a745af72c9d8ec7a7ceb2cef03a1cd",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 7 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x8001350C": {
+    "body_sha256": "40ed3f1e209fd8737e59f7eab5db61cecc2dcaafa4f868f0147e7a4bb0932700",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 8 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013518": {
+    "body_sha256": "8dfe5799eb4ca9eb73944199219bed552ae45f830dc7cc0ec7a8daf8f1f812b6",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 9 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012E28": {
+    "body_sha256": "12a0ee73a02fb383cf33018174123e3905903c63a5c1f3f4f75246f254e4e8ef",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 12 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012E96": {
+    "body_sha256": "6355dcbf5786b720c0f9e14d2cf061f88ecad3b1e3efa61e1c94df43f0081cdb",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 13 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012E88": {
+    "body_sha256": "4d9f9eee3b90494446d42ccf8a1e08487131408b4c12b5d355e4ed167506ff0d",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 14 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012EEC": {
+    "body_sha256": "0d5bca371606b596fa41b5fda5c09d2872510f29a9e5dad022581896a1ef4fa7",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 15 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013524": {
+    "body_sha256": "b1480c5dc80e233cbce5a84633212b569e9777c24d5d25f2abaa767864a4fb74",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 16 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012EC0": {
+    "body_sha256": "2f2bf4a3c872e7845cd4a746e32c3c72ef5aa8e67e8ead6c2460846fc9fefba3",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 18 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012EFA": {
+    "body_sha256": "060ed34a03e235d967d18e76fd9dea2bcb170fb783f5466a65e1d404323bc834",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages preparation operation 3 and draw-record address; no private time counter. Follow the selected worker operation intent rather than assigning cadence to this selector number."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012EA4": {
+    "body_sha256": "c2c6acaedd2cd8d106b32a55605d0bc7b08cc9dad0e57f6985bd04a1752a191e",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages current topology and previous draw pointer for preparation; no clock advance."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800134CE": {
+    "body_sha256": "a66b0446fb2a428348cb494c34d39722af65d21a677fa5b8c103c581a5b86427",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages current record word for operation 10; payload evaluation is not a tick."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012E36": {
+    "body_sha256": "795dc8f65b8c8f2590808597a2e19dffbe73daea0cd268b24c753d9a6253aef2",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages current player mode for operation 11; do not freeze player geometry with effects."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012E56": {
+    "body_sha256": "79aa89c451f3c677aef9d3c8ea71f115a06a65744938828e41be640fa0ab50a6",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages operation 17 with context from preceding draw record; module 17 includes real bonus simulation."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x8001353E": {
+    "body_sha256": "7c43af9e14f8a7bec9c08e8f98f1f65aed4550e28eed9baa20bb934659e36228",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Publishes player draw pointer and current mode for operation 0; keep gameplay data fresh."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014DCA": {
+    "body_sha256": "b83dc0b286c244a1fb763db697a02be47bfacf3e64c21d07f527a930e94401c6",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages current weapon/power level and a record parameter for operation 3; no private timer."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014E0C": {
+    "body_sha256": "d6e34a75454e670736468565a7eb771779b432d30c5ba510eb1ba0475a2696aa",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages current draw pointer and operation 2; follows the consumer domain."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014E22": {
+    "body_sha256": "acc409853fef826e9d33deeb8e1847bc14ad868521d397a734009d5692c7dc81",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages draw context and two values; no private progression."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014E96": {
+    "body_sha256": "3f6776d5b53f8fec6891f1be1b3df6d9662d3cf5f93edf8caffb459f12ae1505",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages current player/target draw pointers; fresh endpoint data must not imply a new random lightning realization."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80011DF6": {
+    "body_sha256": "728ee8bb39ac936fda8aa52148a2b0b6bf032227f53d87cfda45644064430736",
+    "domain": "structural",
+    "decision": "event-once",
+    "intent_and_adaptation": "Original no-op callback; no temporal state."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80011DE4": {
+    "body_sha256": "0950ec84b8995757bcdb5cdb86075d64d473c225835f3f788f8ea793246df6fd",
+    "domain": "structural",
+    "decision": "event-once",
+    "intent_and_adaptation": "Copies prior framebuffer address/context word into draw data; no increment, retain ownership contract."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012DDE": {
+    "body_sha256": "b32a4a1a9d97e652f91f62b76d253fdee421b17d8e8d1e1a8f3cfa90af785536",
+    "domain": "structural",
+    "decision": "event-once",
+    "intent_and_adaptation": "Emits lifecycle queue family 0 event 1; queue event count is not elapsed time."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012DD2": {
+    "body_sha256": "433d638a17de5df2f4737b41b7f972fea0a985084c16fc238f05d2a71f6b64fa",
+    "domain": "structural",
+    "decision": "event-once",
+    "intent_and_adaptation": "Shares the following callback body, emitting queue event 2; retain once-per-trigger semantics."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012DD8": {
+    "body_sha256": "d4060073f21c917a1689571f3de3fc8b2d5152545b1e42a44f9cb4d00ea85648",
+    "domain": "structural",
+    "decision": "event-once",
+    "intent_and_adaptation": "Emits lifecycle queue event 2; consume once per actual trigger."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013A2A": {
+    "body_sha256": "efe622029b10bdadb3f84c723722e0aacb5fb780200aae5c4e89d4f43c3afb34",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Collision-hit branch decrements remaining hit count and selects damage/score/appearance outcomes. This is per hit, not a wall-time lifetime."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013AD0": {
+    "body_sha256": "7ab1cc8cb6d714f20ee2590d3f45c2fbd39c6ce500e91faceee98f45f775a89e",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Hit branch consumes a finite damage/split budget and emits different objects; do not time-scale hit accounting."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014536": {
+    "body_sha256": "5894a92a7933527ba2fdc955a98f91c711c9e405116fad51845cc84f3702e61d",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Collision branch decrements damage count and doubles a motion parameter before reward/drop/disable. Keep per-hit changes once."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014870": {
+    "body_sha256": "df1934454e41c9489b47aee4f6472993ee831c3587ae817545827c797c9e7c28",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Hit-gated score, collision appearance, sound and disable; one collision event must not award repeatedly at fine rate."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013612": {
+    "body_sha256": "6f538c0c469a0c1c512df95e477e648c295e9697ed9c2f7227abc9e0f5de4946",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Hit-gated score/colour/disable; other events delegate to another lifecycle handler."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800138AE": {
+    "body_sha256": "54dae1e4ae252494de334c185b8c47500a54f458307d2d607fe54e2074e524ca",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Hit rewards are event-once; a boundary-event path selects randomized behavior/child creation. Preserve RNG draws per trigger."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014A86": {
+    "body_sha256": "6b6f579caeae866ee38b233618c450bf2ead78d4533482b90377a871dab4a5de",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Same-lane proximity grants power/weapon progression, inventory flags, cue, and object removal. Extra checks must not grant repeated upgrades."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_evade_player": {
+    "body_sha256": "e2a86f59315abe4e55dd2f8a3b5eaf42fe523c7570f442a27dcf97a9eb6e89d3",
+    "domain": "gameplay",
+    "decision": "fractional-integration",
+    "intent_and_adaptation": "Steering responds to current player state each fine sample. Drag exponent uses numerator/denominator elapsed time rather than one/denominator; discrete/random opportunities remain authored."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_random_drop": {
+    "body_sha256": "6371843780b663160863d19dba9ac96a81015ec65b6adb97611f37a6d9fad046",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Consumes callback RNG to select a collectible asset/cue and enqueues a new object. Not cosmetic random noise; preserve draws and creation once per drop trigger."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_vector": {
+    "body_sha256": "7a6f9eca5fb2157bfc394c58b74a6a18b78066523f5bad5dbe46e1626e6239bb",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Aligned vector copy; loop enumerates four words."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_emit_12602": {
+    "body_sha256": "06459d919e75935b5c606438dc40b29d6c816996c7c36339557422321d7cfb62",
+    "domain": "shared",
+    "decision": "event-once",
+    "intent_and_adaptation": "Emits sound plus collision-bearing template 0x26. Gameplay opportunity cadence must not follow renderer frequency."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_track_appearance": {
+    "body_sha256": "a286b1e5568d7badc8316c6e8a3a57897d0da41fa95b2a3b5e2e8859be803aef",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Current lane/nearest-object bookkeeping is combined with appearance, proximity sound and special-target scheduling. Spatial data stays fresh; event/cadence state needs separate ownership. Fresh occupancy/minimum geometry is evaluated every fine pass; the shared zapper/RNG/damage/sound portion retains authored pulse cadence."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_track_then_event": {
+    "body_sha256": "062f424364f172d706d734f5d1a7d20b98b20f8a23f3f0a3c08abd620771c346",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Current occupancy/appearance plus spatial grid alignment and picture-gated firing. Spatial condition is not an elapsed timer."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_mark_collision": {
+    "body_sha256": "fc26cdaf05398a904acac8c1cd33eeedbd78903bdcfe05cc405e8831b3149ffe",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Publishes selected contact appearance/data, no private elapsed clock."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_emit_21B00": {
+    "body_sha256": "d9878e531352958e300bfecd78d12a879ef7a409b9c3106320237359f398360e",
+    "domain": "shared",
+    "decision": "event-once",
+    "intent_and_adaptation": "Queues payload and lifecycle/template action; queue cursor measures storage, not duration."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_disable_counted": {
+    "body_sha256": "55d200ab1879b7f7df606aabc2c3f286a4506c95ff635b4d02dab1ad2a8f676e",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Decrements active-object accounting on disable, not lifetime on every step."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_counter_positive": {
+    "body_sha256": "922011dc20c80b005df8163c57f8c541a8a2b915ef46643e9fba366f33da45d8",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Pure previous-minus-one predicate without modifying state. Timer versus hit/population meaning belongs to each caller."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_turn_velocity": {
+    "body_sha256": "eb712221a92defc773f73d2e6664027b3a4af25aca276f00e4f1eab2cd73c4a3",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Selects adjacent lane and geometry-dependent turn factor on a transition; loop resolves topology, not time."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_global_emit": {
+    "body_sha256": "fc151669972e34672f158b8dc86ce1e005faaddade4b64dcbcfcf3578ad61b34",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Special-weapon flags, category/phase and current target select emissions/sounds. Resolve each opportunity and template before assigning a visual clock."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_player_terminate": {
+    "body_sha256": "932edc450beb68d9a2f11b5ef22a3f00c4d9b028b83cc2c65a9bba1f7fa645d1",
+    "domain": "shared",
+    "decision": "event-once",
+    "intent_and_adaptation": "Clears controls and changes session/object state with a notification. Preserve once per termination."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_player_actions": {
+    "body_sha256": "ef366a84987057c136fcda4241345c1e8523a05344db53ac6cac42cccf05a6ad",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Held fire has no explicit timer here: capacity and per-original-frame invocation supply cadence. Two calls at the same clock emit twice in the executable contract. Split immediate input response, held opportunities, occupancy and special emissions. Termination/flag handling remains prompt. Global emission retains legacy cadence; firing uses an explicit opportunity policy that permits a fresh press and legacy held repeats."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_split_event": {
+    "body_sha256": "54e072ac1581407a2ec3891b3f16a3ff971662a31e3bdcd99a1ed4e4608f53c9",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Creates one child and increments object accounting; count changes belong to actual splits."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_split_contact": {
+    "body_sha256": "ec3feabd2cd67ab1e68da276ce68ec97433bed0f64f5409ef692d33b015a8f28",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Scores, creates two children, plays sound and disables parent. One transition rather than one per fine overlap check."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_power_hit": {
+    "body_sha256": "fe302f0a27acd2c18bf910ba3499ccf46655c0ad01baf357949aaeab80e99ac2",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Hit reward, random drop, accounting and disable. Do not time-scale hit counts or re-roll drops per update."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013998": {
+    "body_sha256": "7f1cfcd54aa4157e5ef585465b81ec86bc31bffbee97191224a780b0f426064a",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Delegates current occupancy/appearance with target side effects; not purely drawing."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800144F2": {
+    "body_sha256": "8ba29fdd2a23f7d8941708ee6116bca92f16147eeb24915a1589f4cab30d76a4",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Movement/removal versus hit flags select lifecycle and weapon/sound effects once per trigger."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014376": {
+    "body_sha256": "ba580957aff46c9cf6eb3596fa9dfaed728f77d88151604ff8eddc3dd1a1e200",
+    "domain": "gameplay",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Hit/boundary/turn state machine changes velocity and RNG and consumes a finite phase count. Resolve its event-budget versus time meaning per template."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013668": {
+    "body_sha256": "f937c260003280819f3e9bc2cb3f1d3afce291fb05a2ac5138bdb06a547042a3",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Evade-player wrapper combines AI dynamics, packed reload timer, periodic spawning and appearance."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800131DA": {
+    "body_sha256": "6a3050818edb6c121b6de5f4947715b3a4250db22d150f6178e908a31d22e871",
+    "domain": "gameplay",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Hit/boundary paths remove or choose a random lane and consume a remaining phase count. Trace templates before treating count as duration."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800147DA": {
+    "body_sha256": "79143f3d9d6c056bf1d6afaa8de70e619ee768f1d16c65aade4e2722eb22337a",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Contact splits parent with score and sound via shared helper."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800148C6": {
+    "body_sha256": "016c2d1417f12bad05aa866c4368b9f6c5ba40cf2dd5df6e584d6399ba8ef2eb",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Alternate contact split; preserve one transition."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800128FE": {
+    "body_sha256": "61e343563d083695e3cfa21fb4389a383fbe0cf42198ae19973a70f71a28c7d6",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Player-action wrapper inherits implicit firing cadence and special-weapon state."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014CD6": {
+    "body_sha256": "8a51998e9fc7cd257529723dab916f91cf99a0d0f435527d1a2bac5e3a3d39ae",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Player termination/death driven by session/contact flags and notification/sound effects."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800140DE": {
+    "body_sha256": "e705976bc02985fb6e1290c19f113408e7308c9eb0053d821bb513e5ddf557be",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Combines occupancy, periodic firing, obstruction masks and player collision/session flags. Separate contact response from spawning and one-shot alert sound."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013148": {
+    "body_sha256": "3f6a2f808f86c492a898ca7685799601235ea3ab76aa29d89fae7f198b9dcfa0",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Sets a spatial lane bit then performs occupancy/reversal tracking and legacy periodic firing."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013168": {
+    "body_sha256": "c7324ad516ca0bdfc36eede0263845b50f0272982e07f34c33424f1d5a32f8cc",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Single-lane tracking wrapper; reversal-count intent remains template-specific."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013100": {
+    "body_sha256": "dac9b923e42324c9ca6ec66edfd705b76b31857751021090c7bdca0cfe8a5e5b",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "All-lane tracking wrapper; loop counts lanes while reversal/firing cadence are separate."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012A20": {
+    "body_sha256": "7565af3ed2a16706d375a74d97cd1ab0bdf2963ff0834c0386a69a502b26a37f",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Forty-invocation phase, odd-picture RNG and two emitted templates. Resolve burst/lifecycle purpose; do not multiply RNG or sound events."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013FEE": {
+    "body_sha256": "c92e4413bc58b32d380f35740954b476c5f47fa8891778b69cc72fffc6c762cd",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Pause-aware depth/phase decrement reaches a lifecycle action and current draw position. Preserve duration and one-shot transition. Pre-spawn depth progression now uses fractional increments. Queue instantiation remains an actual lifecycle event, rather than duplicated emitter work."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x8001409E": {
+    "body_sha256": "652760d78fe81a10b79540aec832755bb2fdc3afbf67ba9a676efdaa566f3283",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Appearance/occupancy and periodic firing also add velocity-derived camera steering; camera contribution must not multiply with callback rate."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800135C0": {
+    "body_sha256": "cf6230ee82f025f960a771eeac590e021b2b3a1b44d47589baa09088bb6addf5",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Enemy contact delegates collision, appearance, sound and lifecycle state."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013574": {
+    "body_sha256": "c1dc6be3be23069c3c673fd0e3b89bc851687aed63c04629bf603a72924e4444",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Alternate appearance for the same contact event semantics."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x8001281E": {
+    "body_sha256": "e824e73c8a260c62a6d3c0265198eb8721e87dbebfb4d1e5fde4f08cfcda399a",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "RNG payload and emitted object per invocation; identify producer/template and shared stream before assigning cadence."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013CA2": {
+    "body_sha256": "735447404740aff95a7ebd75b0e02547ced52426fc37747df3bcd65c87ae949e",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Boundary flag installs mode/velocity and clears values; actual state transition."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013D14": {
+    "body_sha256": "c886d05c7a2fbd48bdcdc58442733224766e3f0b0f86a560b62ff3c5591a5fe6",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Boundary-triggered behavior/interest replacement and record reset, no private timer."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80013BB4": {
+    "body_sha256": "d1de8ec92112027250437e3d63569b1c87d7504af5fa0d509b041ea8d82270cc",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Hit rewards/disables; movement events change turning, counts and velocity factors. Counts are lifecycle/accounting, not automatically time."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800126D4": {
+    "body_sha256": "785e8cda533672792eaf2dec795767ed6f2a096af99b3dbe066155cb9d18536b",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Tracking wrapper mixes fresh spatial data with picture-gated emissions."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012ED0": {
+    "body_sha256": "386b522a9d8246f254ce18f9095f4c9543d91ceb7191d477c7a7b9dbd0109941",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Level gate permits periodic collision-bearing spawn alongside current appearance/occupancy."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012664": {
+    "body_sha256": "6f7869448f8a01c4f7611267aea9fe22aa62348ef36236e571d9a8d70eb55549",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Current player/topology determines pursuit direction, followed by tracking/firing; response and cadence differ."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80012CE6": {
+    "body_sha256": "3ef2730defb14bbdda16cdc15914d026633b813cdb375c01cee77b4ae1a25b17",
+    "domain": "shared",
+    "decision": "event-once",
+    "intent_and_adaptation": "Surface/hit flags select effect, hit-count handling or removal. Hit decrements are per event, not time."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x8001420E": {
+    "body_sha256": "842ada10e6593935e835e914233ed47e4da6713a601ddf1f43a88c761d0b1c84",
+    "domain": "structural",
+    "decision": "per-pass-recompute",
+    "intent_and_adaptation": "Publishes current selected draw pointer without advancing elapsed state."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014E50": {
+    "body_sha256": "9fe97fb761fbb67cf0b65e1d8bf1b2caca690d0a77335d3b16a0d5eff88c427b",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Shares next body, selecting one depth operation; bounds describe records, not duration."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014E4A": {
+    "body_sha256": "a0a2ed32308c8d54c7fd95cc795b8c1a23ad98ba71829ab1bc08fc214f0366bb",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "Packages depth scene data; selected bonus operation includes gameplay, unlike pure geometry paths."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014ED4": {
+    "body_sha256": "faff4e93e0cfc7c195b462331316bc523a1ecadd406623e3ff312cbab2281874",
+    "domain": "shared",
+    "decision": "event-once",
+    "intent_and_adaptation": "Consumes special-weapon expiry flag and starts velocity once. Preserve duration at the producer."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x80014236": {
+    "body_sha256": "5865608f9e30175f509d3bcf5e16bf715576a8b17aa28be1b42157552ca62da9",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Movement/boundary events switch velocity, interest and lifecycle action once."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::execute_callback:0x800142A0": {
+    "body_sha256": "086a0089e0d58e597194b7c4d6dbc0e2f8c4324350f165df535caf7ee274ccba",
+    "domain": "gameplay",
+    "decision": "event-once",
+    "intent_and_adaptation": "Movement events replace weapon/session flags and object modes. Constants are state payloads, not durations."
+  },
+  "src/t3k_runtime/game/TempestBitmapBlit.h::prepare_bitmap_blit": {
+    "body_sha256": "ddc2e890a2530fd4a21e03c46b7ab49374022d1a572167fac8f3f0b5dda612f2",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "prepare_bitmap_blit: Inclusive rectangle, aspect-ratio and clipping arithmetic prepares one bitmap transfer; extents are spatial, not time."
+  },
+  "src/t3k_runtime/game/TempestBitmapCopy32.h::copy_bitmap32_unscaled": {
+    "body_sha256": "1f66ff8650ab3363848925b332471b671cc8af7c22900ed8ca48024856400e6b",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "copy_bitmap32_unscaled: Nested loops copy rows/pixels and count tiles; retain format, overlap and copy-order rules without time-scaling them."
+  },
+  "src/t3k_runtime/game/TempestBitmapTilePlan.h::plan_bitmap_tiles": {
+    "body_sha256": "be349581636bdcd4c23b6cb2c8cf0b856c322ed00cc50529d5a6346e86dec72a",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "plan_bitmap_tiles: Tile dimensions grow to scratch capacity; remaining and covered values measure pixels/tiles, not duration."
+  },
+  "src/t3k_runtime/game/TempestBitmapTransfer.h::read": {
+    "body_sha256": "9458130e61b8e65ff15818387b8d62254b2aa8ce2cf7c26d2b4ac3219d0a1767",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "read: Builds rectangles, allocates parameter storage and dispatches one blit. Scale ratios are spatial; preserve aliasing and allocation order."
+  },
+  "src/t3k_runtime/game/TempestBitmapTransfer.h::build_bitmap_transfer": {
+    "body_sha256": "23c7d29d2c3d8491f404a96d0cc922e9053392c8d48141103086ae25cf864da4",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "build_bitmap_transfer: Builds rectangles, allocates parameter storage and dispatches one blit. Scale ratios are spatial; preserve aliasing and allocation order."
+  },
+  "src/t3k_runtime/game/TempestBitmapTransfer.h::blit_rectangle": {
+    "body_sha256": "f70312aa55cdd02c64be80f7af30189c8d58ed8f1ac7e557b0a9c328b7212a09",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "blit_rectangle: Builds rectangles, allocates parameter storage and dispatches one blit. Scale ratios are spatial; preserve aliasing and allocation order."
+  },
+  "src/t3k_runtime/game/TempestBitmapTransfer.h::status": {
+    "body_sha256": "c4ba61ba79c10f4bc79630d4cc4419756e4fac1d05946e97410556f77c973794",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "status: Builds rectangles, allocates parameter storage and dispatches one blit. Scale ratios are spatial; preserve aliasing and allocation order."
+  },
+  "src/t3k_runtime/game/TempestGraphicsDispatch.h::dispatch_graphics_operation": {
+    "body_sha256": "ab2e3637f3890a76653f7f34f0279967cd7dd4cc874d5f8c0ab040188d7ea18b",
+    "domain": "shared",
+    "decision": "dispatch-carrier",
+    "intent_and_adaptation": "dispatch_graphics_operation: Routes one SDK operation or sequence and owns parameter allocation/free; no elapsed state here. Classify the selected operation separately."
+  },
+  "src/t3k_runtime/game/TempestGraphicsUtilities.h::graphics_scratch_layout": {
+    "body_sha256": "199b0253865f24cb57eea91aad73b13ac2fc4f89a4afbff1d434df8baed3c561",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "graphics_scratch_layout: Graphics operation lookup and scratch reservation/encoding describe storage. Lookup budget is a guard, not an authored timer."
+  },
+  "src/t3k_runtime/game/TempestGraphicsUtilities.h::find_graphics_operation": {
+    "body_sha256": "cc2389dee4f0e1bba909779122d466edfcccc48c777c3e86624abc25689ef541",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "find_graphics_operation: Graphics operation lookup and scratch reservation/encoding describe storage. Lookup budget is a guard, not an authored timer."
+  },
+  "src/t3k_runtime/game/TempestGraphicsUtilities.h::encode_graphics_scratch": {
+    "body_sha256": "aa4258ab3623383fe08ed6ccf69e0197b047541a5a6644c6909cbe38fa10e60e",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "encode_graphics_scratch: Graphics operation lookup and scratch reservation/encoding describe storage. Lookup budget is a guard, not an authored timer."
+  },
+  "src/t3k_runtime/game/TempestGraphicsUtilities.h::select_graphics_scratch": {
+    "body_sha256": "47077f8db4b998b0958a0505853532e574d437a5bcd3df9df40338ee22cd07e9",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "select_graphics_scratch: Graphics operation lookup and scratch reservation/encoding describe storage. Lookup budget is a guard, not an authored timer."
+  },
+  "src/t3k_runtime/game/TempestGraphicsUtilities.h::decode_graphics_scratch": {
+    "body_sha256": "ee55b00886b8939b9652bb48479d9a69139d60dcdb87e78f6f362fd5e6291c6f",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "decode_graphics_scratch: Graphics operation lookup and scratch reservation/encoding describe storage. Lookup budget is a guard, not an authored timer."
+  },
+  "src/t3k_runtime/game/TempestHeap.h::set_heap_limit": {
+    "body_sha256": "3fb21c268a62d6697457e381afdac67beff8deed2b2a3d45be3c976b9d3cfd0b",
+    "domain": "structural",
+    "decision": "allocation-event",
+    "intent_and_adaptation": "set_heap_limit: Boundary tags, byte sizes, free-list traversal and allocation limits count storage. Preserve original addresses/order per actual allocation, never scale allocator counters."
+  },
+  "src/t3k_runtime/game/TempestHeap.h::grow_heap": {
+    "body_sha256": "30304fbe194388d034042a0495ba456c184e4ceec1420d32f50fd352e5c2ff04",
+    "domain": "structural",
+    "decision": "allocation-event",
+    "intent_and_adaptation": "grow_heap: Boundary tags, byte sizes, free-list traversal and allocation limits count storage. Preserve original addresses/order per actual allocation, never scale allocator counters."
+  },
+  "src/t3k_runtime/game/TempestHeap.h::add_heap_region": {
+    "body_sha256": "fe1cad411a5c5b75ea8575049199827fa2ecd1a4e9c1c1e3e7c44b6bfe73cc49",
+    "domain": "structural",
+    "decision": "allocation-event",
+    "intent_and_adaptation": "add_heap_region: Boundary tags, byte sizes, free-list traversal and allocation limits count storage. Preserve original addresses/order per actual allocation, never scale allocator counters."
+  },
+  "src/t3k_runtime/game/TempestHeap.h::allocate_heap_block": {
+    "body_sha256": "e717e782e8e76e99b5de248d71d91352099eaf7c72babe72f585ed8dacc9158a",
+    "domain": "structural",
+    "decision": "allocation-event",
+    "intent_and_adaptation": "allocate_heap_block: Boundary tags, byte sizes, free-list traversal and allocation limits count storage. Preserve original addresses/order per actual allocation, never scale allocator counters."
+  },
+  "src/t3k_runtime/game/TempestHeap.h::release_heap_block": {
+    "body_sha256": "018c32d2ed9e4f1df08cecc170925e48f22da3546c9b6e170cc9db818aec2545",
+    "domain": "structural",
+    "decision": "allocation-event",
+    "intent_and_adaptation": "release_heap_block: Boundary tags, byte sizes, free-list traversal and allocation limits count storage. Preserve original addresses/order per actual allocation, never scale allocator counters."
+  },
+  "src/t3k_runtime/game/TempestHeap.h::allocate_c_heap": {
+    "body_sha256": "eeb1c62296d4d1edec939399a2a65312c21a83c02fc75479bc8fd5329f44bddf",
+    "domain": "structural",
+    "decision": "allocation-event",
+    "intent_and_adaptation": "allocate_c_heap: Boundary tags, byte sizes, free-list traversal and allocation limits count storage. Preserve original addresses/order per actual allocation, never scale allocator counters."
+  },
+  "src/t3k_runtime/game/TempestLists.h::move_object_list": {
+    "body_sha256": "509f8ef4a65a3b036933a1a42646e7272d8a7fc77b6ea1aa73f39a90b1bd36f3",
+    "domain": "structural",
+    "decision": "lifecycle-event",
+    "intent_and_adaptation": "move_object_list: Moves a linked object once while preserving read/write aliases. Node/slot offsets are not time; schedule at actual lifecycle event."
+  },
+  "src/t3k_runtime/game/TempestLists.h::transfer_queued_object": {
+    "body_sha256": "c9010f3dfacfda9e860daa3568847dc2f0b183693454e6796242da98f8373c68",
+    "domain": "structural",
+    "decision": "lifecycle-event",
+    "intent_and_adaptation": "transfer_queued_object: Moves a linked object once while preserving read/write aliases. Node/slot offsets are not time; schedule at actual lifecycle event."
+  },
+  "src/t3k_runtime/game/TempestNiseDescriptor.h::pause_nise_voice_transfer": {
+    "body_sha256": "7b11dad2016b9dd224d066099a65a7f39a9d557204e423a60448dc41fe353f53",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "pause_nise_voice_transfer: Voice start/stop and transfer locks are driven by real sound events. Voice-search and descriptor-copy counts are not timers."
+  },
+  "src/t3k_runtime/game/TempestNiseDescriptor.h::resume_nise_voice_transfer": {
+    "body_sha256": "2faf258137cd5593a09c2c0109630f45060c67d7a34aa0374555acc0f439910a",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "resume_nise_voice_transfer: Voice start/stop and transfer locks are driven by real sound events. Voice-search and descriptor-copy counts are not timers."
+  },
+  "src/t3k_runtime/game/TempestNiseDescriptor.h::stop_nise_voice": {
+    "body_sha256": "79603b5aadccf2d67f179d300cee4f2e67796f3876dc58b2ea6cfe18b6fc5e18",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "stop_nise_voice: Voice start/stop and transfer locks are driven by real sound events. Voice-search and descriptor-copy counts are not timers."
+  },
+  "src/t3k_runtime/game/TempestNiseDescriptor.h::start_nise_descriptor": {
+    "body_sha256": "1075bbf521a8322a1973cbfabb385445aacfd8c57270cfef36eceb83e0d41650",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "start_nise_descriptor: Voice start/stop and transfer locks are driven by real sound events. Voice-search and descriptor-copy counts are not timers."
+  },
+  "src/t3k_runtime/game/TempestNiseInitialization.h::zero": {
+    "body_sha256": "0d4c4199ddec3d1df5c7f79fd38f7eb92ba60a7d80841f2c74489f0b0cd3979b",
+    "domain": "audio",
+    "decision": "startup-once",
+    "intent_and_adaptation": "zero: One-time audio pool/DMA/voice initialization and startup handshakes. Byte/voice loops are structural and not simulation-frequency work."
+  },
+  "src/t3k_runtime/game/TempestNiseInitialization.h::copy": {
+    "body_sha256": "f8ede47a18a04c9181c9194de0ad3a2208770172bc52934c45f9a69d905095da",
+    "domain": "audio",
+    "decision": "startup-once",
+    "intent_and_adaptation": "copy: One-time audio pool/DMA/voice initialization and startup handshakes. Byte/voice loops are structural and not simulation-frequency work."
+  },
+  "src/t3k_runtime/game/TempestNiseInitialization.h::initialize_nise": {
+    "body_sha256": "9a846c836bdd49ee47a1552f21d8f32a6291d11d4eb1e6bd12a25352ab6eb430",
+    "domain": "audio",
+    "decision": "startup-once",
+    "intent_and_adaptation": "initialize_nise: One-time audio pool/DMA/voice initialization and startup handshakes. Byte/voice loops are structural and not simulation-frequency work."
+  },
+  "src/t3k_runtime/game/TempestNiseInitialization.h::initialize_default_nise": {
+    "body_sha256": "0213a9b36d3cb9261f9dec39608d80a22763fb19b59a125c49bf28584ccdef4e",
+    "domain": "audio",
+    "decision": "startup-once",
+    "intent_and_adaptation": "initialize_default_nise: One-time audio pool/DMA/voice initialization and startup handshakes. Byte/voice loops are structural and not simulation-frequency work."
+  },
+  "src/t3k_runtime/game/TempestNiseProcessorControl.h::handle_nise_processor_message": {
+    "body_sha256": "626a52c0b9707b17608a4403c789d7276dbc9126d891994f247bc225a5c5f75d",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "handle_nise_processor_message: Handles startup/pause messages and acknowledgments; does not advance game-picture time."
+  },
+  "src/t3k_runtime/game/TempestNiseStreamControl.h::prepare_nise_music_stream": {
+    "body_sha256": "26590262709c301208281c5df7a850b34e1b9b97be449501832ce7c045c26cdf",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "prepare_nise_music_stream: Music preparation/activation/reset and volume publication use explicit transport and pause/resume events. Readiness budget counts safety iterations, not authored duration; keep sample transport independent."
+  },
+  "src/t3k_runtime/game/TempestNiseStreamControl.h::activate_nise_music_stream": {
+    "body_sha256": "313e88fb56a28f93f45af4ec6a88770e548e61d4d0a39ac32b6b62ff8c21c573",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "activate_nise_music_stream: Music preparation/activation/reset and volume publication use explicit transport and pause/resume events. Readiness budget counts safety iterations, not authored duration; keep sample transport independent."
+  },
+  "src/t3k_runtime/game/TempestNiseStreamControl.h::reset_nise_music_stream": {
+    "body_sha256": "95c3420cf99e4205c9465ef9ea6e49e9eb9e92227a11ead4ec338982d03d8f72",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "reset_nise_music_stream: Music preparation/activation/reset and volume publication use explicit transport and pause/resume events. Readiness budget counts safety iterations, not authored duration; keep sample transport independent."
+  },
+  "src/t3k_runtime/game/TempestNiseStreamControl.h::set_nise_mix_volumes": {
+    "body_sha256": "b4c18bd31ac90fe1720796bea43e9afd00c01f4f85cbb640e7445899a768b987",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "set_nise_mix_volumes: Music preparation/activation/reset and volume publication use explicit transport and pause/resume events. Readiness budget counts safety iterations, not authored duration; keep sample transport independent."
+  },
+  "src/t3k_runtime/game/TempestNiseStreamInitialization.h::initialize_nise_stream": {
+    "body_sha256": "5d3318501c791fc1c489a527bab27bb28929f684c42c19379fce737a7b598266",
+    "domain": "audio",
+    "decision": "audio-event",
+    "intent_and_adaptation": "initialize_nise_stream: Configures stream ring and clears samples on attachment. Blocks describe sectors, not gameplay frames."
+  },
+  "src/t3k_runtime/game/TempestPools.h::initialize_pool_entry": {
+    "body_sha256": "4b05272e0456498410c6f07708113a49ec1b63d0833bab0292f2867115c1335d",
+    "domain": "structural",
+    "decision": "scene-initialization",
+    "intent_and_adaptation": "initialize_pool_entry: Copies template storage, creates nodes and runs constructors with seeded initializer state. Counts enumerate objects/words; keep per actual scene setup. The word at 0x80110AA4 is a framebuffer address, not the picture tick."
+  },
+  "src/t3k_runtime/game/TempestPools.h::pool_copy_vectors": {
+    "body_sha256": "4c02695c43906c91c33d64d03355d14959d7c4f3fbd3ad0ea09dd0581f3b981c",
+    "domain": "structural",
+    "decision": "scene-initialization",
+    "intent_and_adaptation": "pool_copy_vectors: Copies template storage, creates nodes and runs constructors with seeded initializer state. Counts enumerate objects/words; keep per actual scene setup. The word at 0x80110AA4 is a framebuffer address, not the picture tick."
+  },
+  "src/t3k_runtime/game/TempestPools.h::create_object_pool": {
+    "body_sha256": "cce154c32811024c93fb120b950f06f83e2c13f03ae5d63149aef761ca0c03b4",
+    "domain": "structural",
+    "decision": "scene-initialization",
+    "intent_and_adaptation": "create_object_pool: Copies template storage, creates nodes and runs constructors with seeded initializer state. Counts enumerate objects/words; keep per actual scene setup. The word at 0x80110AA4 is a framebuffer address, not the picture tick."
+  },
+  "src/t3k_runtime/game/TempestPools.h::initialize_scene_pools": {
+    "body_sha256": "de9d3af9a21f9d85943e1ee53d3c64051acbb4b6edc33f68dd5fb81cda3dad5a",
+    "domain": "structural",
+    "decision": "scene-initialization",
+    "intent_and_adaptation": "initialize_scene_pools: Copies template storage, creates nodes and runs constructors with seeded initializer state. Counts enumerate objects/words; keep per actual scene setup. The word at 0x80110AA4 is a framebuffer address, not the picture tick."
+  },
+  "src/t3k_runtime/game/TempestMenuPresets.h::unpack_menu_parameters": {
+    "body_sha256": "cd5f7e2176489f4e52a5c0df4f0235fcf5cc6841468ce026485e220b8d202959",
+    "domain": "structural",
+    "decision": "preserve-operation",
+    "intent_and_adaptation": "Unpacks packed halfwords with ordered alias-visible reads; loop counts 32 storage words."
+  },
+  "src/t3k_runtime/game/TempestMenuPresets.h::interpolate_menu_parameters": {
+    "body_sha256": "1941cdd3bdd9c810e0c9436a7afe8fc726f7c8d6ae63fb62a13d122c269bd1be",
+    "domain": "shared",
+    "decision": "fractional-phase",
+    "intent_and_adaptation": "Original authored preset animation: remaining decreases by step and evaluates 64 fields. Give progress explicit legacy-time units; this is original parameter evaluation, not presentation interpolation."
+  },
+  "src/t3k_runtime/game/TempestMenuPresets.h::initialize_menu_layers": {
+    "body_sha256": "674011ec0623131729f07e8586fee7422d11056abb4e5f251fcfa1adca4cc136",
+    "domain": "structural",
+    "decision": "scene-initialization",
+    "intent_and_adaptation": "Enumerates layer-mask bits and initializes scene only when layer selection changes. Entry counts are not elapsed time."
+  },
+  "src/t3k_runtime/game/TempestMenuPresets.h::step_menu_preset": {
+    "body_sha256": "4923e5bec3905d34758496fec84deca3ef1d05b7ab6851b7d1cc06ce3cb24363",
+    "domain": "shared",
+    "decision": "transition-event",
+    "intent_and_adaptation": "Starts/switches a preset when remaining is zero and may reinitialize layers. Consume completion once; parameter progression belongs to its separate phase update."
+  },
+  "src/t3k_runtime/game/TempestMenuParameters.h::apply_menu_parameters": {
+    "body_sha256": "07bc58b4042bd6d7d78d59155be75992112d10956ee3251dfff94c5205605ae3",
+    "domain": "shared",
+    "decision": "split-implemented",
+    "intent_and_adaptation": "Despite its name this is called in active gameplay. Some branches assign current fields while others accumulate angle/phase/depth into scene objects; classify masks/destinations and scale accumulated rates separately from assignments. All assignment fields remain fresh. The six accumulating angle/phase/depth writes use fractional signed deltas. The active caller supplies its time; menu/transition callers retain 1x."
+  },
+  "src/t3k_runtime/game/TempestSessionDeath.h::notify_session_life_lost": {
+    "body_sha256": "f5e09e1ae4e2c8dd19f8720071f259882dee1d8627c1555d56d2b0b81fefb3da",
+    "domain": "shared",
+    "decision": "event-once",
+    "intent_and_adaptation": "Life-loss notification consumes driver RNG for cue or invokes game-over banner. Trigger once for actual lost life, not every fine contact/update."
+  },
+  "src/t3k_runtime/game/TempestSessionDeath.h::resolve_session_death": {
+    "body_sha256": "c9d77ed781fbd5cea24491609a58fe4e8d2427f214faa57807da5b9da55a52ff",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Both original death variants use20 Hz reference with120 Hz actual state/rendering. Depth/angle/fade progress scales by elapsed time;70-step branch counts authored boundaries, one-shot threshold triggers occur once, and life decrement/voice/retry/gameover ownership remains unchanged. Tests conserve64/70 authored-frame durations at384/420 fine samples."
+  },
+  "src/t3k_runtime/game/TempestSessionGameOver.h::run_session_game_over": {
+    "body_sha256": "2a7d2527922b4c0814915ef334f66cb1711b75749998e83844137a5bdf38ff98",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Default24 Hz presentation timer/fade and pulse phase with120 Hz actual frame updates; fresh skip input can exit immediately. Formatting, sound and final transition remain events."
+  },
+  "src/t3k_runtime/game/TempestSelectionMenu.h::next_driver_random": {
+    "body_sha256": "c7a8623af4d4592e7e1f5000c33d4aa00a16b54df402aacb5509c3a6c23df6b1",
+    "domain": "shared",
+    "decision": "event-rng",
+    "intent_and_adaptation": "Advances a separate driver stream at 0x806B9918. Draw only at intended menu/game events and original scheduling opportunities, not every new substep."
+  },
+  "src/t3k_runtime/game/TempestSelectionMenu.h::advance_menu_palette": {
+    "body_sha256": "32a4cfe040c2aee8a5ae48288bd85a2d8b24b6121fdb645b88995ae4b8c5dfd3",
+    "domain": "effect",
+    "decision": "legacy-effect-clock",
+    "intent_and_adaptation": "One palette-cycle increment per invocation; inner five-word loop is palette storage. Preserve cycle duration independently of fresh geometry/input."
+  },
+  "src/t3k_runtime/game/TempestBootConstructors.h::initialize_driver_firmware_compatibility": {
+    "body_sha256": "a53cf3f46a8a9a5a4d25537798e7f547066c1c0b274ee53bd0c4cb4e7763b874",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Firmware compatibility and once-only constructor dispatch. Counts select table entries and bounded traversal, not elapsed ticks; preserve initialization ordering and once publication before dispatch."
+  },
+  "src/t3k_runtime/game/TempestBootConstructors.h::run_driver_constructor_table": {
+    "body_sha256": "21180cc2f7b6f829ec614d2baf4c012fe6ebc2f16182465303a721f6cf27b513",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Firmware compatibility and once-only constructor dispatch. Counts select table entries and bounded traversal, not elapsed ticks; preserve initialization ordering and once publication before dispatch."
+  },
+  "src/t3k_runtime/game/TempestBootConstructors.h::run_driver_constructors": {
+    "body_sha256": "4169172184f4e9c14c52571907c46e5d3348f0bb49b1f1fce9c739231c3f0643",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Firmware compatibility and once-only constructor dispatch. Counts select table entries and bounded traversal, not elapsed ticks; preserve initialization ordering and once publication before dispatch."
+  },
+  "src/t3k_runtime/game/TempestBootDriver.h::begin_boot_drawing": {
+    "body_sha256": "efe36ea7f3f790dbc45cbf53838f8fcfe0f4801e13ddeb8738efebb973058091",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Boot context/bitmap/music initialization; loop bounds are asset words or fields. Counter writes seed/reset state rather than advance time. Preserve service order, exact bitmap extent, and audio events once."
+  },
+  "src/t3k_runtime/game/TempestBootDriver.h::finish_boot_bitmap": {
+    "body_sha256": "cf808e3f91061a76be95323f4ea6251003ac8df41c22fdd22d7028cb3607048f",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Boot context/bitmap/music initialization; loop bounds are asset words or fields. Counter writes seed/reset state rather than advance time. Preserve service order, exact bitmap extent, and audio events once."
+  },
+  "src/t3k_runtime/game/TempestBootDriver.h::begin_boot_music": {
+    "body_sha256": "14b7803e714d64bac06b57135c290848aac4e2f3f8856f9806ee0a98ba76a6e9",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Boot context/bitmap/music initialization; loop bounds are asset words or fields. Counter writes seed/reset state rather than advance time. Preserve service order, exact bitmap extent, and audio events once."
+  },
+  "src/t3k_runtime/game/TempestBootEntry.h::prepare_boot_main": {
+    "body_sha256": "48134df2f70b718f71ccb8cdbc3bea1ca514c7a54bf2083e48c663d588eac429",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Initial controller table publication and argc/argv resolution; no advancing gameplay state. Startup service invocation stays once."
+  },
+  "src/t3k_runtime/game/TempestBootPlatform.h::begin_boot_worker": {
+    "body_sha256": "dc302bca84ac2245d01bd0145e87e01ab56c94c8d491f6468701717eb446b9c9",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Worker descriptor loading/start and startup controller discovery. Port/player/descriptor loops are finite structural scans; analog calibration is a startup sample, not repeated movement integration."
+  },
+  "src/t3k_runtime/game/TempestBootPlatform.h::select_boot_controllers": {
+    "body_sha256": "675b2d7286083ca4ce9e6258210696f3c16b9ecd898429588dc1abcc8a66efef",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Worker descriptor loading/start and startup controller discovery. Port/player/descriptor loops are finite structural scans; analog calibration is a startup sample, not repeated movement integration."
+  },
+  "src/t3k_runtime/game/TempestGraphicsInitialization.h::initialize_graphics_environment": {
+    "body_sha256": "e88571a20f8608c2967a6f981128503bcc565aceea153b394d6da92e6514a862",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Graphics environment allocation/name copying and field defaults. Bounds count bytes/fields and native safety guards; no elapsed-time scaling."
+  },
+  "src/t3k_runtime/game/TempestGraphicsInitialization.h::initialize_graphics_context": {
+    "body_sha256": "d439072709a6b2e458091d2f25dd24f289ec033721d7339d8ad1f840d47db7c0",
+    "domain": "structural",
+    "decision": "startup-only",
+    "intent_and_adaptation": "Graphics environment allocation/name copying and field defaults. Bounds count bytes/fields and native safety guards; no elapsed-time scaling."
+  },
+  "src/t3k_runtime/game/TempestObjectLayout.h::resolve_object_layout": {
+    "body_sha256": "95c9682497a75b48825b09eb468667f4fccd5016268da9bbc4a39d38e812076e",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Resolves value, parameter, global and script storage from descriptors and current inhibition flags. Counts are layout sizes; reevaluate with current object state, never time-scale offsets."
+  },
+  "src/t3k_runtime/game/TempestToolInput.h::driver_held_axis": {
+    "body_sha256": "df8db82ec0cc3e5512b9057055a510184fc112596cbbf1b9d91b900a1bceec7d",
+    "domain": "input",
+    "decision": "split-required",
+    "intent_and_adaptation": "Held-axis query and press/release latches are input state, not durations. Keep one edge per actual transition with prompt sampling; rotary horizontal consults the shared phase and direction produced upstream, whose elapsed-time conversion must be adapted separately. Do not divide edge counts or invent repeat cadence here."
+  },
+  "src/t3k_runtime/game/TempestToolInput.h::driver_button_edge": {
+    "body_sha256": "b762a3c4218ef8a981bfd4bfb9c8f3a99f90dd8c6519738660fefbf2229e5458",
+    "domain": "input",
+    "decision": "split-required",
+    "intent_and_adaptation": "Held-axis query and press/release latches are input state, not durations. Keep one edge per actual transition with prompt sampling; rotary horizontal consults the shared phase and direction produced upstream, whose elapsed-time conversion must be adapted separately. Do not divide edge counts or invent repeat cadence here."
+  },
+  "src/t3k_runtime/game/TempestToolInput.h::driver_raw_horizontal": {
+    "body_sha256": "bb8b3c89680cc347c2af5a8d965a60c4eba43a988c2c31df2d3684aae206caa7",
+    "domain": "input",
+    "decision": "split-required",
+    "intent_and_adaptation": "Held-axis query and press/release latches are input state, not durations. Keep one edge per actual transition with prompt sampling; rotary horizontal consults the shared phase and direction produced upstream, whose elapsed-time conversion must be adapted separately. Do not divide edge counts or invent repeat cadence here."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_sound": {
+    "body_sha256": "d47751343040b104324708157d699c5c53207a52c4530e6ee9558befe6f3da7d",
+    "domain": "audio",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Issues one sound request and optionally returns its handle. Keep per semantic event; audio rendering has its own clock. Callers with implicit repeated cadence must be split upstream."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_enemy_contact": {
+    "body_sha256": "ba0fe8b06e268d0693b1a66ec814b63562a83b1793444cbca4db5e9938c16262",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Uses collision-forwarded flags to select object queue action, player notification or appearance plus sound, then emits payload/template event. Dispatch once per semantic contact and retain queue ordering; emitted template role remains covered by callback_emit_21B00 consumer review."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_disable_hit": {
+    "body_sha256": "a9a646ebfb8c859af7fe6499034d46597fabe59ba9f0d1f03768b2d89827be1f",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Sound plus counted disable on a hit; decrements are object accounting, not a timer. Do not time-scale or repeat a consumed hit at substep cadence."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_record_lane": {
+    "body_sha256": "adb1bff1635e820289a050414ae0c71858f8b7e6e6d4dba2c7189b16f1b15571",
+    "domain": "gameplay",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Spatial minimum lane height recording from current object y. Shift by 16 converts fixed-point units and lane index selects storage, neither represents elapsed time."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_shifted_one": {
+    "body_sha256": "b69c3b48993db3b22465ca52b96ff709fab784973d000e8d5df070e236028f79",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "NUON signed-shift semantics construct an occupancy bitmask. Masked shift amount is a bit index, not a clock."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_magnitude": {
+    "body_sha256": "f3a70343b0b5f71b9761ad5971fa3798cd79e1528cf6ee9efd5f66cda38845b6",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Wrapping signed magnitude helper. Pure evaluation for motion/distance users; no independent cadence."
+  },
+  "src/t3k_runtime/game/TempestCollision.h::collision_predicate": {
+    "body_sha256": "e60b0dc4bea722c4954fb812ee55f54a49c9247c6e9ab40c6f98bf9c7aff9e48",
+    "domain": "gameplay",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Spatial predicates evaluate current prepared positions with exact signed radii and depth tolerances. Predicate 1 also sets projectile marker and a hit publishes selected record; preserve those writes and encounter order in every real collision pass, not as a pure read-only geometry query."
+  },
+  "src/t3k_runtime/game/TempestCollision.h::collide_objects": {
+    "body_sha256": "ba49a47db9198792bd6f05ad8478c1a1eda8a18054d22d55c5de8d79681fb649",
+    "domain": "gameplay",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Dispatches descriptor-selected spatial predicate and ORs hit/type status in both objects. No duration arithmetic; fine-step collision must retain record ordering and downstream event consumption without replaying an already-consumed hit."
+  },
+  "src/t3k_runtime/game/TempestContact.h::prepare_collision_record": {
+    "body_sha256": "84731c0a9a035fca7f02faa1a902b57c0cb7c7af18d2f6a02e97322f951aa50a",
+    "domain": "gameplay",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Packs current draw positions and clears transient hit bit in the new record. Must use fresh geometry for actual collision passes; no time divisor on masks or packed coordinates."
+  },
+  "src/t3k_runtime/game/TempestContact.h::collide_record_batch": {
+    "body_sha256": "7f4138dbe6fa95ad1fd1356110a37dd1219ac9e51de2202bc0c94397bb1de89d",
+    "domain": "gameplay",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Reverse pair scan determines the last selected hit and writes both record statuses. Count/budget are candidate traversal, not time. Preserve reverse order, alias-sensitive context restore and callback event identity across substeps."
+  },
+  "src/t3k_runtime/game/TempestContact.h::resolve_lane_contact": {
+    "body_sha256": "a1f29b80c219ea4742cdce025f6c366a0e668ead6d232e7046980b4502b29a1a",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Spatial overlap must be checked at fine cadence, but non-player response adds 2/4/8/16 to lane height and plays sound on every qualifying invocation. Status OR 0x400000 does not suppress a repeated overlap; synthetic test demonstrates height 50->66->82 in two calls. Player path is separately latched by global flags. Retain legacy repeated-contact rate while allowing prompt new contact, rather than multiplying wall growth and audio fivefold. Explicit contact policy permits prompt new contact, one response within a pass, and legacy-rate sustained responses; the default 1x path remains unchanged."
+  },
+  "src/t3k_runtime/game/TempestEvents.h::select_event": {
+    "body_sha256": "c7f1938aa31d469f1afda5436efb9761169a4065c8b87b95d50b31078415580a",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Event selection consumes transient status when unpaused; queue helpers append original opcodes/payload words in order. Indices and packet sizes are structural. Event production cadence belongs to callers and full consumer semantics must remain explicit; never divide counts or append the same consumed event for extra presentations."
+  },
+  "src/t3k_runtime/game/TempestEvents.h::append_object_event": {
+    "body_sha256": "1fff8bd56d15f65236a92af00e12d3f8cc0a1ab34e66c250f5ef184814009b56",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Event selection consumes transient status when unpaused; queue helpers append original opcodes/payload words in order. Indices and packet sizes are structural. Event production cadence belongs to callers and full consumer semantics must remain explicit; never divide counts or append the same consumed event for extra presentations."
+  },
+  "src/t3k_runtime/game/TempestEvents.h::append_event_packet": {
+    "body_sha256": "ad8ffed75c954d1ce1feae4b67a0ac93484a47819bce2c08e76bbac855677301",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Event selection consumes transient status when unpaused; queue helpers append original opcodes/payload words in order. Indices and packet sizes are structural. Event production cadence belongs to callers and full consumer semantics must remain explicit; never divide counts or append the same consumed event for extra presentations."
+  },
+  "src/t3k_runtime/game/TempestEvents.h::append_selected_object_event": {
+    "body_sha256": "93d912f3f57c46ba87455e5ff3fdde0bb428a915d2f96e9a7b2bdbe602f8a1f7",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Event selection consumes transient status when unpaused; queue helpers append original opcodes/payload words in order. Indices and packet sizes are structural. Event production cadence belongs to callers and full consumer semantics must remain explicit; never divide counts or append the same consumed event for extra presentations."
+  },
+  "src/t3k_runtime/game/TempestFrameOrchestrator.h::run_game_frame": {
+    "body_sha256": "b1c007218209cb1e9700fc6436c0ce9c2fa2715849f29cea5f620030787a1234",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Composes preparation and completion: object simulation, callbacks, geometry workers, queue consumption and persistent drawing publication. Retain dependency order; split simulation/effect clocks in children before changing invocation cadence. Skipping render submission alone does not remove simulation embedded in preparation workers."
+  },
+  "src/t3k_runtime/game/TempestLifecycle.h::instantiate_object": {
+    "body_sha256": "87997bdf382a2e33026c79aee8320b82f88c0a0ac7861aefc89b4335b9be9236",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Template copy and recognized initializer run once for each actual queue instantiation, then reset payload selector. Initializers may consume shared RNG; never invoke again solely for a presentation. After successful template/initializer work it notifies the optional integration service to forget the old pooled incarnation; notification participates in the frame transaction."
+  },
+  "src/t3k_runtime/game/TempestLifecycle.h::activate_queued_object": {
+    "body_sha256": "fe5cceb8afc7140be8f201c591af136107bb8c315f7d0b42f48c4d6c87c71f3d",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Moves a free-pool object into selected list and conditionally instantiates it. Pool availability and ordering are gameplay semantics; apply once per queued activation, not time-scaled. Forwards optional integration ownership only when an actual template is instantiated; a list transfer without initialization preserves identity."
+  },
+  "src/t3k_runtime/game/TempestQueueDecode.h::read_queue_word": {
+    "body_sha256": "ad7737e900e1b1a9e3ae30af16592b15dbc9baecb9a67afafba33a1972a2f578",
+    "domain": "structural",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Decodes original queue records and payload words. Cursor increments/counts are byte/word traversal, including zero-count reads-one rule. Preserve original dispatch and consume each actual packet once; cadence belongs to producers and consumer operations."
+  },
+  "src/t3k_runtime/game/TempestQueueDecode.h::decode_queue_record": {
+    "body_sha256": "35b1b8a685c8f53783ca51c5c5568d4e5467ba6497f3b2a56259d702ee8d21c5",
+    "domain": "structural",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Decodes original queue records and payload words. Cursor increments/counts are byte/word traversal, including zero-count reads-one rule. Preserve original dispatch and consume each actual packet once; cadence belongs to producers and consumer operations."
+  },
+  "src/t3k_runtime/game/TempestQueueDecode.h::consume_payload_packet": {
+    "body_sha256": "e06f145d4f10c51e49a0a4e83d62386426ade88a621279b45907e65399202abf",
+    "domain": "structural",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Decodes original queue records and payload words. Cursor increments/counts are byte/word traversal, including zero-count reads-one rule. Preserve original dispatch and consume each actual packet once; cadence belongs to producers and consumer operations."
+  },
+  "src/t3k_runtime/game/TempestSessionUtilities.h::write_session_byte": {
+    "body_sha256": "50604c97bf3adddc08ee8b6972904d92100a8e1e2aaf96e0fee7e72212a4403b",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Formats current lives/level labels, selects scene layers or evaluates 64 parameter fields at supplied factor. Counts are markers/layers/fields and blend has no internal countdown. Preserve current input/state and integer arithmetic; elapsed blend progression belongs to caller."
+  },
+  "src/t3k_runtime/game/TempestSessionUtilities.h::prepare_session_lives": {
+    "body_sha256": "6dd68032cd71d6fa03adb3949c404c983183fc2fca10fe1c7556658609da3472",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Formats current lives/level labels, selects scene layers or evaluates 64 parameter fields at supplied factor. Counts are markers/layers/fields and blend has no internal countdown. Preserve current input/state and integer arithmetic; elapsed blend progression belongs to caller."
+  },
+  "src/t3k_runtime/game/TempestSessionUtilities.h::prepare_session_layers": {
+    "body_sha256": "b611fd762182ea04c8bd968e690f485d0ae421ac7a1b9263071c6aa543887c99",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Formats current lives/level labels, selects scene layers or evaluates 64 parameter fields at supplied factor. Counts are markers/layers/fields and blend has no internal countdown. Preserve current input/state and integer arithmetic; elapsed blend progression belongs to caller."
+  },
+  "src/t3k_runtime/game/TempestSessionUtilities.h::blend_session_parameters": {
+    "body_sha256": "323930f65bd5d21ca13df5299f368bd1ef7097f08b9f30c9a62f8269c5bdd28e",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Formats current lives/level labels, selects scene layers or evaluates 64 parameter fields at supplied factor. Counts are markers/layers/fields and blend has no internal countdown. Preserve current input/state and integer arithmetic; elapsed blend progression belongs to caller."
+  },
+  "src/t3k_runtime/game/TempestSessionUtilities.h::prepare_session_level_label": {
+    "body_sha256": "2dfce93609230bc09e5e0a6f9ef076efb7f29e1511a403beb6399528eef76f79",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Formats current lives/level labels, selects scene layers or evaluates 64 parameter fields at supplied factor. Counts are markers/layers/fields and blend has no internal countdown. Preserve current input/state and integer arithmetic; elapsed blend progression belongs to caller."
+  },
+  "src/t3k_runtime/game/TempestAnimatedMenu.h::run_animated_menu": {
+    "body_sha256": "8861da316526bc0e9cb80839a6d2587692b90d734e6cf88701491a2a29914d14",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Menu reference speed is independent of 120 Hz sampling. Preset/RNG selection occurs once per authored interval; fades and authored parameter blends use fractional deltas. apply_menu_parameters receives the actual step so camera/effect integration is not multiplied. Input stays fresh; idle timeout stays authored."
+  },
+  "src/t3k_runtime/game/TempestBootMenuEntry.h::enter_boot_menu": {
+    "body_sha256": "4bd98c22a9ae4fde3ee3314fa3d519fa539f006c74b92e4b9a1c7d53e41485ff",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Opening/40-frame transition/attract/selection routing. Forty is authored transition duration, not a startup traversal bound. Keep scene ordering and session handoff, with child timing policies; initialize/reset menu state only on actual entry."
+  },
+  "src/t3k_runtime/game/TempestControllerDiscovery.h::discover_driver_controllers": {
+    "body_sha256": "6defa84a5f964806019ebf4204b1cbe87ebb8d9c1e389cd6c3425101dbc3949f",
+    "domain": "input",
+    "decision": "split-required",
+    "intent_and_adaptation": "Hotplug scan and confirmation/release loops sample buttons through real menu-frame dependencies, then calibrate axes and restore scene state. Port/count scans are structural, loop budget a safety guard. Keep edge and exact final release-frame behavior at legacy mode; finer sampling must not accelerate scene effects or multiply calibration."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::finish_driver_ring": {
+    "body_sha256": "a72aad47142851d98f58808e00ea9e776c8339a9695209f5892abcdff238d8d2",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Wraps presentation buffer index after index>2. Ring position is storage selection rather than gameplay time; belongs to actual buffer lifecycle after clock separation."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::select_driver_music_track": {
+    "body_sha256": "6fbdabe9a891f9e0a3db5073435f05dc4e2bea1bb428f1570f936ea84b28ab40",
+    "domain": "audio",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Resets/preloads only when selected track changes and media exists. Sector bounds index disc content, not time. Preserve readiness and track state; no extra reset/preload per simulation microstep."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::maintain_driver_music": {
+    "body_sha256": "9fb2c13b22271cce0cfabe77c6d1e535ede7bf0540db5dff2311764cc8443a33",
+    "domain": "audio",
+    "decision": "service-clock",
+    "intent_and_adaptation": "Readiness-driven preload/activate state machine. Query/activation depend on stream service status, not gameplay ticks; no multiplying audio elapsed time with simulation or presentation."
+  },
+  "src/t3k_runtime/game/TempestMainContinuation.h::continue_after_session": {
+    "body_sha256": "f03394dcb23e5a9d8d9f25065928445c5a99632b3cc60670c701e731399dedcf",
+    "domain": "shared",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Session completion selects menu music, optionally shows asset and updates remembered result/state. Execute on session completion; any asset duration belongs to show_asset, not repeated continuation invocations."
+  },
+  "src/t3k_runtime/game/TempestMainDispatch.h::route_primary_menu_result": {
+    "body_sha256": "bbc6b4d363558b7bd1407d395a60a1317508005f73ce545ac7cb724acaaf92e9",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Routes selected state, attract-session and firmware exit; the 60-frame transition is authored elapsed duration handled by transition service. Branch and state selection remain event-driven; never duplicate session/exit calls for higher presentation cadence."
+  },
+  "src/t3k_runtime/game/TempestMenuTransition.h::run_menu_transition": {
+    "body_sha256": "bff73668778d20f80be1444052626078d4038fc69799cbc3952e657fbefe717d",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Scope owns default24 Hz shared transition reference independently of parent. Bridge publishes authored frame context from accumulated rational units. Nested scene exit restores parent timing and pins feedback at the actual resumed fractional phase."
+  },
+  "src/t3k_runtime/game/TempestMenuTransition.h::initialize_scene": {
+    "body_sha256": "9c29294b33d164c501c252cfcc7bd0d87299c578f90e827a663f43c6ca618a5b",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Bridge supplies original scene and frame context to run_driver_transition. Its ++frames is elapsed transition steps published into caller context, not a structural counter; preserve authored duration and skip handling while separating fresh input from scene/effect update cadence."
+  },
+  "src/t3k_runtime/game/TempestMenuTransition.h::menu_frame": {
+    "body_sha256": "4190d86c430130c84a974de09343cc8cb6887716e57e084c5588abba9dc85e61",
+    "domain": "shared",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "Generic transition bridge accumulates numerator units per call and publishes ceiling(units/denominator) to original context, retaining authored boundaries while fine native frame calls remain fresh."
+  },
+  "src/t3k_runtime/game/TempestOuterFrames.h::run_driver_menu_frame": {
+    "body_sha256": "cd346434d812cd39762d4587a16cf02a3a964f251707a44c46e94906aa79e4ec",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Native menu input/discovery/frame services run per actual fine sample. Rotary normalization uses rational fraction. Object preparation and original driver counter/color helpers retain authored timing through the integration services."
+  },
+  "src/t3k_runtime/game/TempestOuterFrames.h::prepare_driver_game_frame": {
+    "body_sha256": "0edd8091a9d635078f19f0766bb11f9c46a1dc1a75b18a14cc1ea7306024de3b",
+    "domain": "input",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Current controls/discovery and pause edge sampled before each fine game frame. D-pad and rotary decode receive full rational step; pause still precedes execution and uses its own24 Hz reference scope."
+  },
+  "src/t3k_runtime/game/TempestOuterFrames.h::finish_driver_game_frame": {
+    "body_sha256": "787d3f6e470a6fd4871225180768fdc187cbef8a11034085096022ed9ca18c43",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Outer frame control/pause/discovery, object-frame service, deferred sound and presentation/counter/color completion compose distinct clocks. Fresh input belongs to fine simulation; menu discovery is interactive, pause is an edge/latch, deferred sound consumes actual requests once, presentation may be decimated, and authored counters/color must not advance once per extra display. Preserve original control-before-frame and finish-after-frame ownership."
+  },
+  "src/t3k_runtime/game/TempestOuterFrames.h::run_driver_game_frame": {
+    "body_sha256": "838a70306906eabdf14edc4c1ab03d6bb5d805403bcc1d86b4571debd3a051ff",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Outer frame control/pause/discovery, object-frame service, deferred sound and presentation/counter/color completion compose distinct clocks. Fresh input belongs to fine simulation; menu discovery is interactive, pause is an edge/latch, deferred sound consumes actual requests once, presentation may be decimated, and authored counters/color must not advance once per extra display. Preserve original control-before-frame and finish-after-frame ownership."
+  },
+  "src/t3k_runtime/game/TempestSelectionMenu.h::run_selection_menu": {
+    "body_sha256": "936bed2c932a2bc904b2ef72d2c5d980e83bec01044a144a2491fe904d0a59be",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Opening particle crawl gets16 Hz reference with120 Hz actual input/object/geometry. Rotation and entry/exit fades integrate fractional time; idle count/timeout stays authored and sounds/RNG stay event driven."
+  },
+  "src/t3k_runtime/game/TempestGameSession.h::finish_game_session": {
+    "body_sha256": "7de5fc72a0598a1adfb705ca3183b86d91f604daf94588858bdf112029e19089",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Session-ending phase transfers score, optionally enters high-score UI, routes a surviving other player or finalizes session. Execute once per phase transition; high-score UI has its own timing and score/life counts are event accounting."
+  },
+  "src/t3k_runtime/game/TempestGameSession.h::step_game_session": {
+    "body_sha256": "7a6f3e9d4bae5e783b000253364c1c65c36f5f71018e103e8778934abe382eef",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Outer semantic phase dispatch is not a logic-tick subdivision. Playing delegates to gameplay, other states can run complete frame-producing transitions. Preserve phase changes once and adapt actual child update owners, rather than calling every phase five times."
+  },
+  "src/t3k_runtime/game/TempestGameSession.h::run_game_session": {
+    "body_sha256": "b8d07c2e05c33733a86ffa1b55c0ea2fcc084da1191ccc660a92d4432a770794",
+    "domain": "shared",
+    "decision": "split-required",
+    "intent_and_adaptation": "Continuous original phase runner with diagnostic budget. Budget counts semantic phases, not seconds or presentation frames. Higher-frequency scheduling belongs inside appropriate active/transition owners and must retain final context result."
+  },
+  "src/t3k_runtime/game/TempestSession.h::begin_game_session": {
+    "body_sha256": "c14a9e51414d053605ca41e285eab4eac017afe516d2a6ca032c84a83a027744",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Seeds per-player lives/score/resources and difficulty, optional attract-mode RNG, then prepares first player. Execute once per session; fixed tables and local-offset writes are initialization, not rate-scaled updates."
+  },
+  "src/t3k_runtime/game/TempestSession.h::prepare_session_player": {
+    "body_sha256": "ea2a096ce3c7afdd5332e13ff2cb93e870cd7170a7300a9404fa21af52c5e451",
+    "domain": "shared",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Handles player handoff/retry/next-level: saves/restores individual resources, loads level, selects music/palette, formats labels, unpacks parameter presets and initializes scene 7. RNG/palette moves belong to real entry events; preserve them once. Child show_asset may own elapsed transitions, but setup table/string loops are structural."
+  },
+  "src/t3k_runtime/game/TempestSession.h::enter_session_play": {
+    "body_sha256": "0d6c85b03dd02254ebbb10c97a300b3bc4194b137e7a24632692d79c2bc0f1b7",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Unspecified entry phases use24 Hz reference. Scene7 fade/blend and scene1 camera/web growth use fractional deltas with fresh actual game frames. Spawn/setup/RNG remains at original phase handoffs, not per added sample."
+  },
+  "src/t3k_runtime/game/TempestSessionLevelClear.h::resolve_session_level_clear": {
+    "body_sha256": "f84f4be8feb6c03a1312e2623b8039cc1ac0a05fd9123a3b662a10cd844d9292",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Interactive tunnel travel runs20-reference progression with fresh gameplay controls; its acceleration/position use a fractional semi-implicit generator. After travel, a separate48 Hz domain drives clear-effect blend/evolution. Shared transitions use24, bonus uses36, and score/life/level changes remain phase events. Embedded repeated warp sounds advance on authored boundaries."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::initialize_shared_position": {
+    "body_sha256": "c262ac71d567978597c0f2d4525b5838ec1e4e39c01d52ae84e12f397e6320ac",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Copies current shared player position/depth and resets secondary value on actual spawn. Half-lane alignment is spatial; no independent time integration."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::initialize_payload_object": {
+    "body_sha256": "de926a1c742c84632a68b815577758be7985217c4b763db8f5f44bac09b649b4",
+    "domain": "shared",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Copies queued payload to value/parameter fields with aligned vector ownership. Event data selects spatial/appearance values; execute once per initialization, preserving reads-before-writes aliases."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::advance_object_random": {
+    "body_sha256": "5ae4060d372d3545b4cafc1d16c0e30a6a00e4088a888e6f263820f13fcad8b6",
+    "domain": "shared",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Pure initializer RNG feedback step (even feedback unlike callback generator). Advance persistent state only at actual original spawn/initialization draws, not every microstep or geometry evaluation."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::initialize_known_object": {
+    "body_sha256": "e0f785f3781dbbf4d1d52b76c075d76029a7a22af960620330e0a7042c329e2d",
+    "domain": "shared",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Dispatches recognized spawn initializers. No loop or duration; once per actual initialization with child semantics."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::object_abs": {
+    "body_sha256": "75d6acb426b23849b86eda39766fef0ac851aab76f3fcd51c14857f11c1a1fc0",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Wrapping signed magnitude calculation only; no independent time state."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::capped_object_abs": {
+    "body_sha256": "f13efd3da05c5d18b0d931e72cf5d6b127214eb491a2e91bfe374901e7c43e79",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Caps wrapping magnitude at one fixed-point unit. This bound is a value/range clamp, not an elapsed-time cutoff."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::initialize_randomized_object": {
+    "body_sha256": "d71527091ab9a0cf7366270963b04293995d901ab20714394fce1eca8eff8c62",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Draws shared initializer RNG into speeds/acceleration/limits, adjusts difficulty, installs position/status and alternate spawn phase. Values remain in original tick units until their motion consumers are adapted; preserve draw count/order per actual spawn, including alternate/simple branches."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::initialize_type5": {
+    "body_sha256": "e8a06b002917500bac62266f0f10cd970dc6e711820ca07e8e311f5b8f615e54",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Initializes position, random steering/velocity parameters and shared-scale depth speed using persistent seeds. Run once per actual spawn; fractional movement must consume these original-unit velocities without scaling initializer RNG or event count."
+  },
+  "src/t3k_runtime/game/TempestTemplates.h::initialize_type6": {
+    "body_sha256": "519924c9a35cf7ba8e77bee4fd83223990eada9d8dbcf9e9f99d45c2f6455121",
+    "domain": "gameplay",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Initializes random lane offset, steering value and parameter phase; alternate path installs delayed activation/appearance and preserves callback metadata. Run once per spawn, retaining signed ADD branch and draw order; downstream phase duration needs explicit adaptation."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::reset_music": {
+    "body_sha256": "c7b6a634f3ed3c07ac6addafcc5523d577f7d356184c9caa6aa87aa20ae9e354",
+    "domain": "audio",
+    "decision": "required-dependency",
+    "intent_and_adaptation": "Default rejects missing music reset service. Actual track transition must own a real reset; no elapsed time here."
+  },
+  "src/t3k_runtime/game/TempestFrameLoop.h::frame_failure": {
+    "body_sha256": "be87edaa1320bc6653d3e22c138d92d387e1b329890e7f65093f021e6470d05e",
+    "domain": "structural",
+    "decision": "failure-reporting",
+    "intent_and_adaptation": "Default failure propagation returns false for an unimplemented dependency. No clock advancement or successful placeholder."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::constant_parameters": {
+    "body_sha256": "5ec2a69d1a4a89a3eb0bc43d5d9c759c8e781cc2f8e00fca5f66eb0f75fc2e58",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Constructs all-negative alias metadata, not clocks or elapsed values."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::update_object_values_integrated": {
+    "body_sha256": "2e9c0861fb5c0acf4cd890f52484f74f596c1e0c93063094df9e5aa82a184838",
+    "domain": "shared",
+    "decision": "needs-consumers",
+    "intent_and_adaptation": "Common ordered traversal for original and fractional motion/approach. Preserves current status/list aliases and picture-stamped records; explicit integration functions select time semantics. Record destinations and command-phase consumers still need review."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::begin_values": {
+    "body_sha256": "e376184858ca8f45a972cdc215a38d699e22f1934f0c1963da6ae2c6d3e910c4",
+    "domain": "structural",
+    "decision": "transaction-lifecycle",
+    "intent_and_adaptation": "Baseline policy owns no extra state and accepts the transaction. Stateful fractional policies must snapshot their private integration state, never advance elapsed time here."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::commit_values": {
+    "body_sha256": "35855386ad3f04a6c509719a78471aa4aff2c2af8614c950bc6cf0d05136ed40",
+    "domain": "structural",
+    "decision": "transaction-lifecycle",
+    "intent_and_adaptation": "Baseline owns no private state; an installed policy commits only an accepted frame. This is acceptance, not a duration or motion step."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::abort_values": {
+    "body_sha256": "761b448da0f565ca4474a37d013bc71034544fbaa6aa07cc22019d148d546153",
+    "domain": "structural",
+    "decision": "transaction-lifecycle",
+    "intent_and_adaptation": "Baseline owns no private state; an installed policy must roll back fractional remainders and object incarnation state after any frame failure."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::object_instantiated": {
+    "body_sha256": "7b26b12e822e0b17a7e5bfb7cc02fbadc2b2ba24f542d08265e99e05621a1028",
+    "domain": "structural",
+    "decision": "event-driven",
+    "intent_and_adaptation": "Optional policy receives successful object-instantiation identity. Baseline stores no fractional state; installed policy invalidates the prior incarnation once per actual spawn."
+  },
+  "src/t3k_runtime/game/TempestObjects.h::object_values": {
+    "body_sha256": "ca06dccdccd894b113aa4f6f19ad8c6e6f0f70e3d920b6dff49b8342549bc5e8",
+    "domain": "shared",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Default integration policy calls the recovered original ordered updater. Stateful subdivision is installed explicitly and participates in the frame transaction; no default rate increase."
+  },
+  "src/t3k_runtime/game/TempestSession.h::simulation_divisions": {
+    "body_sha256": "63f43d9e34892adb64e99e7922dd2e41cc6981dc843886387fc73db4bfa0183b",
+    "domain": "structural",
+    "decision": "configuration",
+    "intent_and_adaptation": "Session service explicitly defaults to one original update. Higher-rate scheduling must supply its subdivision count; this query itself advances no time. Queries the explicit session step rather than selecting or advancing a clock."
+  },
+  "src/t3k_runtime/game/TempestSession.h::fractional_jump": {
+    "body_sha256": "93b84654a2e5ee436430a530a2e37422b890695bff84d48136f526e015531f2c",
+    "domain": "structural",
+    "decision": "required-dependency",
+    "intent_and_adaptation": "Default rejects a requested fractional jet update. The native flow supplies the tested integrator; a higher-rate caller cannot silently succeed without implementing this dependency."
+  },
+  "src/t3k_runtime/game/TempestAnimation.h::fractional_oscillators": {
+    "body_sha256": "8b2dd8572f4fbf38f2e684b43448c91e5048de6bfc5d4a36184e4d44c4652ab6",
+    "domain": "effect",
+    "decision": "fractional-phase",
+    "intent_and_adaptation": "Evaluate actual oscillator phase at (index+numerator)/denominator. On an authored crossing, persist exactly one original increment; scratch evaluation may include the carried fractional phase. Repeated vector reloads reapply only the carry after persistence."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::simulation_step": {
+    "body_sha256": "8697ffb60c459d344fa7281694a8dbb791084344cb2b93e75b0ee66d3425c25c",
+    "domain": "structural",
+    "decision": "clock-query",
+    "intent_and_adaptation": "Default service returns one original step. Native trial explicitly overrides time only for active regular gameplay; menu/transition calls retain 1x."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::fire_opportunity": {
+    "body_sha256": "16547f3e6a5f48024d4e5347b97e69931bfbad7366c8ff392a708d8fd5c4edcd",
+    "domain": "input",
+    "decision": "event-opportunity",
+    "intent_and_adaptation": "Default preserves original firing calls. Native trial allows one actual emission opportunity per sample on a new edge or legacy held repeat."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::surface_response": {
+    "body_sha256": "2e89d906c2f576dcd914f3333aec20ca90c4204ff1b42fcb3a129ea309277ece",
+    "domain": "gameplay",
+    "decision": "event-opportunity",
+    "intent_and_adaptation": "Default preserves original surface responses. Native trial tracks contact identity and throttles sustained response independently of fine overlap detection."
+  },
+  "src/t3k_runtime/game/TempestCallbacks.h::callback_opportunity": {
+    "body_sha256": "79ddd7870978cbfa430426ca45c14e3cc4f9dfcf247f0fa04a783b4e25dfcd10",
+    "domain": "shared",
+    "decision": "event-opportunity",
+    "intent_and_adaptation": "Default preserves all callback invocations. Trial distinguishes immediate conditional event dispatch/current spatial preparation from authored discrete unconditional opportunities."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::valid": {
+    "body_sha256": "11eade4a8081d2c0bc8935ae6bf924789ecb7889e5d5f24f1497bed68f666818",
+    "domain": "structural",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "Validate positive numerator <= denominator, bounded denominator and phase in range. Coarse default remains denominator1,numerator1."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::legacy_boundary": {
+    "body_sha256": "2423d8a58bf6d0fa34c1f3b97d83604f146ca3cde94ae19ebc61dbb4c604114e",
+    "domain": "structural",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "A sample crosses an authored tick when index+numerator >= denominator. At most one tick can cross per fine sample; carried phase is retained modulo denominator."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::delta": {
+    "body_sha256": "26df829ea8d11026daa5987748fc60c095f1c4ec916dfaadb93ff1baba635713",
+    "domain": "structural",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "SimulationStep conserves signed authored increments by difference of integer-scaled endpoints. SceneTimingScope additionally owns per-field remainders for changing velocities and post-frame caller updates. No game time advances in these arithmetic helpers."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::simulation_step": {
+    "body_sha256": "8697ffb60c459d344fa7281694a8dbb791084344cb2b93e75b0ee66d3425c25c",
+    "domain": "structural",
+    "decision": "clock-query",
+    "intent_and_adaptation": "Default service returns one original step. Native trial explicitly overrides time only for active regular gameplay; menu/transition calls retain 1x."
+  },
+  "src/t3k_runtime/game/TempestFrameLoop.h::frame_dispatch": {
+    "body_sha256": "8c6187b228b2d0183df9618a51ed17d0f1f9bf221ca599325bcf567a1feb07c0",
+    "domain": "shared",
+    "decision": "split-implemented",
+    "intent_and_adaptation": "Resolves original callback/worker identity and forwards explicit event-dispatch role to the cadence policy. Worker preparation remains fresh, real conditional events remain immediate, and deferred unconditional callbacks still execute at original cadence. Original arguments/errors and callback bodies are preserved."
+  },
+  "src/t3k_runtime/game/TempestFrameLoop.h::frame_object_events": {
+    "body_sha256": "228fd459b6c454497b5269deec4a7d926f8fab7186666da76933926b267c70e1",
+    "domain": "gameplay",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Consumes current transient status and forwards an actual conditional event role. Fine collision/boundary events retain original callback and queue ordering."
+  },
+  "src/t3k_runtime/game/TempestPreparation.h::execute_preparation": {
+    "body_sha256": "1a5a8432e28fc5966859441e54ca1a966f08c779171373167161e41ef3bbfe5b",
+    "domain": "shared",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Validates explicit worker time and dispatches every recognized native worker. Geometry evaluates current state; individual effect-state advancement is controlled inside the appropriate worker, not by omitting preparation."
+  },
+  "src/t3k_runtime/game/TempestSession.h::simulation_step": {
+    "body_sha256": "8697ffb60c459d344fa7281694a8dbb791084344cb2b93e75b0ee66d3425c25c",
+    "domain": "structural",
+    "decision": "clock-query",
+    "intent_and_adaptation": "Default service returns one original step. Native trial explicitly overrides time only for active regular gameplay; menu/transition calls retain 1x."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::precise_web_geometry": {
+    "body_sha256": "a867f66d708d8684a6f0ed332ca727ab412ac5d31dbcf698dab8baf777352eaa",
+    "domain": "structural",
+    "decision": "render-metadata",
+    "intent_and_adaptation": "Optional render-only precision hook. Default preserves reference behavior; no clock, native memory mutation or gameplay state."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::web_render_point": {
+    "body_sha256": "f35a070f03f65fc16eb194ba59282dc890d8aced7e7672f835bd99485b1e5e46",
+    "domain": "structural",
+    "decision": "render-metadata",
+    "intent_and_adaptation": "Optional render-only precision hook. Default preserves reference behavior; no clock, native memory mutation or gameplay state."
+  },
+  "src/t3k_runtime/game/TempestWebPreparation.h::wrap": {
+    "body_sha256": "bbcff979c80b2b94e6a5d83df287629fa020466caf4726061a4040a70c319347",
+    "domain": "effect",
+    "decision": "render-precision",
+    "intent_and_adaptation": "Signed periodic coordinate wrapping for render metadata; no clock or state progression."
+  },
+  "src/t3k_runtime/game/TempestWebPreparation.h::precise_quad": {
+    "body_sha256": "d5e67d7f7f142704a0f9a6649b49881d4b1252718d54b7ab4e719172fddcf9da",
+    "domain": "effect",
+    "decision": "render-precision",
+    "intent_and_adaptation": "Copies current and previous unrounded endpoints to render metadata for textured quad positions, keeping vector edges aligned without temporal interpolation."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::frame_divisions": {
+    "body_sha256": "f2e646ce68be61ae394adcc281f386f6f9af27621be0c7d258be950f08e10fcc",
+    "domain": "structural",
+    "decision": "scene-policy",
+    "intent_and_adaptation": "Default service returns one; scoped transition bridge returns configured subdivisions. This is a cadence policy query with no state advancement."
+  },
+  "src/t3k_runtime/game/TempestMenuTransition.h::frame_divisions": {
+    "body_sha256": "1cdcfa07c601e5a1f24a2ffa142a19ccfed129eb3a1a3bfc793e16e4dc2f0155",
+    "domain": "structural",
+    "decision": "scene-policy",
+    "intent_and_adaptation": "Default service returns one; scoped transition bridge returns configured subdivisions. This is a cadence policy query with no state advancement."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_store_screen_position": {
+    "body_sha256": "78119e3ea80c84f0f558d0d03474d73024a63238e49eb1103e772a4f05087302",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Publish original packed position unchanged, then retain its signed 16.16 projection before integer coordinate packing as renderer-only transform metadata at saved display-entry destination."
+  },
+  "src/t3k_runtime/game/TempestProjection.h::preparation_store_projected_size": {
+    "body_sha256": "0c64848df9ac769e05f3f4d9e8d3c6b89d222be1e5a31460ba1b91e286b98f1b",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Publish original size unchanged. Retain full multiply before shift/packing in signed 10-bit scale domain, stamp entry size word, and defer metadata until preparation RAM publication completes."
+  },
+  "src/t3k_runtime/game/TempestSceneTiming.h::sample_hz": {
+    "body_sha256": "e02d930a34eb65afb90982d0cc9d83f8bea4a0e3f7e07266d2a8e6f8b471e4a5",
+    "domain": "structural",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "ReferenceHz*denominator/numerator reports the physical sampling rate, exactly120 for configured ratios; invalid zero numerator reports0."
+  },
+  "src/t3k_runtime/game/TempestSceneTiming.h::begin_scene_timing": {
+    "body_sha256": "846d898d8baa6f316fad1d7b6986161bdf03560d0671fee9fcea43e145a95ef3",
+    "domain": "structural",
+    "decision": "scene-policy",
+    "intent_and_adaptation": "Default service keeps original one-step cadence; host override owns independently referenced scene timing and returns subdivisions."
+  },
+  "src/t3k_runtime/game/TempestSceneTiming.h::end_scene_timing": {
+    "body_sha256": "92324c62ba85551234fe98ebddafa2359835fbf847e223a40f836fcd3c5928d4",
+    "domain": "structural",
+    "decision": "scene-policy",
+    "intent_and_adaptation": "Default no-op service; host override closes renderer interval, clears transient timing pointers, and restores parent cadence."
+  },
+  "src/t3k_runtime/game/TempestSceneTiming.h::scene_timing_step": {
+    "body_sha256": "8bc36d0b8705ea008dfa38135a43b7a37d199f995fbf32f5ac669f813ec5aecf",
+    "domain": "structural",
+    "decision": "scene-policy",
+    "intent_and_adaptation": "Default original step; host supplies current scene subdivision for elapsed deltas and authored boundary checks."
+  },
+  "src/t3k_runtime/game/TempestShapePreparation.h::point": {
+    "body_sha256": "4c0e1f5e7ce0fbef8022514dc5d107d52d416e73d08f68542c8ce62a508906d0",
+    "domain": "structural",
+    "decision": "per-step-evaluation",
+    "intent_and_adaptation": "Generated shape writer retains signed 16.16 low-X/high-Y before integer/marker packing, records actual external stream address across flushes. Original stream bytes and structural writer counts stay unchanged."
+  },
+  "src/t3k_runtime/game/TempestAudioTest.h::run_audio_test": {
+    "body_sha256": "18d95a45255c9f182b60fe9dadd1ecd23fbeee3ec1553e84d51f1120977c83e3",
+    "domain": "input",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Audio test visual rotation/fade uses24-reference elapsed increments; menu/analog/button sampling is fresh at120 Hz. Sound play, volume changes and track switching remain edge-driven events."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::interval_start": {
+    "body_sha256": "cc8ed0292347a4cbe882ec90cf75781983c3f2e83c2644705aa507a957e8cfd7",
+    "domain": "structural",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "An interval starts when its carried phase is less than one sample numerator, including intervals whose first fine state is past integer phase zero."
+  },
+  "src/t3k_runtime/game/TempestCommands.h::fraction": {
+    "body_sha256": "b6b0614a8ce7b21fa6e3850b1b44404b5791f956fba2f50518a782916da4f186",
+    "domain": "structural",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "Return numerator/denominator authored ticks elapsed in one physical simulation sample."
+  },
+  "src/t3k_runtime/game/TempestControllerCalibration.h::run_controller_calibration": {
+    "body_sha256": "d6d48db0ccdd4b3d9dc0fa485cf963c9717057e150551851e6e833a7f28407db",
+    "domain": "input",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Calibration gets24-reference rotation but fresh120 Hz axis extrema, button edges and display. Structural player scans/label formatting are unchanged; nested rotary calibration owns its clock."
+  },
+  "src/t3k_runtime/game/TempestDriver.h::frame_numerator": {
+    "body_sha256": "9d55173d2ca050a4fdcfa5feb6f686f9c62f11f7dd4d81b03b375fd729cc4420",
+    "domain": "structural",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "Default1 or current bridge numerator; supplies actual elapsed authored units per fine transition sample."
+  },
+  "src/t3k_runtime/game/TempestHighScores.h::run_high_score_entry": {
+    "body_sha256": "279b530a95a705000c59f6a0731bd3ccba0a14e5d305a93d217d39437b9f884a",
+    "domain": "input",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Name-entry uses24-reference fades, rotation and held-repeat countdown; every fine sample polls current latches/buttons and renders current editor state. Ranking/insertion/formatting and sound events are not multiplied."
+  },
+  "src/t3k_runtime/game/TempestLevelSelection.h::run_level_selection": {
+    "body_sha256": "5552e0ca0790ac250c5f517520f0a7d6a6cd85887daef7008707ff40da8bac3d",
+    "domain": "shared",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Keep configured menu reference (normally30) with fine input and web geometry. Slide distance, rotation and fades use elapsed deltas; fixed slide-loop durations multiply by denominator/numerator. Selection/latch, wrapping and definition loads remain event/structural work."
+  },
+  "src/t3k_runtime/game/TempestMenuTransition.h::frame_numerator": {
+    "body_sha256": "e08a4586542d2f62bdccd3ff439867774165b58570c82d173513def5ef17995d",
+    "domain": "structural",
+    "decision": "rational-clock",
+    "intent_and_adaptation": "Default1 or current bridge numerator; supplies actual elapsed authored units per fine transition sample."
+  },
+  "src/t3k_runtime/game/TempestPassword.h::run_level_password": {
+    "body_sha256": "1e6f774de8e7a16a1a5c8b6dcb4bd3e59d199ee73a088566927ec470822287b4",
+    "domain": "input",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Password editor has24-reference fade/rotation/repeat timing and120 Hz input/rendering. Twelve-character edit, release latch and lookup algorithm remain unchanged; isolated original-function route completes."
+  },
+  "src/t3k_runtime/game/TempestRotaryCalibration.h::run_rotary_calibration": {
+    "body_sha256": "4293dcbac95be85891228a2e9c44c5706a47588077b0dd1b411ca7ad8022ef7b",
+    "domain": "input",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Rotary tool gets24-reference visual rotation with120 Hz physical rotary/control sampling. Sensitivity/invert changes stay explicit button-latch events; original native control semantics remain."
+  },
+  "src/t3k_runtime/game/TempestSceneTiming.h::euler_correction": {
+    "body_sha256": "8720a8ccc257677ad07bbdc3ef425b6bb669c4b1be3247ff31b83913c9ecac8c",
+    "domain": "gameplay",
+    "decision": "fractional-integration",
+    "intent_and_adaptation": "Conserved half-acceleration term is the fractional generator correction for the original semi-implicit Euler map. Used with newly updated velocity so tunnel travel/settling preserve authored acceleration instead of changing their trajectory when sampling faster."
+  },
+  "src/t3k_runtime/game/TempestSceneTiming.h::change": {
+    "body_sha256": "3cba6993f17f6a8a87e8804c5aa9609eb317d0ff9441a427ba229a40c5ef3194",
+    "domain": "structural",
+    "decision": "scene-ownership",
+    "intent_and_adaptation": "End the current scoped clock and begin a new named domain at phase zero; clear local remainders whose elapsed units belonged to the prior domain. Used to separate interactive20 Hz travel from noninteractive48 Hz clear effect."
+  },
+  "src/t3k_runtime/game/TempestSceneTiming.h::budget": {
+    "body_sha256": "ddd448430106db2dcd15682aa69d1e136318e0abdde80c74f0c18409e05240b0",
+    "domain": "structural",
+    "decision": "bounded-work",
+    "intent_and_adaptation": "Convert original authored-loop budget to a conservative maximum fine-call budget; this is a guard, not a playback timer."
+  },
+  "src/t3k_runtime/game/TempestSessionAsset.h::run_session_asset": {
+    "body_sha256": "7b7943f64b8da11cdaa911551bc6ff2396df77109cc7f9d801792a9f7a9358ae",
+    "domain": "effect",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Unspecified asset presentation uses24-reference fades, rotation and600-tick dwell with120 Hz current geometry and input. Formatting/setup and transition calls are structural/events."
+  },
+  "src/t3k_runtime/game/TempestSessionWarpBonus.h::run_session_warp_bonus": {
+    "body_sha256": "54b3613401397e65912d6979131fad94e4cc8d9b8c966089ac53c7e589119c46",
+    "domain": "effect",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Noninteractive scene11 bonus has36 Hz reference at120 Hz sampling (3/10 rational step). Size/amplitude changes are fractional, ring/count choices stay authored. Carry across the32+28-step phases retains total duration:60 authored steps produce200 fine samples. Award result, sounds and transitions are unchanged."
+  },
+  "src/t3k_runtime/game/TempestVectorInspector.h::run_vector_inspector": {
+    "body_sha256": "9175b0f07573d0fc5857cafd4315386799d1224171d703074a9aa2fc81df295d",
+    "domain": "input",
+    "decision": "split-clocks",
+    "intent_and_adaptation": "Inspector gets24-reference continuous angle/size steps with per-field remainder, plus fresh120 Hz device sampling and rendering. Shape selection remains edge driven. This does not change structural asset enumeration."
+  }
+}

@@ -39,7 +39,7 @@ public:
         return true;
     }
     bool close(uint32_t handle){if(!active_)return false;if(handle>=3&&handle<=19)handles_[handle-3].clear();return true;}
-    bool accept(const NiseStreamRead& request){
+    bool accept(const NiseStreamRead& request){profiling::Scope profile(profiling::media_read);
         if(!active_||request.handle<3||request.handle>19||handles_[request.handle-3].empty()||
            request.mode!=0x40000000||request.callback!=0x800219DA||!request.blocks||request.blocks>4096||
            (request.destination&3)||!external_range(request.destination,uint64_t(request.blocks)*2048))return false;
@@ -49,13 +49,15 @@ public:
         bool read=count==0||disc_.read(handles_[request.handle-3],request.sector,count*2048,*data);
         if(!read)data->clear();jobs_.push_back({request,data,0,!read||count!=request.blocks});return true;
     }
-    bool deliver(NativeFrameMemory& memory,NativeAudioStreamQueue& stream,unsigned sectorBudget,unsigned& completed){
+    bool deliver(NativeFrameMemory& memory,NativeAudioStreamQueue& stream,unsigned sectorBudget,unsigned& completed){profiling::Scope profile(profiling::media_delivery);
         if(!active_)return false;completed=0;
         while(!jobs_.empty()){
             auto& job=jobs_.front();uint32_t sectors=uint32_t(job.data->size()/2048);
-            while(job.delivered<sectors&&sectorBudget){uint32_t source=job.delivered*2048,destination=job.request.destination+source;
-                for(unsigned i=0;i<2048;i+=4){const auto* p=job.data->data()+source+i;uint32_t value=uint32_t(p[0])<<24|uint32_t(p[1])<<16|uint32_t(p[2])<<8|p[3];if(!memory.write32(destination+i,value))return false;}
-                ++job.delivered;--sectorBudget;
+            if(job.delivered<sectors&&sectorBudget){
+                uint32_t count=(std::min)(sectors-job.delivered,sectorBudget),source=job.delivered*2048,bytes=count*2048;
+                if(!memory.write_bytes(job.request.destination+source,std::span<const uint8_t>(*job.data).subspan(source,bytes)))return false;
+                if(profiling::enabled()&&profiling::collecting)profiling::data.mediaBytes+=bytes;
+                job.delivered+=count;sectorBudget-=count;
             }
             if(job.delivered!=sectors)break;
             uint32_t status=job.error?0xC0000000:0x40000000,block=job.error?sectors-1:job.request.blocks;

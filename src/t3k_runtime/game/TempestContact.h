@@ -55,6 +55,7 @@ inline bool resolve_lane_contact(CommandMemory& m,const LaneContactInput& in,Lan
         out.kind=1;return true;
     }
     uint32_t walls,unused,cap;
+    if(services&&!services->surface_response(in.object,x>>16))return true;
     if(!m.read32(in.draw+0x20,x)||!m.read32(0x800DC254,walls)||!m.read32(in.object+0x10,unused)||!m.read32(0x801095A0,cap))return false;
     bool marked=((walls>>16)&(1U<<((x>>16)&15)))!=0;
     uint32_t raised=height+(int32_t(cap)>127?(marked?2:8):(marked?4:16));

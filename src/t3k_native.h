@@ -41,6 +41,7 @@
 #pragma once
 #include <SDL3/SDL.h>
 #include <cstdint>
+#include <array>
 #include <vector>
 #include <string>
 
@@ -68,10 +69,17 @@ struct Web {
   struct Vertex { float x, y, u, v; };     // game pixels; texels
   std::vector<Vertex> quads;               // 4 per lane
   uint32_t texture[256] = {};              // 16 x 16 YCrCbZ
+  bool gpuMapping=false;
 };
 
 // One glowing-number digit: the colour it blends toward and how strongly, as an image over its cell.
 struct Glyph {
+  bool gpuNumber=false;
+  float numberParams[28]{};
+  uint32_t numberTexture[512]{};
+  bool gpuRing=false;
+  float ringParams[16]{};
+  uint32_t ringTexture[128]{};
   float x = 0, y = 0, w = 0, h = 0;        // cell (game pixels)
   int pw = 0, ph = 0;                      // image size
   std::vector<uint32_t> rgba;              // premultiplied ARGB8888
@@ -121,11 +129,20 @@ using Vectors = Picture;          // (the vector layer: Picture::segs)
 uint32_t YccToXrgb(uint32_t ycc);
 
 // Build a captured picture.
-void BuildPicture(const nuon::Capture& cap, Picture* out);
+// Only the web's texture phase is overridden. Geometry, object ages, and the
+// original job word stay untouched; other texture animations need their own audit.
+struct PictureBuildClocks {
+    bool overrideWebTextureTick=false;uint32_t webTextureTick=0;bool preciseWeb=false;
+    const void* precisionData=nullptr;
+    bool (*precisionPoint)(const void*,uint32_t,uint32_t,double&,double&)=nullptr;
+    bool gpuRings=false;bool gpuNumbers=false;bool gpuWeb=false;
+    bool (*precisionTransform)(const void*,uint32_t,uint32_t,double&,double&)=nullptr;
+};
+void BuildPicture(const nuon::Capture& cap, Picture* out, const PictureBuildClocks& clocks = {});
 // Build the picture the renderers are about to draw, from the emulator's memory (the draw gate, step 3: the core asks
 // at the first drawing fetch; mpe = the fetching MPE, whose job word the web scroll reads). flip = the flip that will
 // show it. False if the memory isn't reachable.
-bool BuildPictureLive(int mpe, uint32_t flip, Picture* out);
+bool BuildPictureLive(int mpe, uint32_t flip, Picture* out, const PictureBuildClocks& clocks = {});
 inline void BuildVectors(const nuon::Capture& cap, Picture* out) { BuildPicture(cap, out); }
 
 // The segments between two consecutive pictures (t = 0: prev, 1: cur), in cur's order (so cur's ops still apply).
@@ -158,10 +175,17 @@ struct FeedbackState {
   uint32_t format=0;
   std::vector<uint8_t> pixels;
 };
+enum class FeedbackSampling { pinned, continuous, clocked, timeIntegrated };
 class Renderer {
  public:
   bool CaptureFeedback(SDL_Renderer*,FeedbackState&,std::string& error);
   bool RestoreFeedback(SDL_Renderer*,const FeedbackState&,std::string& error);
+  // Actual simulation samples, never generated/interpolated pictures. The
+  // default pins history until the final sample; timeIntegrated advances
+  // transport, coverage and feedback every sample. Clocked mode is diagnostic.
+  // Special feedback paths must receive samples even without a display refresh.
+  bool DrawSimulationSample(SDL_Renderer*,const Picture&,const SDL_FRect&,unsigned substep,unsigned divisions,std::string& error,const SDL_FRect* view=nullptr,unsigned numerator=1,FeedbackSampling feedback=FeedbackSampling::pinned);
+  void EndSimulationInterval(unsigned phase=0){simulationPhase_=simulationDivisions_=0;simulationBasePhase_=phase;continuousSimulation_=false;echoSimulation_=echoNeedsPin_=integratedSimulation_=false;}
   ~Renderer();
   // Draw pic (its segments: segs, e.g. interpolated) into dst. step = how much of one game step the zoom feedback
   // advances (1 = a whole picture, as the original; less for in-between frames: zoom^step, angle x step, fade^step).
@@ -180,6 +204,22 @@ class Renderer {
  private:
   void Resize(SDL_Renderer* ren, const SDL_FRect& dst);
   SDL_Texture* tex_[2] = {nullptr, nullptr};   // [cur_]: the last drawn picture; the other: the next one
+  SDL_Texture* simulationBase_ = nullptr;
+  bool drawingSimulation_ = false;
+  SDL_Texture* paintLayer_=nullptr;SDL_GPURenderState* temporalState_=nullptr;
+  bool drawingPaintLayer_=false,suppressPresentation_=false,integratedSimulation_=false;
+  SDL_Texture* ring_tex_ = nullptr;
+  struct NumberAtlas {SDL_Texture* texture=nullptr;std::array<uint32_t,512> source{};bool valid=false;};
+  std::vector<NumberAtlas> numberAtlases_;
+  struct RingImage {std::array<float,16> params{};std::array<uint32_t,128> source{};bool valid=false;};
+  std::vector<RingImage> ringImages_;
+  std::array<uint32_t,256> webPixels_{};bool webPixelsValid_=false;
+  std::array<uint32_t,128> ringSource_{};bool ringSourceValid_=false;
+  uint64_t profileWebHash_=0;std::vector<uint64_t> profileImageHashes_;
+  unsigned simulationPhase_=0,simulationDivisions_=0,simulationBasePhase_=0;
+  bool continuousSimulation_=false,echoSimulation_=false,echoNeedsPin_=false,drawingEchoTransform_=false;
+  std::array<double,6> echoUv_{1,0,0,1,0,0};
+  double echoFade_=1;
   SDL_Texture* web_tex_ = nullptr;             // the web surface's 16 x 16 texture
   std::vector<SDL_Texture*> glyph_tex_;        // kText images (uploaded once per picture)
   uint32_t glyph_flip_ = 0xFFFFFFFFu;

@@ -1,14 +1,15 @@
 #pragma once
 #include "native_controller_input.h"
 #include "native_mouse_input.h"
+#include "native_input_response.h"
 #include <SDL3/SDL.h>
 namespace tempest_native {
 // The live host owns relative-mouse capture and calls this exactly once per
 // input sample. SDL trackballs appear through the same relative mouse API.
-inline bool sample_sdl_mouse(NativeMouseSpinner& spinner,bool captured,NativeControllerPort& record){
+inline bool sample_sdl_mouse(NativeMouseSpinner& spinner,bool captured,NativeControllerPort& record,double gain=1){
     float x=0,y=0;SDL_MouseButtonFlags buttons=SDL_GetRelativeMouseState(&x,&y);
     if(!captured){spinner.clear_motion();record={};return true;}
-    if(!spinner.add_motion(x))return false;
+    if(!spinner.add_motion(double(x)*input_gain(gain)))return false;
     record=spinner.sample({true,bool(buttons&SDL_BUTTON_LMASK),bool(buttons&SDL_BUTTON_RMASK),bool(buttons&SDL_BUTTON_MMASK)});return true;
 }
 // Call after SDL_PollEvent/SDL_PumpEvents on the window's main thread. Device
