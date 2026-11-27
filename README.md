@@ -132,8 +132,8 @@ shows the exact line to paste when it is missing.
 **Tempest 3000**
 - Frogacuda's native reconstruction of the game's code, drawn by our GPU renderer, including the game's framebuffer
   effects. No emulator and no motion interpolation.
-- Picture > Framerate: 60Hz (the default), 120Hz (shows up to 120 pictures a second, as many as your display can - 90
-  on the Steam Deck) or Original. The game's speed is the same in every mode. Applies when the game restarts.
+- Picture > Framerate: 120Hz (the default: up to 120 pictures a second, as many as your display can - 90 on the
+  Steam Deck), 60Hz or Original. The game's speed is the same in every mode. Applies when the game restarts.
 - Timing (under Controls) sets the speed of each part of the game, in ticks a second. Defaults: gameplay 22, menus 24,
   level-end travel 22, level entry 30, level clear 48, bonus sequence 36, everything else 24.
 - Nuon pad layout: A fires, B fires the Superzapper, RB jumps; buttons are remappable. Stick response curve (default

@@ -31,7 +31,7 @@ struct NativeTimingProfile {
  bool highFramerate=true;unsigned presentationHz=0;std::array<unsigned,timingFields.size()> rates{};
  NativeTimingProfile(){for(size_t i=0;i<rates.size();++i)rates[i]=timingFields[i].initial;}
  static NativeTimingProfile read(){
-  NativeTimingProfile p;double mode=settings::Num("native_high_framerate",60);
+  NativeTimingProfile p;double mode=settings::Num("native_high_framerate",1);
   // Preserve saved On=1 / Off=0 choices; 60 adds capped presentation while
   // retaining the same high-rate simulation and effect integration.
   p.highFramerate=mode!=0;p.presentationHz=mode==60?60:0;

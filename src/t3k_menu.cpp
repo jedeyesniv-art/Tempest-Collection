@@ -68,7 +68,7 @@ void Install(bool from_launcher,bool profile_mode) {
     }
   }
   p.Header("PICTURE");
-  if(profile_mode)p.Choice("Framerate (restart to apply)", "native_high_framerate", {"0","60","1"}, {"Original","60Hz","120Hz"})->def_value="60";
+  if(profile_mode)p.Choice("Framerate (restart to apply)", "native_high_framerate", {"0","60","1"}, {"Original","60Hz","120Hz"})->def_value="1";
   p.Button("Fullscreen", menu::kToggleFullscreen);
   // the picture drawn at most this tall, then scaled to fit the selected viewport (lighter for weaker GPUs)
   p.Choice("Resolution", "resolution", {"0", "1440", "1080", "900", "720", "540"},
