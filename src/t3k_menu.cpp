@@ -53,7 +53,7 @@ void Install(bool from_launcher,bool profile_mode) {
   p.Header("CONTROLS");
   p.Choice("Controller", "controller", {"auto", "mouse"}, {"Any gamepad (last used)", "Mouse / trackball"})->refresh = FillControllerChoice;
   p.Number("Stick response curve", "t3k_stick_curve", 1, 5, 0.1, "%.1f", 2.5)->when=[] { return settings::Str("controller","auto")!="mouse"; };
-  p.Number("Sensitivity", "t3k_input_gain", 0.25, 3, 0.05, "%.2fx", 1);
+  p.Number("Sensitivity", "t3k_input_gain", 0.25, 3, 0.05, "%.2fx", 0.9);
   auto pad = [] { return settings::Str("controller","auto")!="mouse"; };
   p.Choice("Nudge assist (a tap = one lane)", "t3k_nudge", {"1", "0"}, {"On", "Off"})->when = pad;
   p.Number("  Hold to sweep after", "t3k_nudge_hold", 0, 0.5, 0.01, "%.2f s", 0.08)->when = [pad] { return pad() && settings::Num("t3k_nudge",1)!=0; };
@@ -68,7 +68,7 @@ void Install(bool from_launcher,bool profile_mode) {
     }
   }
   p.Header("PICTURE");
-  if(profile_mode)p.Choice("Framerate (restart to apply)", "native_high_framerate", {"0","60","1"}, {"Original","60Hz","120Hz"})->def_value="1";
+  if(profile_mode)p.Choice("Framerate (restart to apply)", "native_high_framerate", {"0","60","1"}, {"Original","60Hz","120Hz"})->def_value="60";
   p.Button("Fullscreen", menu::kToggleFullscreen);
   // the picture drawn at most this tall, then scaled to fit the selected viewport (lighter for weaker GPUs)
   p.Choice("Resolution", "resolution", {"0", "1440", "1080", "900", "720", "540"},

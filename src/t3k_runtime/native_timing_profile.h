@@ -9,14 +9,14 @@ namespace tempest_native {
 struct TimingField {const char* label;const char* key;unsigned initial;};
 // One table owns defaults, menu rows, snapshots and restart comparison.
 inline constexpr std::array<TimingField,17> timingFields{{
- {"Gameplay","native_gameplay_speed",24},
+ {"Gameplay","native_gameplay_speed",22},
  {"Menus / level select","native_menu_speed",24},
  {"Opening title","native_opening_speed",24},
- {"Level-end travel","native_travel_speed",20},
+ {"Level-end travel","native_travel_speed",22},
  {"Level clear","native_clear_speed",48},
  {"Bonus sequence","native_bonus_speed",36},
  {"Death","native_death_speed",24},
- {"Entry","native_entry_speed",24},
+ {"Entry","native_entry_speed",30},
  {"Shared transitions","native_transition_speed",24},
  {"Attract / assets","native_asset_speed",24},
  {"Game over","native_gameover_speed",24},
@@ -31,7 +31,7 @@ struct NativeTimingProfile {
  bool highFramerate=true;unsigned presentationHz=0;std::array<unsigned,timingFields.size()> rates{};
  NativeTimingProfile(){for(size_t i=0;i<rates.size();++i)rates[i]=timingFields[i].initial;}
  static NativeTimingProfile read(){
-  NativeTimingProfile p;double mode=settings::Num("native_high_framerate",1);
+  NativeTimingProfile p;double mode=settings::Num("native_high_framerate",60);
   // Preserve saved On=1 / Off=0 choices; 60 adds capped presentation while
   // retaining the same high-rate simulation and effect integration.
   p.highFramerate=mode!=0;p.presentationHz=mode==60?60:0;

@@ -20,22 +20,27 @@ widescreen, and the look is complemented by our custom CRT++ filter. Every impro
 Once this was done, fans of the series asked whether I was going to cover the other games in the series too, so I began
 to look into it. The PS Vita's TxK was an obvious choice given its rarity, and it was easy to include through the Vita3K
 libretro core. Very little work has gone into improving this already excellent game, but you can raise its resolution
-if your machine is capable. On the Steam Deck it needs to run at native resolution.
+if your machine is capable. On the Steam Deck it needs to run at native resolution. **Update:** we have fixed visual
+bugs in TxK's particle system and added support for PKG files.
 
-The real discovery of this project was Tempest 3000 on the Nuon. Before starting, I had no idea it existed, so finding
-out about it was exciting enough on its own. The Nuance emulator has recently reached the point where the game is fully
-playable, although early tests proved it challenging to get running at all, and the game generally needed a very
-powerful computer to give good results.
+The real discovery of this project was Tempest 3000 on the Nuon. Before starting, I wasn't even aware it existed, so
+finding out about it was exciting enough on its own. The Nuance emulator has recently reached the point where the game
+is fully playable, although early tests proved it challenging to get running at all, and the game generally needs a
+very powerful computer to give good results.
 
-In getting Tempest 3000 playing on PC, this project has also deconstructed its visual output to allow high resolution,
-smooth output, and finely tuned controls that work with modern controllers. Every effort has been made to reduce control
-latency and to give the game a feel that sits somewhere between the stiffer feel of Tempest 2000 and the smoother
-movement of TxK. The game is found online as a disc image; this project also includes a tool that unpacks and
-compresses it to save disc space.
+**Update:** the first release of this project was a mix of emulated gameplay with a redrawn renderer on top, along with
+various hacks to help performance. **Frogacuda** (who is working on an excellent port of Llamasoft's Minotaur Project:
+[OpenMinotaur](https://github.com/Frogacuda/OpenMinotaur)) has very kindly given us a fully native PC port of Tempest
+3000 that hooks into the work already done and improves on it by several orders of magnitude. All thanks and respect
+are due to him!
 
-The native Tempest 3000 implementation separates authored gameplay/effect timing from presentation. Picture >
-Framerate selects Original, 60Hz or 120Hz; the higher modes use fresh simulation samples. Motion interpolation and
-emulator run-ahead are retired. Timing values can be adjusted separately and apply on restart.
+Tempest 3000 can be found online as an ISO file; this project also includes a tool that unpacks and compresses it to
+make better use of disc space.
+
+At this point, Tempest 3000 is highly playable, incredibly beautiful and runs fantastically well. The general feel of
+the game is configurable, since the game's speed is set by its internal frame rate. The original game probably ran at
+around 30 fps; I prefer it slightly slower, but this is up to you. Testing shows that it plays very well on the Steam
+Deck too.
 
 The original 1981 arcade Tempest is also included, through MAME emulation, with some added work to thicken the vector
 graphics and make better use of modern displays.
@@ -64,12 +69,13 @@ settings menu, which pauses the game.
 |---|---|---|
 | Tempest (1981) | Arcade | MAME core, with our own vector renderer |
 | Tempest 2000 (1994) | Atari Jaguar | Virtual Jaguar core + our native renderer ("Remaster") |
-| Tempest 3000 (2000) | Nuon | Native reconstruction + GPU renderer |
+| Tempest 3000 (2000) | Nuon | Native reconstruction by Frogacuda + our GPU renderer |
 | Space Giraffe (2008) | PC | Your copy (Steam or elsewhere), started and patched by the launcher |
 | TxK (2014) | PS Vita | Vita3K core |
 | Tempest 4000 (2018) | PC | Your copy (Steam, Amazon, GOG...), started and patched by the launcher |
 
-The last panel, **More Llamasoft**, lists Jeff Minter's games on Steam and our other collections.
+The last panel, **More Llamasoft**, lists Jeff Minter's games on Steam, our other collections and Frogacuda's
+OpenMinotaur.
 
 ### You need to bring your own games
 
@@ -86,13 +92,12 @@ greys that game out and tells you exactly which file it is looking for and where
 | PS Vita firmware (for TxK) | `vita_firmware\PSVUPDAT.PUP` and `vita_firmware\PSP2UPDAT.PUP` | Both are free downloads from Sony's PS Vita system software pages. Installed automatically on TxK's first start (the `.PUP` files can be deleted afterwards). |
 | Space Giraffe, Tempest 4000 | Install them in Steam, or anywhere else | Not installed? The launcher's A button opens their store page. A copy from elsewhere (Amazon Games, GOG) is found in those stores' usual folders, or choose its program in the launcher's settings (Back): "Games from outside Steam". |
 
-The Nuon BIOS and Nuance core are not needed: Tempest 3000 now runs as native reconstructed C++ with the GPU renderer. See the [stable handoff notes](docs/T3K-STABLE-HANDOFF.md) for current settings, controls, limitations and validation.
+Tempest 3000 needs only its disc image: no Nuon BIOS and no emulator (the game runs as native C++).
 
 ### Requirements
 
 - Windows 10 / 11 (64-bit) with a Direct3D 12 capable GPU; a gamepad (Xbox layout) recommended. Keyboard works too.
-- Steam Deck uses Proton (see below); this native T3K checkpoint was validated on Windows, not on the Deck.
-- Tempest 3000 uses native game functions and GPU rendering; no Nuance runtime or run-ahead is required.
+- Steam Deck: runs through Proton (see below).
 
 ### Installing
 
@@ -125,19 +130,17 @@ shows the exact line to paste when it is missing.
 - Cheats menu, including Beastly mode.
 
 **Tempest 3000**
-- Native reconstructed gameplay and GPU rendering, including the game's framebuffer effects.
-- Picture > Framerate: Original, 60Hz or 120Hz. The latter two run real 120 Hz internal updates;
-  60Hz caps displayed frames. No motion interpolation is used.
-- Timing below Controls adjusts scene pacing (reference ticks/s). Defaults: gameplay/menus 24,
-  level-end travel 20, level clear 48, bonus sequence 36, all other phases 24.
-  Timing and framerate edits apply when restarting the game.
-- Native Nuon gamepad input: A fires, B activates the zapper, RB is R/jump; buttons are remappable.
-  Mouse/trackball is another controller choice: left click fires, right click jumps, middle click zaps.
-  Stick response curve (1–5, default 2.5) and sensitivity are adjustable.
-- Aspect ratio choices: 4:3 (original), 16:9 and 21:9, with proportional framing and responsive corner HUD placement.
-  Menus remain centered; their particle effects already extend into the wider view.
-- High scores, volume, resolution, vector style and optional CRT settings remain integrated.
-  Save states are unavailable in the normal scene-timing mode; existing state files remain untouched.
+- Frogacuda's native reconstruction of the game's code, drawn by our GPU renderer, including the game's framebuffer
+  effects. No emulator and no motion interpolation.
+- Picture > Framerate: 60Hz (the default), 120Hz (real 120 Hz updates, for 120 Hz displays) or Original. Applies when
+  the game restarts.
+- Timing (under Controls) sets the speed of each part of the game, in ticks a second. Defaults: gameplay 22, menus 24,
+  level-end travel 22, level entry 30, level clear 48, bonus sequence 36, everything else 24.
+- Nuon pad layout: A fires, B fires the Superzapper, RB jumps; buttons are remappable. Stick response curve (default
+  2.5) and sensitivity (default 0.9). Nudge assist: a tap of the stick moves exactly one lane, a hold sweeps.
+  Mouse / trackball is another controller choice: left click fires, right click jumps, middle click zaps.
+- Aspect ratio: 4:3 (original), 16:9 or 21:9, with the HUD placed in the corners.
+- High scores, volume, resolution, vector style and the CRT settings. Save states are not available yet.
 - The disc compression tool (`.nuz`: the music re-encoded as Ogg Vorbis, the rest untouched).
 
 **Space Giraffe** (Steam)
@@ -165,15 +168,16 @@ shows the exact line to paste when it is missing.
 ### Known issues
 
 - Space Giraffe: the in-game "hi-res objects" option is not remembered between sessions (a bug in the game itself).
-- Tempest 3000 on the Steam Deck: possibly a brief hitch at the start of a level while its music track is decoded.
+- Tempest 3000's 120Hz mode needs a 120 Hz display: on the Steam Deck's 90 Hz screen it runs at half speed, so keep
+  the default 60Hz there.
 - TxK: touchscreen input on the Steam Deck is untested.
-- Tempest 3000: high-rate framebuffer effects are visually tuned approximations; repeated fractional
-  resampling can soften displaced trails. Original uses full per-tick effects.
+- Tempest 3000: at 60Hz / 120Hz the framebuffer effects (trails, zooms) are tuned approximations of the original's;
+  Original framerate uses the exact per-tick effects.
 
 ### Building from source
 
-Everything needed is in this repository: our programs (`src`), the two heavily changed emulator cores
-(`third_party/virtualjaguar`, `third_party/NuanceResurrection`, each with a `LLAMASOFT-NOTES.txt`), and our changes to
+Everything needed is in this repository: our programs (`src`; Tempest 3000's native code in `src/t3k_runtime`), the
+heavily changed Virtual Jaguar core (`third_party/virtualjaguar`, with a `LLAMASOFT-NOTES.txt`), and our changes to
 MAME and Vita3K as patches (`third_party/patches`). Windows, Visual Studio 2026 (18) with its clang, CMake and Ninja,
 Git Bash, Python 3 with Pillow for the art tools.
 
@@ -193,10 +197,11 @@ Git Bash, Python 3 with Pillow for the art tools.
 - Tempest (1981): Dave Theurer, Atari. Tempest 2000, Tempest 3000, Space Giraffe, TxK, Tempest 4000: Jeff Minter,
   Llamasoft. All games belong to their respective owners. This project ships none of them; the launcher shows their
   cover art and plays a few of their sounds.
+- Tempest 3000's native reconstruction: [Frogacuda](https://github.com/Frogacuda) - see also his
+  [OpenMinotaur](https://github.com/Frogacuda/OpenMinotaur).
 - [Virtual Jaguar libretro](https://github.com/libretro/virtualjaguar-libretro) (GPL-3.0),
   [MAME](https://github.com/libretro/mame) (GPL-2.0+),
-  [Nuance Resurrection](https://github.com/andkrau/NuanceResurrection) (its author's licence; BSD-3-Clause for the
-  open-source contributions), [Vita3K libretro](https://github.com/WizzardSK/vita3k-libretro) (GPL-2.0),
+  [Vita3K libretro](https://github.com/WizzardSK/vita3k-libretro) (GPL-2.0),
   [SDL 3](https://libsdl.org) (zlib), [libsndfile](https://libsndfile.github.io/libsndfile/) (LGPL-2.1).
   Programs containing GPL code (`t2k.exe`, the cores) are distributed under the GPL; the release's `licences` folder
   has every licence text and says where each part's source is.

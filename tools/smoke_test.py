@@ -44,6 +44,9 @@ def run(name, args, pictures, expect=(), timeout=900, min_lit=0.03):
     """Runs one program; returns (name, ok, note, pictures). min_lit: the share of its pictures that must be lit
     (play pictures and the launcher are 20 %+, menus 4-6 %, t81's thin vectors under 2 %, a HUD alone ~1 %)."""
     log = os.path.join(OUT, name + '.txt')
+    for p in pictures:   # a picture left from an earlier run must never pass for this one
+        if os.path.exists(p):
+            os.remove(p)
     t0 = time.time()
     try:
         with open(log, 'w') as f:
@@ -96,10 +99,12 @@ def main():
     if 't3k' in want:
         # native T3K (2026-11-25): no headless mode; --check plays a scripted game in a small window (boot -> level
         # select -> play). Since Frogacuda's stable checkpoint (2026-11-26, 120 Hz scene timing) it plays on until
-        # --fine-check-limit gameplay updates (~35 s, ~4000 pictures); picture 3900 is in play on level 1.
+        # --fine-check-limit gameplay updates (~3,860 pictures at the 60 Hz default and gameplay 22, 2026-11-27);
+        # picture 3700 is in play on level 1.
         headless.append(('t3k play', [os.path.join(B, 't3k.exe'), '--check', '--fine-check-limit=600',
-                         '--winsize=960x720', ud('t3k'), '--winshot=3900:' + o('t3k_play.bmp')], [o('t3k_play.bmp')],
-                         ['Native selected level', 'Native bounded soak'], 300, 0.10))
+                         '--winsize=960x720', ud('t3k'), '--winshot=3700:' + o('t3k_play.bmp')], [o('t3k_play.bmp')],
+                         ['Native selected level', 'Native bounded soak'], 300, 0.08))
+        # (8 %: T3K's play picture is mostly black space - a normal level-1 picture read 9.8 % against 10 %)
     if 't81' in want:
         for v in ('tempest', 'temptube'):
             headless.append((f't81 {v}', [os.path.join(B, 't81.exe'), '--headless', '--frames=610', ud('t81_' + v),

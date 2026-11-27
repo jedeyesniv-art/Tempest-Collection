@@ -1161,6 +1161,18 @@ Frogacuda's native T3K is in (CLAUDE.md "NATIVE T3K"). The owner's plan, in orde
 Before release: README (Emulation++ / T3K paragraphs out of date, credit Frogacuda and link his OpenMinotaur: https://github.com/Frogacuda/OpenMinotaur - also in
 the launcher's MORE LLAMASOFT list), commit author
 -> his GitHub identity, package + smoke test, play folder for the Deck.
+2026-11-27 (owner): DONE - README with the owner's new intro + Frogacuda credited (and in MORE LLAMASOFT); his three
+commits authored as Frogacuda <115885173+Frogacuda@users.noreply.github.com>; the owner's JohnGames tunes are the
+defaults (gameplay 22, travel 22, entry 30, sensitivity 0.9); Framerate default 60Hz; Nuance credit / licence out
+(nothing of Nuance is built or shipped; disc_image is our own code). Smoke test: T3K play picture 3700 at 8 %, stale
+pictures deleted before each run. LEFT: merge to main, package + smoke test, play folder / Deck.
+Open (not for this release unless the owner says):
+- 120Hz mode runs at HALF SPEED on the Deck's 90 Hz screen (owner): a timing bug (game speed tied to presentation
+  when the display can't keep up?), hidden by the 60Hz default. Investigate before recommending 120Hz.
+- Save states (owner asked "can we add them back?", not yet): the shipped build (TEMPEST_T3K_TIMING_RESEARCH, scene
+  timing) refuses save / load; the 24 Hz build has Frogacuda's working states (a phase checkpoint + the journal of
+  inputs since, replayed with output muted and checked; t3k_main.cpp stateAction, native_continuation.h). His docs:
+  "Enabling high-rate continuation states is separate work" - the replay must reproduce the fine 120 Hz step schedule.
 
 ## Ideas from Frogacuda's native T3K (owner 2026-11-27: "write this up to try another time"; PARKED)
 How his native T3K works (from docs/T3K-NATIVE.md, T3K-TIME-INTEGRATED-FEEDBACK.md, T3K-SCENE-PRECISION.md,

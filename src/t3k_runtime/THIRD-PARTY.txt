@@ -12,8 +12,9 @@ that project's source and attribution; it does not assign a new blanket license.
 Standalone disc_image.cpp / disc_image.h were copied from the collection's
 vendored NuanceResurrection fork at collection commit
 47bdc7a0e3c12d71ff99258b0e96b55875ed8fe0. They provide ISO/NUZ file access,
-not emulated instruction execution. Preserve the vendored Nuance license and
-its LLAMASOFT-NOTES.txt alongside this attribution.
+not emulated instruction execution. They are the collection's own code (its
+.nuz compressed disc support, written for that fork), not Nuance's, so no
+Nuance code or license is part of the native Tempest 3000.
 
 stb_vorbis.c: Sean Barrett and contributors, MIT or public domain, at the
 recipient's choice. The full license texts and notices are at the end of that

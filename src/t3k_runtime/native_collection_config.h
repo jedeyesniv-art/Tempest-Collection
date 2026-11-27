@@ -38,7 +38,7 @@ vsync = 1
 game_speed = 20
 menu_speed = 30
 native_menu_speed = 24
-native_high_framerate = 1
+native_high_framerate = 60
 warp_speed = 60
 warp_ramp = 0.5
 volume = 1
@@ -56,7 +56,7 @@ state_slot = 1
 keep_high_scores = 1
 controller = auto
 t3k_stick_curve = 2.5
-t3k_input_gain = 1
+t3k_input_gain = 0.9
 cheat_inf_lives = 0
 )");
     settings::Load((collection.userdata/"t3k_settings.txt").string());

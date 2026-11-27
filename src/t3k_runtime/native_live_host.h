@@ -264,7 +264,7 @@ private:
         if(!mouseMode_&&known&&settings::Num("t3k_nudge",1)!=0){
             auto& n=nudge_;
             double perUnit=768.0/65536*(step_.divisions?step_.fraction():1.0),dt=1.0/(std::max)(rate_,1.0);
-            int top=(std::clamp)(shape_stick_axis(32767,settings::Num("t3k_stick_curve",2.5),settings::Num("t3k_input_gain",1))/256,40,90);
+            int top=(std::clamp)(shape_stick_axis(32767,settings::Num("t3k_stick_curve",2.5),settings::Num("t3k_input_gain",0.9))/256,40,90);
             bool quiet=true;for(int v:n.recent)quiet&=v==0;
             if(quiet&&!n.active)n.cmd=int32_t(position)/65536.0; // nothing in flight: the game's own position
             int sign=raw>19?1:raw<-19?-1:0;
@@ -350,7 +350,7 @@ private:
         bool mouse=settings::Str("controller","auto")=="mouse";
         if(mouse!=mouseMode_){mouseMode_=mouse;suppress_=true;mouse_.clear_motion();reseed_=true;}
         SDL_SetWindowRelativeMouseMode(window_,mouseMode_&&!check_);
-        if(mouseMode_){uint8_t previous=uint8_t(record_.words[2]>>8)&0xFE;if(!sample_sdl_mouse(mouse_,!check_,record_,settings::Num("t3k_input_gain",1)))return false;
+        if(mouseMode_){uint8_t previous=uint8_t(record_.words[2]>>8)&0xFE;if(!sample_sdl_mouse(mouse_,!check_,record_,settings::Num("t3k_input_gain",0.9)))return false;
             // Relative host motion already has an unambiguous direction. Seed
             // the hardware decoder's direction latch to avoid its zero-history
             // wrap quirk; gameplay still uses its original sensitivity/clamp.
@@ -366,8 +366,8 @@ private:
             // button is a bindable one, LB by default). The collection remaps only its eleven bindable buttons.
             auto keyboard=native_pad_record(sample_sdl_pad(nullptr,SDL_GetKeyboardState(nullptr)));
             auto input=sample_sdl_pad(pad_);input.held&=pad_button(PadButton::up)|pad_button(PadButton::down)|pad_button(PadButton::left)|pad_button(PadButton::right);
-            input.leftX=shape_stick_axis(input.leftX,settings::Num("t3k_stick_curve",2.5),settings::Num("t3k_input_gain",1));
-            input.leftY=shape_stick_axis(input.leftY,settings::Num("t3k_stick_curve",2.5),settings::Num("t3k_input_gain",1));
+            input.leftX=shape_stick_axis(input.leftX,settings::Num("t3k_stick_curve",2.5),settings::Num("t3k_input_gain",0.9));
+            input.leftY=shape_stick_axis(input.leftY,settings::Num("t3k_stick_curve",2.5),settings::Num("t3k_input_gain",0.9));
             input.connected=true;record_=native_pad_record(input);
             record_.words[1]|=keyboard.words[1]|uint32_t(t3k_menu::NuonButtons(controls::Held(pad_)))<<16;
         }

@@ -254,7 +254,7 @@ $added | Where-Object { $_.Name -like "*settings.txt" } | ForEach-Object {
 }
 
 # Licences: each third-party licence text, and where the source is. Everything is in this project's repository:
-# Virtual Jaguar and Nuance vendored (third_party/), MAME and Vita3K as our patches (third_party/patches/, copied here
+# Virtual Jaguar vendored (third_party/), MAME and Vita3K as our patches (third_party/patches/, copied here
 # too) on the upstream commits tools/get_third_party.sh fetches.
 $lic = Join-Path $dist "licences"
 New-Item -ItemType Directory -Force $lic | Out-Null
@@ -262,7 +262,6 @@ Copy-Item (Join-Path $repo "src\t3k_runtime\THIRD-PARTY.txt") (Join-Path $lic "T
 $tp = Join-Path $repo "third_party"
 $texts = @(
     @("Virtual Jaguar (libretro) - LICENSE.txt", "virtualjaguar\LICENSE"),
-    @("Nuance Resurrection - License.txt", "NuanceResurrection\License.txt"),
     @("MAME (libretro) - COPYING.txt", "mame-libretro\COPYING"),
     @("Vita3K (libretro) - COPYING.txt", "vita3k-libretro\COPYING.txt"),
     @("SDL 3 - LICENSE.txt", "SDL\LICENSE.txt"),
@@ -288,7 +287,6 @@ Tempest Collection's GitHub repository:
   src\t3k_runtime\                native Tempest 3000 reconstruction and standalone NUZ / Vorbis readers
   src\                            the launcher and the four game programs (t2k, t3k, t81, txk)
   third_party\virtualjaguar\      Virtual Jaguar (GPL-3), with our changes (LLAMASOFT-NOTES.txt)
-  third_party\NuanceResurrection\ Nuance Resurrection, with our changes (LLAMASOFT-NOTES.txt)
   third_party\patches\            our changes to MAME and Vita3K (also in patches\ here), applied by
                                   tools\get_third_party.sh to:
                                     MAME (libretro)   https://github.com/libretro/mame at 5f5a0774

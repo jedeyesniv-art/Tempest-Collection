@@ -29,7 +29,7 @@ int main(){
     activeTiming=NativeTimingProfile::read();require(!timing_changes_pending(),"fresh run has no pending timing changes");
     settings::Set("native_gameplay_speed","25");settings::Set("native_high_framerate","0");
     require(timing_changes_pending(),"pending timing and picture settings require restart");
-    require(activeTiming.highFramerate&&activeTiming.rates[0]==24,"pending settings cannot change active run");
+    require(activeTiming.highFramerate&&activeTiming.rates[0]==timingFields[0].initial,"pending settings cannot change active run");
     auto pending=NativeTimingProfile::read();auto coarse=pending.cadence(SceneTimingKind::none,true);
     require(coarse.referenceHz==25&&coarse.divisions==1&&coarse.numerator==1,"off performs a complete original-strength tick at configured speed");
     activeTiming=pending;require(!timing_changes_pending(),"restart applies all timing settings together");
