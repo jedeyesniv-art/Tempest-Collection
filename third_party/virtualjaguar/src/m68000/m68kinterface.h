@@ -86,6 +86,7 @@ unsigned int m68k_diag_interrupt_count(void);
 /* Llamasoft on the Jaguar: host traps on line-A words (see IllegalOpcode). */
 extern int (*m68kHostTrap)(unsigned opcode);
 unsigned int M68KHostGetReg(int n);   /* 0-7 = d0-d7, 8-15 = a0-a7 */
+unsigned int M68KHostGetCCR(void);     /* condition codes: X N Z V C = bits 4-0 */
 void M68KHostSetReg(int n, unsigned int v);
 unsigned int M68KHostGetPC(void);
 unsigned int m68k_read_disassembler_16(unsigned int address);

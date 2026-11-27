@@ -32,6 +32,7 @@
 #include "pads.h"
 #include "gpulog.h"
 #include "jagsurvey.h"
+#include "t2k_native/t2k_native.h"
 #include "host.h"
 #include "remaster.h"
 #include "xbr.h"
@@ -276,7 +277,7 @@ int main(int argc, char** argv) {
   std::vector<std::pair<std::string, std::string>> sets;
   int trace0 = -1, trace1 = -1, title_at = -1, save_at = -1, load_at = -1, reset_at = -1;
   std::vector<int> menuback_at;   // --menuback=F[,F..]: B (back) in the game's menus at these frames
-  std::string save_file, load_file, gpulog_spec, survey_spec, start_state, winshot_file;
+  std::string save_file, load_file, gpulog_spec, survey_spec, start_state, winshot_file, oracle_spec;
   int winshot_at = -1;
   std::string winshots_prefix;   // --winshots=F0:F1:<prefix>: every present from frame F0 to F1 -> <prefix>_<n>.bmp, quit
   int winshots_f0 = -1, winshots_f1 = -1;
@@ -367,6 +368,8 @@ int main(int argc, char** argv) {
       winshot_file = v.substr(c + 1);
     } else if (a.rfind("--survey=", 0) == 0) {
       survey_spec = val("--survey=");
+    } else if (a.rfind("--oracle=", 0) == 0) {   // native T2K study: check a ported routine (t2k_native.h)
+      oracle_spec = val("--oracle=");
     } else if (a.rfind("--gpulog=", 0) == 0) {
       gpulog_spec = val("--gpulog=");
     } else if (a.rfind("--title=", 0) == 0) {
@@ -419,6 +422,7 @@ int main(int argc, char** argv) {
   const fs::path udir = fs::absolute(userdata);
   if (!remaster::Install()) std::fprintf(stderr, "remaster: install failed\n");
   remaster::SetEnabled(settings::Num("remaster", 1) != 0);
+  if (!oracle_spec.empty()) t2knative::InstallOracle(oracle_spec.c_str());
   if (!start_state.empty()) {   // --state=<file>: start from a save state (tests)
     std::ifstream sf(start_state, std::ios::binary);
     std::vector<uint8_t> st((std::istreambuf_iterator<char>(sf)), {});
@@ -518,6 +522,7 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "%d frames in %.2f s (%.0f fps, %.1fx real time)\n", frames, secs, frames / secs,
                  frames / secs / host::Fps());
     if (!wav.empty()) WriteWav(wav, all_audio, uint32_t(host::SampleRate()));
+    t2knative::OracleReport();
     eeprom.SaveIfChanged();
     host::Unload();
     SDL_Quit();

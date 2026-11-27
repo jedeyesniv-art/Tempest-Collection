@@ -1196,6 +1196,8 @@ To try (none started):
 3. A native T2K / D2K by his method, only if ever worth it (T2K plays very well emulated): keep the original memory
    map, port function by function against the emulator's memory, swap a piece at a time. T2K would be easier than T3K
    (we have the source: mwenge's yak.s + src/gpu/*.gas).
+   STARTED 2026-11-27 (owner: gather information and test): symbol map for the whole ROM, an oracle in t2k.exe, the
+   first routine (collie) identical on ~45,000 calls. Findings and next steps: NOTES.md "Native T2K study".
 4. Replay-based save states for any future native port.
 Cost to remember: native T3K lost run-ahead and normal-mode save states - a rewrite gives up the emulator's free
 features unless they are rebuilt.

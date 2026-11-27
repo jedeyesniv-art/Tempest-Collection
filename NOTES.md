@@ -502,6 +502,49 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
 
 ## Tempest 2000
 
+### Native T2K study (started 2026-11-27; PLAN.md "Ideas from Frogacuda's native T3K" item 3)
+Question: can Frogacuda's T3K method (keep the memory layout, port function by function, prove each against the
+emulator) work for T2K? First answer: YES for the 68K game logic - the first ported routine matched on every call.
+- SYMBOLS: the owner's ROM is mwenge's rebuilt cartridge byte for byte (md5 602bc995..., his Makefile's check), and
+  all 16,668 code lines of reference/tempest2k/symout/yak.lst match the ROM (relocated longs allowed for). So every
+  label / variable in yak.s has its real address: text $802000 (ROM), data $4000, bss $EFA8 (RAM; checked against
+  the ROM's own operands: sync $E366, modnum $EA06). tools/t2k_symbols.py: `name ...` (look up), `--out f` (sorted
+  map, 3,106 symbols), `--header src/t2k_native/t2k_symbols.h` (constexpr addresses, generated), `--callers label`
+  (the return address after every bsr / jsr, with the ROM word there - the trap's expected word). REMASTER.md's
+  hand-mapped addresses predate this: use the map from now on.
+- What would have to become native: the 68K logic (yak.s: 16.7k code lines, 1,961 labels, ~2,400 if all data is
+  counted; the source is commented, unlike T3K's MPE code which Frogacuda had to reverse); the GPU draw modes
+  (mostly native already: remaster.cpp); the Object Processor / blitter 2D (HUD screen3, fonts, logos - still
+  emulated); the SOUND: tunes are ProTracker .mod files (src/sounds) + samples, played by the Imagitec synth, which is
+  only a binary (src/dat/moomoo.dat: its 68K entry points INIT_SOUND $4040 / NT_VBL $4046 + the DSP code it
+  uploads, "Copyright 1993 Imagitec Design"). Sound is the one part with no source: a mod player would sound
+  different; keeping the DSP emulated for sound only is the hybrid answer.
+- THE ORACLE (src/t2k_native/): t2k.exe --oracle=collie [--headless]. Trap at the routine's entry: snapshot main RAM,
+  run the C++ port on the entry state (jag_mem.h: reads the machine, keeps its writes aside; 68K word / byte register
+  rules). Trap after each call site (stack must be entry + 4): compare d0-d7 / a0-a7, the Z flag (core: new
+  M68KHostGetCCR) and all 2 MB of RAM (skipping the stack below the entry a7). Summary + which paths ran at exit.
+- Hardware writes into RAM: the Object Processor writes back into its lists (list1 / list2, zerend..blist $EAAA-
+  $EF92) while it displays - seen as list1+31 / +36 changing during a collie call. Counted as "foreign", not misses.
+- RESULT, collie + rannum ($80C604, ~60 instructions, 15 call sites; src/t2k_native/collie.cpp): identical on all
+  ~45,000 calls checked - attract demo 20,000 frames (7,712 calls), play / cheatplay / prebonus / duelplay states
+  3,000 frames each with fire held. Paths reached: miss, hit (bullet stopped), hit in head to head. NOT reached yet:
+  zappit inside collie (the enemies call zappit themselves first when the Superzapper runs), spike spatter
+  (xle / dxle / rannum: needs spikes = later levels and solid mode).
+- Press names for tests: a = Jag A (Superzapper), b = Jag B (fire), y = Jag C (jump).
+- Next steps: (1) a LIVE swap (--native=collie): the trap runs the port on the real memory, sets the registers / Z and
+  skips the routine (traps::Install's skip + M68KHostSetReg exist; a SetCCR is needed), then check whole runs stay
+  identical (RAM hash per frame vs a plain run). (2) Port a whole tree (run_flipper + flipmodes) to see how the
+  effort scales. (3) Decide with the owner what a native T2K is FOR (T2K plays very well emulated): logic at 120 Hz
+  like T3K's scene clocks, no emulator on the Deck, or nothing worth the cost (a rewrite loses run-ahead / save states
+  unless rebuilt).
+- Latency (owner asked 2026-11-27: would a port make run-ahead unnecessary?): not by itself - a faithful port keeps
+  the game's own delays (pad + logic in the Frame VBL, drawn into the back buffer next frame, shown at the swap after)
+  plus our interpolation's. Restructuring could remove them (draw from the state right after the tick; logic at
+  120 Hz instead of blending - T2K counts in whole 60 Hz ticks, so every speed / timer needs rescaling, T3K's scene
+  clock work). Run-ahead would become CHEAP natively: T2K's logic runs to completion inside each VBL, so between
+  frames all state is in RAM (unlike T3K's C++ call stacks) - a state = a RAM copy. Not measured yet: T2K's real
+  input -> picture frames (from play.state: press left at F, first frame the claw moves in RAM / on screen).
+
 ### Findings
 - Game source: readpad/dopad at yak.s ~17428; pad_now bit layout xxApxxBx RLDU741* xxCxxxox 2580369#.
   `roconon` = rotary controller support built into the game.

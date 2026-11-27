@@ -974,6 +974,7 @@ int (*m68kHostTrap)(unsigned opcode) = NULL;
 unsigned int M68KHostGetReg(int n) { return regs.regs[n & 15]; }
 void M68KHostSetReg(int n, unsigned int v) { regs.regs[n & 15] = v; }
 unsigned int M68KHostGetPC(void) { return m68k_getpc(); }
+unsigned int M68KHostGetCCR(void) { return (XFLG ? 16 : 0) | (NFLG ? 8 : 0) | (ZFLG ? 4 : 0) | (VFLG ? 2 : 0) | (CFLG ? 1 : 0); }
 
 unsigned long IllegalOpcode(uint32_t opcode)
 {
