@@ -1151,8 +1151,8 @@ Frogacuda's native T3K is in (CLAUDE.md "NATIVE T3K"). The owner's plan, in orde
    from our Step mode there (measured 2026-11-25: speed = x * 768/65536 lanes a picture, deadzone ~20/127, cap at
    x 90; nothing below 0.234 lanes a picture). Also ask: jump on RT as well as RB (our old layout; native has RT =
    C-right).
-2. Bonus rounds: a report says they don't fully work - find them in src/t3k_runtime/game (TempestSessionWarpBonus.h
-   and around) and test them.
+2. DONE 2026-11-27: bonus rounds play correctly with Frogacuda's R3 (owner tested). (Was: a report said they didn't
+   fully work - code in src/t3k_runtime/game, TempestSessionWarpBonus.h and around.)
 3. DONE: game speed works (ported by Frogacuda; the owner had it set too high). Default play speed now 20 (owner: "feels really good").
 4. General performance fixes.
 5. DONE 2026-11-27: the leftover web (part of the web staying after Level 6, the whole web in bonus rounds; reported
