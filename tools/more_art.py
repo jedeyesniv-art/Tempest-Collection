@@ -7,9 +7,10 @@ python -I tools/more_art.py [--download] [--sheet out.png]
 
 Inputs: art\\more_src\\<appid>_header.jpg for the Steam games; our two other collections' wide Steam art from their
 repos (C:\\Gridios\\Launcher\\assets\\steam\\wide capsule.png, C:\\LlamatronRecomp\\res\\steam\\wide.png), copied
-into art\\more_src\\ the first time (so later runs don't need those repos).
+into art\\more_src\\ the first time (so later runs don't need those repos); Frogacuda's OpenMinotaur: its title screen
+(owner's capture, 2026-11-27) cropped to 920 x 430 below the FPS overlay as art\\more_src\\openminotaur_wide.png.
 Outputs (art\\ is not in git):
-  art\\panels\\more.png          the panel's cover (3:4, 1200 x 1600): the nine wide pictures as a wall
+  art\\panels\\more.png          the panel's cover (3:4, 1200 x 1600): the wide pictures as a wall
   art\\panels\\more_<key>.png    each game's wide picture (the list rows; key = the launcher's MoreItem key)
 """
 import os
@@ -34,6 +35,7 @@ ITEMS = [
     ('jeff_minter_story', '2236680', None),
     ('i_robot', '2932910', None),
     ('minotaur_project', None, r'C:\Gridios\Launcher\assets\steam\wide capsule.png'),
+    ('openminotaur', None, None),   # Frogacuda's: art\more_src\openminotaur_wide.png, cropped from his title screen
     ('llamasoft_st', None, r'C:\LlamatronRecomp\res\steam\wide.png'),
 ]
 
@@ -81,7 +83,7 @@ def main():
         col, row = i % 2, i // 2
         x = gap + col * (cw + gap)
         y = 70 + row * (ch + gap) + (ch // 2 if col else 0)
-        if y + ch > PANEL_H - 30:
+        if y >= PANEL_H:   # (the last ones run into the bottom fade)
             continue
         cover.paste(im.resize((cw, ch), Image.LANCZOS), (x, y))
     # a soft fade at the bottom (the launcher's reflection reads the bottom third)

@@ -81,7 +81,8 @@ constexpr const char* kSteamAppSG = "27800";     // Space Giraffe on Steam (stor
 
 enum class Kind { Program, Steam, NotYet, Promo };   // Promo: the MORE LLAMASOFT panel (A opens its list)
 
-// The MORE LLAMASOFT list: Jeff's games on Steam (by year), then our other two collections (free, on GitHub).
+// The MORE LLAMASOFT list: Jeff's games on Steam (by year), then the free ones on GitHub: our other two collections
+// and Frogacuda's OpenMinotaur (the Minotaur Project games natively on Windows, Android and ARM devices).
 struct MoreGame {
   const char* key;     // its picture: art\more_<key>.png (tools/more_art.py)
   const char* title;
@@ -102,6 +103,8 @@ const MoreGame kMore[] = {
     {"i_robot", "I, ROBOT", "2025 - STEAM", "2932910", "https://store.steampowered.com/app/2932910/I_Robot/"},
     {"minotaur_project", "MINOTAUR PROJECT REMASTERED", "JEFF MINTER'S MINOTAUR PROJECT iOS GAMES ON PC", nullptr,
      "https://github.com/jedeyesniv-art/MinotaurProjectRemastered"},
+    {"openminotaur", "OPENMINOTAUR - BY FROGACUDA", "MINOTAUR PROJECT iOS GAMES: WINDOWS, ANDROID, ARM", nullptr,
+     "https://github.com/Frogacuda/OpenMinotaur"},
     {"llamasoft_st", "LLAMASOFT ON THE ST REMASTERED", "JEFF MINTER'S ATARI ST GAMES, REMASTERED", nullptr,
      "https://github.com/jedeyesniv-art/Llamatron-PC-Recomp"},
 };

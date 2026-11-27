@@ -765,7 +765,7 @@ void DrawMore(SDL_Renderer* ren, int sel, double dt_in, const std::string& messa
   for (int i = 0; i < n; ++i) {
     const float y = top + row_y(i) - g_more_scroll;
     if (g_more_ours >= 0 && i == g_more_ours) {
-      const std::string lab = "OUR OTHER REMASTERED COLLECTIONS - FREE";
+      const std::string lab = "FREE ON GITHUB - OUR OTHER COLLECTIONS AND MORE";
       Text(lab, w / 2, y - label_h + u * 5, fit(lab, u * 0.95f, cw), {120 / 255.f, 200 / 255.f, 1}, 1, 0, 0.8f);
     }
     if (y > bottom || y + rh < top) continue;
