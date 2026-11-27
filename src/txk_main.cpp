@@ -52,6 +52,7 @@
 #include "settings.h"
 #include "volume.h"
 #include "txk_menu.h"
+#include "vita_pkg.h"
 #include "lr_host.h"
 
 namespace fs = std::filesystem;
@@ -265,11 +266,13 @@ bool WriteWav(const std::string& path, const std::vector<int16_t>& s, uint32_t r
   return true;
 }
 
-// The game: a folder holding eboot.bin and sce_sys\param.sfo (TxK: PCSB00494).
+// The game: a folder holding eboot.bin and sce_sys\param.sfo (TxK: PCSB00494), else TxK's PSN package (.pkg, any
+// region: the core runs it with its licence, vita_pkg.h).
 std::string FindGame(const std::string& given) {
   if (!given.empty()) return given;
   const fs::path base(SDL_GetBasePath());
-  for (const fs::path& d : {base, base / "game", base.parent_path().parent_path()}) {
+  const std::vector<fs::path> dirs = {base, base / "game", base.parent_path().parent_path()};
+  for (const fs::path& d : dirs) {
     std::error_code ec;
     for (auto& e : fs::directory_iterator(d, ec)) {
       if (e.is_directory() && fs::exists(e.path() / "eboot.bin") && fs::exists(e.path() / "sce_sys" / "param.sfo") &&
@@ -277,7 +280,8 @@ std::string FindGame(const std::string& given) {
         return e.path().string();
     }
   }
-  return {};
+  const fs::path pkg = vitapkg::FindTxK(dirs);
+  return pkg.empty() ? std::string() : pkg.string();
 }
 
 // The firmware .pup files into system\vita3k\ under the names the core reads them by (hard links: no second copy).
@@ -442,12 +446,27 @@ int main(int argc, char** argv) {
   txk_menu::Install(from_launcher);
   game = FindGame(game);
   if (game.empty()) {
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TxK", "Put your TxK game folder (e.g. PCSB00494) in the game folder next to the program.",
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TxK", "Put your TxK game folder (e.g. PCSB00494) or its .pkg in the game folder next to the program.",
                              nullptr);
     return 1;
   }
   const fs::path system_dir = base / "system";
   PlaceFirmware(system_dir / "vita3k");
+  if (vitapkg::LowerExt(game) == ".pkg") {   // a PSN package: the core needs its licence beside it (or installed)
+    vitapkg::Info info;
+    const bool known = vitapkg::ReadInfo(game, &info);
+    const fs::path lic = known ? vitapkg::FindLicence(game, info, system_dir / "vita3k", true) : fs::path{};
+    std::fprintf(stderr, "game: package %s (%s), licence %s\n", fs::path(game).filename().string().c_str(),
+                 info.content_id.c_str(), lic.empty() ? "NOT FOUND" : lic.string().c_str());
+    if (lic.empty()) {
+      const std::string msg = "TxK's package needs its licence (zRIF). Put the zRIF text in a file named\n    " +
+                              fs::path(game).stem().string() + ".zrif\nnext to the package (" +
+                              fs::path(game).parent_path().string() + "), or its work.bin / .rif licence.";
+      std::fprintf(stderr, "%s\n", msg.c_str());
+      if (!headless) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TxK", msg.c_str(), nullptr);
+      return 1;
+    }
+  }
   // Core options: vita3k_* keys from the settings file, then --opt.
   {
     std::ifstream f(udir / "txk_settings.txt");

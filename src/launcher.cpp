@@ -43,6 +43,7 @@
 #include "steam_shortcut.h"
 #include "settings.h"
 #include "t3k_compress.h"
+#include "vita_pkg.h"
 
 namespace fs = std::filesystem;
 
@@ -531,7 +532,23 @@ std::vector<std::string> MissingGameFiles(const std::string& id, const fs::path&
     // A Vitamin dump (the old dumper adds its loader sce_module\steroid.suprx): Vita3K refuses that module ("You're
     // trying to load a vitamin dump") and the game crashes at once. Only flagged when no other game folder is there.
     auto vitamin = [](const fs::directory_entry& e) { return fs::exists(e.path() / "sce_module" / "steroid.suprx"); };
-    const bool game = any([&](const fs::directory_entry& e) { return is_game(e) && !vitamin(e); });
+    bool game = any([&](const fs::directory_entry& e) { return is_game(e) && !vitamin(e); });
+    if (!game) {   // TxK's PSN package (any region; vita_pkg.h): fine with its licence beside it (or installed)
+      vitapkg::Info info;
+      const fs::path pkg = vitapkg::FindTxK({std::begin(dirs), std::end(dirs)}, &info);
+      if (!pkg.empty()) {
+        if (!vitapkg::FindLicence(pkg, info, base / "system" / "vita3k").empty()) {
+          game = true;
+        } else {
+          const std::string stem = pkg.stem().string();
+          if (status) *status = "licence needed";
+          return {"TxK's package (" + info.title_id + ") needs its licence: the zRIF text in a file named",
+                  "    " + (stem.size() > 40 ? stem.substr(0, 40) + "..." : stem) + ".zrif",
+                  "(any name is fine if it is the only .zrif there), or its work.bin / .rif licence,",
+                  "next to the package in " + pkg.parent_path().string()};
+        }
+      }
+    }
     if (!game && any([&](const fs::directory_entry& e) { return is_game(e) && vitamin(e); })) {
       if (status) *status = "unsupported game dump";
       return {"A Vitamin dump (sce_module\\steroid.suprx): Vita3K can't run it.",
@@ -541,7 +558,7 @@ std::vector<std::string> MissingGameFiles(const std::string& id, const fs::path&
     const bool firmware = fs::exists(base / "system" / "vita3k" / "vs0") ||
                           fs::exists(base / "vita_firmware" / "PSVUPDAT.PUP");
     std::vector<std::string> help;
-    if (!game) help.push_back("Needs the TxK game folder (e.g. PCSB00494, with eboot.bin) in game\\");
+    if (!game) help.push_back("Needs the TxK game folder (e.g. PCSB00494, with eboot.bin) or its .pkg in game\\");
     if (!firmware) {
       help.push_back(std::string(game ? "Needs" : "and") + " the Vita firmware PSVUPDAT.PUP + font PSP2UPDAT.PUP");
       help.push_back("(both free from Sony's site) in vita_firmware\\");

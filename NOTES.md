@@ -486,6 +486,20 @@ status" (end of the T3K section); per-type details in the PLAN sections above it
   shader PSIZE is used, x a new vertex uniform res_multiplier (shader cache v16). A first fix that only scaled PSIZE
   changed nothing: measure first (a draw census by primitive / polygon mode / GL state found it in one run).
 
+### TxK as a PSN package (2026-11-27; a player's report: "TxK doesn't work with PKG files")
+- The Vita3K core runs / installs a .pkg handed to it as the game, but only with the title's licence (zRIF) beside it
+  (find_pkg_license in vita3k/libretro/libretro_installer.cpp: <pkg name>.zrif / .zRIF / .txt, <pkg name>.rif,
+  work.bin or <content id>.rif with a matching content ID, a 512-byte .bin with it, or the only such .bin) or already
+  installed (system\vita3k\ux0\license\<title>\<content id>.rif). Our programs only looked for an unpacked PCS* folder.
+- src/vita_pkg.h (shared): FindTxK (magic 7F 'PKG', type 2, title PCSB00494 / PCSE00397 or a content ID with TXK),
+  FindLicence mirroring the core's rules + ours: a single .zrif of any name beside the package (No-Intro names are
+  64 random letters) is copied to <pkg name>.zrif, re-copied when it changes. txk.exe FindGame: a folder first, else
+  the package; no licence -> a message box naming the file. Launcher: status "licence needed" + what to add.
+- Tested (logs\txkpkg, logs\txkroot): the owner's No-Intro TxK (USA) package (UP4461-PCSE00397_00-LLAMASOFTTXK0001,
+  zip in Downloads) is found, a fake .zrif reaches the core ("cannot mount the PFS (a wrong license?)"), the launcher's
+  messages. NOT tested: play with a real licence (none here), so not PatchPrompts on the USA build either (its prompt
+  strings may sit elsewhere).
+
 ## Tempest 2000
 
 ### Findings

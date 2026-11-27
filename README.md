@@ -82,7 +82,7 @@ greys that game out and tells you exactly which file it is looking for and where
 | Tempest (1981) | `game\tempest.zip` | The MAME romset (MAME 0.289 or later). Rev 3 is played; a merged set (with `temptube`) also offers Tempest Tubes in the game's menu. |
 | Tempest 2000 | `game\<name with "Tempest">.jag` (or `.j64`) | Tested with the 2 MB cartridge image, MD5 `602bc9953d3737b1ba52b2a0d9932f7c`. |
 | Tempest 3000 | `game\<name with "Tempest">.iso` or `.mdf` | A DVD `.mdf` is read directly (the `.mds` beside it isn't needed). On first start the launcher offers to compress it (743 MB -> ~196 MB, about a minute), then to delete the original. |
-| TxK | `game\PCSB00494\` (the game folder: `eboot.bin`, `sce_sys\` ...) | Tested with PCSB00494 (Europe). |
+| TxK | `game\PCSB00494\` (the game folder: `eboot.bin`, `sce_sys\` ...), or the PSN package `game\<name>.pkg` with its licence beside it (the zRIF text in a `.zrif` file, or `work.bin` / a `.rif`) | Tested with PCSB00494 (Europe). Packages: Europe or USA (PCSE00397), opened by the Vita3K core itself; not yet tested with a real licence. |
 | PS Vita firmware (for TxK) | `vita_firmware\PSVUPDAT.PUP` and `vita_firmware\PSP2UPDAT.PUP` | Both are free downloads from Sony's PS Vita system software pages. Installed automatically on TxK's first start (the `.PUP` files can be deleted afterwards). |
 | Space Giraffe, Tempest 4000 | Install them in Steam, or anywhere else | Not installed? The launcher's A button opens their store page. A copy from elsewhere (Amazon Games, GOG) is found in those stores' usual folders, or choose its program in the launcher's settings (Back): "Games from outside Steam". |
 
