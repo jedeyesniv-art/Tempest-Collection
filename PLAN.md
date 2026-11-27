@@ -1145,7 +1145,7 @@ To do, at the end:
 3. Depending on 1: run-ahead 1 on the Deck (or adaptive), cap catch-up so one late frame can't cascade.
 4. Small: cache the game select menu's text (15,700 sprite rects drawn every frame) as a texture.
 
-## Native T3K: next (owner, 2026-11-25; branch t3k-native, commit 000dacf, NOT pushed)
+## Native T3K: next (owner, 2026-11-25; branch t3k-native, commit 805af0d (was 000dacf before its author became Frogacuda), NOT pushed)
 Frogacuda's native T3K is in (CLAUDE.md "NATIVE T3K"). The owner's plan, in order:
 1. DONE 2026-11-27 (owner: "perfect"): NUDGE ASSIST (CLAUDE.md "T3K native nudge assist"); speed stays the stick
    curve + Sensitivity. Was: controls again: tune the top speed, and sort out nudges - the native analog path is more accurate but a step back
