@@ -32,7 +32,7 @@ tools\run_t3k_*_checks.ps1; smoke t3k play = --check --fine-check-limit=600 (pla
 R3 full includes it) merged: ring mini-game fixes, web draw coverage, vector stroke / particle feedback fidelity,
 time-integrated feedback, framebuffer copy (type 00100100), Z-weighted nearest planes, aspect / HUD + renderer-lifetime
 (R2). Native interpolation and F6 removed by him. As received = local branch frog-r3. His recompiled T2K shader headers
-(crt / glow / m7 / psy_* / scar .dxil.h: same HLSL) were NOT taken. Web quad count unchanged (leftover-web bug open).
+(crt / glow / m7 / psy_* / scar .dxil.h: same HLSL) were NOT taken. The leftover-web bug (Level 6 / bonus rounds) is FIXED by R3 (owner tested 2026-11-27; the quad count code itself is unchanged).
 His tools\run_t3k_*_checks.ps1 need his folders (tempest-profile\runs); use smoke_test.py.
 Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): arcade Tempest (1981, MAME),
 T2K (Jaguar), T3K (Nuon), Space Giraffe (Steam), TxK (Vita), Tempest 4000 (Steam) - all six run from the launcher;

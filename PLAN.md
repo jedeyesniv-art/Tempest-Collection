@@ -1155,6 +1155,8 @@ Frogacuda's native T3K is in (CLAUDE.md "NATIVE T3K"). The owner's plan, in orde
    and around) and test them.
 3. DONE: game speed works (ported by Frogacuda; the owner had it set too high). Default play speed now 20 (owner: "feels really good").
 4. General performance fixes.
+5. DONE 2026-11-27: the leftover web (part of the web staying after Level 6, the whole web in bonus rounds; reported
+   2026-11-26 after his stable checkpoint) - fixed by Frogacuda's R3, owner tested.
 Before release: README (Emulation++ / T3K paragraphs out of date, credit Frogacuda with his GitHub link), commit author
 -> his GitHub identity, package + smoke test, play folder for the Deck.
 
