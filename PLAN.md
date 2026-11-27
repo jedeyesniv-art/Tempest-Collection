@@ -1160,6 +1160,44 @@ Frogacuda's native T3K is in (CLAUDE.md "NATIVE T3K"). The owner's plan, in orde
 Before release: README (Emulation++ / T3K paragraphs out of date, credit Frogacuda with his GitHub link), commit author
 -> his GitHub identity, package + smoke test, play folder for the Deck.
 
+## Ideas from Frogacuda's native T3K (owner 2026-11-27: "write this up to try another time"; PARKED)
+How his native T3K works (from docs/T3K-NATIVE.md, T3K-TIME-INTEGRATED-FEEDBACK.md, T3K-SCENE-PRECISION.md,
+T3K-TIMING.md, T3K-RENDERING-CORRECTIONS.md and src/t3k_runtime/):
+- The game's own MPE code rewritten in C++ FUNCTION BY FUNCTION, original addresses in comments (e.g.
+  TempestCollision.h collide_objects = 80011CE6..80011D44, its signed / wrapping fixed point kept exactly). Nuance was
+  the oracle: run a function both ways, compare its memory effects. Reported: 128 jump cases / 9,792 points and a
+  32-frame gameplay corpus with zero mismatches.
+- The game's MEMORY LAYOUT IS KEPT: the C++ reads / writes the original addresses (CommandMemory read32 / write32).
+  Ported and emulated code share one memory image, so the swap could go a piece at a time, checked byte for byte -
+  and our renderer kept working (same display lists at the same addresses).
+- The disc supplies the executable's data tables and the assets at run time; the code is small (~9,000 dense lines)
+  and ships nothing of Minter's.
+- Save states by REPLAY, not by snapshot (a C++ call stack can't be saved): native_memory_journal.h logs first writes
+  per phase; a state = a checkpoint + the inputs since; loading replays that phase with output muted and checks the
+  memory matches. The same journal rolls back a failed step.
+- Smooth motion by running the LOGIC faster (scene clocks, 120 Hz), not by blending pictures (interpolation removed):
+  * Geometry precision: fractional positions / origins / scales kept beside the packed integers as renderer-only
+    hints, stamped against the RAM word they shadow and dropped when native code rewrites it. Game RAM and logic stay
+    identical; lines get sub-pixel accuracy.
+  * Time-integrated feedback: a feedback paint written as H_next = A H + B (A = f (1 - a), B = P + (1 - a)(1 - f) n:
+    retention f, coverage a, colour P, neutral n), so a trail / zoom can be stepped by ANY elapsed time and decays
+    the same at 24 or 120 pictures a second.
+  * Separate clocks (e.g. the web texture scroll split from the picture clock), so speeding one doesn't speed others.
+- Evidence culture: every doc says what is proven and what isn't ("function / memory equivalence is a different claim
+  from exact pixels"), and ends with its open items.
+
+To try (none started):
+1. T2K remaster: FRACTIONAL POSITIONS as renderer-only hints - keep what the 68K / GPU round away (vertex / origin /
+   scale before packing) instead of interpolating captured pictures. The most directly reusable idea.
+2. T2K feedback screens (melt, scar backgrounds, warp starfield) as time-integrated feedback, so they run right at any
+   rate instead of our gpuwait pacing. Same for Defender 2000 (C:\LlamatronRecomp, D2K.md).
+3. A native T2K / D2K by his method, only if ever worth it (T2K plays very well emulated): keep the original memory
+   map, port function by function against the emulator's memory, swap a piece at a time. T2K would be easier than T3K
+   (we have the source: mwenge's yak.s + src/gpu/*.gas).
+4. Replay-based save states for any future native port.
+Cost to remember: native T3K lost run-ahead and normal-mode save states - a rewrite gives up the emulator's free
+features unless they are rebuilt.
+
 ## Collection status and open items (refreshed 2026-11-17 with the owner; the 2026-11-15 list is below as history)
 
 ### Verified on the Steam Deck (owner, 2026-11-17)
