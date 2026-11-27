@@ -312,6 +312,8 @@ private:
                 if(event.type==SDL_EVENT_KEY_DOWN&&!event.key.repeat&&event.key.scancode==SDL_SCANCODE_ESCAPE){if(menu::IsOpen())menu::Close();else menu::Open();}
                 if(event.type==SDL_EVENT_GAMEPAD_BUTTON_DOWN&&(event.gbutton.button==SDL_GAMEPAD_BUTTON_GUIDE||event.gbutton.button==SDL_GAMEPAD_BUTTON_BACK)){if(menu::IsOpen())menu::Close();else menu::Open();}
                 if(event.type==SDL_EVENT_WINDOW_FOCUS_LOST&&!check_&&!collection.menuTest)menu::Open();
+                if(event.type==SDL_EVENT_WINDOW_FOCUS_GAINED)SDL_HideCursor();   // no mouse use: keep it out of view
+                if(event.type==SDL_EVENT_WINDOW_FOCUS_LOST)SDL_ShowCursor();
             }
             if(collection.menuTest&&!menuTestOpened_&&frames_>=30){menuTestOpened_=true;menu::Open(collection.menuTest==2);}
             pad_=pads::Current();

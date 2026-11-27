@@ -126,6 +126,7 @@ int run(const char* image,const std::string& scenario){bool check=!scenario.empt
     auto destroyRenderer=[](SDL_Renderer* value){pixfont::Shutdown();t3knative::ShutdownPipeline();SDL_DestroyRenderer(value);};
     std::unique_ptr<SDL_Renderer,decltype(destroyRenderer)> rendererOwner(renderer,destroyRenderer);
     if(!renderer)return 1;
+    SDL_HideCursor();   // pad / keyboard only (shown again while the window is out of focus)
     if(!check&&settings::Num("fullscreen",1)!=0&&!collection.windowSize)SDL_SetWindowFullscreen(window,true);
     SDL_SetRenderVSync(renderer,collection.logicHz==24&&!check&&!collection.novsync&&settings::Num("vsync",1)!=0?1:0);
     int status=1;
