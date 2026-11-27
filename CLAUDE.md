@@ -1,639 +1,77 @@
-# Llamasoft on the Jaguar - Tempest 2000 (and the Tempest Collection) on PC
+# Tempest Collection on PC (started as "Llamasoft on the Jaguar - Tempest 2000")
 
-Owner's project, started 2026-11-08, same toolchain and spirit as Llamasoft on the ST (C:\LlamatronRecomp; its
-REMASTER.md is the recipe for the native renderer). Goal: the best version of each game - sharp high-res
-graphics, an unlocked (interpolated) frame rate, Xbox-pad stick controls, QoL. All modes first-class
-(the owner plays Tempest 2000 mode).
-**Defender 2000 moved out (2026-11-22, owner):** its home is C:\LlamatronRecomp (Llamasoft on the ST: d2k.exe, started
-from that launcher; notes in its D2K.md, which has this file's old "Defender 2000 renderer" section and PLAN.md's
-"Defender 2000"). Its code, tools, cartridge, art pack, Real-ESRGAN, saves and logs/d2k went with it. The core here
-still has the D2K-era hooks (survey, OP skip, GPU memory) - T2K uses some; a core fix may belong in both copies.
-**PUBLIC since 2026-11-22**: https://github.com/jedeyesniv-art/Tempest-Collection (origin, branch main; release v1.0.0 =
-the -Release zip). Commits use the GitHub no-reply email (history rewritten; pre-rewrite backup:
-logs\repo-backup-before-email-rewrite.bundle). Push / new releases only when the owner asks.
+Owner's project, started 2026-11-08 (same toolchain and spirit as Llamasoft on the ST, C:\LlamatronRecomp). Goal: the
+best version of each game - sharp high-res graphics, high frame rates, Xbox-pad stick controls, QoL; all modes
+first-class. Since 2026-11-13 a COLLECTION, all six started from one launcher (build\tempest.exe =
+TempestCollection.exe): Tempest (1981 arcade, MAME core), Tempest 2000 (Jaguar, Virtual Jaguar core + our native
+renderer), Tempest 3000 (Nuon: Frogacuda's native reconstruction + our GPU renderer), Space Giraffe and Tempest 4000
+(the player's own PC copies, patched by small helper DLLs), TxK (PS Vita, Vita3K core).
 
-**NATIVE T3K (2026-11-25, branch t3k-native, not merged yet):** Travis's contribution (credit him as FROGACUDA; GitHub link from the owner at release) (logs/t3k_native: patch,
-HANDOFF.txt, T3K-NATIVE.md; base 47bdc7a, applied cleanly) replaces Nuance in t3k.exe: src/t3k_runtime/game/ = T3K's
-own MPE code reconstructed function by function (original addresses in comments), our GPU renderer draws the display
-lists, the disc supplies data. Owner: both have JEFF MINTER'S BLESSING to work on these games; preservation (Nuon
-obsolete, the game rare) - so the reconstruction may go in the repo and release (unlike our AOT rule, which predates
-this). Old t3k.exe kept as logs/t3k_native/t3k_nuance_before.exe; "Play T3K native.bat" there = a test copy with its own
-userdata. Changes vs ours: stick = the game's own analog path (Step / Stiff models gone), no headless / run-ahead;
-native save states (t3k_slot<N>.native-state). Ours on top (owner 2026-11-25): Back / Guide / Esc = our menu again
-(Back did nothing in play as Nuon; Steam owns Guide on the Deck), Nuon button = LB; --menu / --menu=all (opens at
-picture 30, --winshot counts menu presents). Smoke test: t3k play = --check (window), t3k menu = --menu=all.
-**2026-11-26: Frogacuda's STABLE checkpoint** (handoff zip, tempest-native-stable-after-native.patch) merged on top: native
-boot / menus / audio, scene timing (menu TIMING: ticks/s per scene, gameplay 24; Picture Framerate Original / 60 / 120
-Hz, no interpolation; restart to apply), mouse / trackball, stick curve + gain. Save states only in the legacy
---logic-hz=24 --scene-hz=0 path. As received = local branch frog-stable (47bdc7a + both patches + our two commits).
-Old game_speed / menu_speed rows only show in that legacy path. Checks: ctest in build\ (4 tests); his
-tools\run_t3k_*_checks.ps1; smoke t3k play = --check --fine-check-limit=600 (plain --check plays forever now).
-**2026-11-27: his STABLE REVISION 3** (R3 handoff zip, tempest-native-stable-r3-full.patch over 47bdc7a; we never got R2 -
-R3 full includes it) merged: ring mini-game fixes, web draw coverage, vector stroke / particle feedback fidelity,
-time-integrated feedback, framebuffer copy (type 00100100), Z-weighted nearest planes, aspect / HUD + renderer-lifetime
-(R2). Native interpolation and F6 removed by him. As received = local branch frog-r3. His recompiled T2K shader headers
-(crt / glow / m7 / psy_* / scar .dxil.h: same HLSL) were NOT taken. The leftover-web bug (Level 6 / bonus rounds) is FIXED by R3 (owner tested 2026-11-27; the quad count code itself is unchanged).
-His tools\run_t3k_*_checks.ps1 need his folders (tempest-profile\runs); use smoke_test.py.
-Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): arcade Tempest (1981, MAME),
-T2K (Jaguar), T3K (Nuon), Space Giraffe (Steam), TxK (Vita), Tempest 4000 (Steam) - all six run from the launcher;
-PLAN.md "Tempest Collection" and "Collection status and open items".
+**Details live elsewhere:** NOTES.md = every feature's findings, measurements, test switches and history (moved out
+of this file 2026-11-27; search it before re-deriving anything). PLAN.md = the to-do list and plans ("Native T3K:
+next", "Collection status and open items", "Ideas from Frogacuda's native T3K"). REMASTER.md = the T2K renderer.
 
-## Layout
-- `Tempest 2000 (1994).jag` (MD5 602bc995..., == mwenge/tempest2k `make cartridge`). Never in git.
-  (Defender 2000's cartridge moved to C:\LlamatronRecomp\Private\d2k, 2026-11-22.) `BigPEmu Jaguar\` = closed-source visual reference only.
-- SOURCES IN THE MAIN REPO (2026-11-22, owner: "I got criticised for splitting them before"). VENDORED (plain folders,
-  tracked by the outer git; tools/vendor_cores.py did it, trimmed to what the builds read; LLAMASOFT-NOTES.txt each):
-  third_party/virtualjaguar (GPL-3, was branch llamasoft-jaguar eb83a9de from 34696082) and third_party/
-  NuanceResurrection (was branch llamasoft-nuon 5a6e8de3 from 12ece855; asmjit's files included). Their old git
-  histories: third_party/_coregit/<name>.git + .bundle (not in git). CORE CHANGES ARE NOW COMMITTED IN THE MAIN REPO.
-  PATCHED, FETCHED: third_party/mame-libretro + vita3k-libretro stay git clones (ignored); our commits as
-  third_party/patches/<core>/*.patch (git format-patch from the base; verified: git am on the base == our tree). After
-  a new commit in one of them, re-export its patches (package_collection.ps1 warns when counts differ).
-  tools/get_third_party.sh fetches SDL (release-3.4.16), MAME @ 5f5a0774, Vita3K @ 29ad0e79 + am (download part not
-  run end to end). third_party/libsndfile (1.2.2 DLL from the Python soundfile wheel, unmodified) is tracked.
-  Shipped art is tracked too (art/panels, art/steam, art/sounds stings; the source pictures in art/ stay out).
-- third_party/virtualjaguar: built with its own app/cmake/VJCore.cmake. A core fix may belong in Llamatron's copy too.
-- third_party/SDL: SDL 3.4.16 (Llamatron's submodule commit). Not in the outer git (get_third_party.sh).
-- reference/tempest2k: mwenge's source (yak.s = 68K main, src/gpu/*.gas GPU modules). Not in the outer git.
-- third_party/vita3k-libretro: WizzardSK/vita3k-libretro (GPL-2) for TxK, our branch `llamasoft-vita` from libretro
-  29ad0e79 (one patch: OpenSSL no-asm, so no NASM). tools\build_vita3k.bat (MSVC, Ninja Multi-Config, as upstream CI)
-  -> build_vita3k\bin\Release\vita3k_libretro.dll (32 MB; needs the MSVC C++ runtime DLLs). Configure needs the
-  portable Strawberry Perl in third_party\strawberry (owner approved the download) and downloads FFmpeg + curl.
-  Firmware in vita_firmware\ (PSVUPDAT.PUP system, PSP2UPDAT.PUP fonts). None of these in the outer git.
-- third_party/mame-libretro: libretro/mame (current MAME 0.289, commit 5f5a0774, shallow; our branch llamasoft-mame:
-  the vector line export llama_mame_lines for t81's own beams, PLAN.md "t81 vectors drawn by us") for arcade Tempest (1981),
-  built with only src/mame/atari/tempest.cpp by tools/build_mame.sh (Git Bash + the MinGW gcc 13.2 / GNU make in
-  third_party/strawberry; SDL3 headers via -DSDLMAME_SDL3 for the libretro OSD's key table) ->
-  tempest_libretro.dll (43 MB, only Windows DLLs). Romset: tempest.zip, a MERGED set (the clones in sub-folders);
-  t81 offers rev 3 and Tempest Tubes (menu Version; PLAN.md item 3) - not in git.
-- T3K disc: Nuance_067\Tempest 3000.nuz (2026-11-17, tools/t3k_compress.py from the .iso: the music in nuon.dat as
-  Ogg Vorbis, the rest raw; core src/disc_image.cpp). t3k.exe / the play folder prefer it over the .iso. PLAN.md item 2.
-  The launcher does the same (src/t3k_compress.cpp, libsndfile_x64.dll (LGPL, third_party/libsndfile, copied next to
-  tempest.exe) loaded at run time): starting T3K with only an .iso asks to compress (~31 s headless, ~70 s in the
-  window, one thread: a 4-thread first run coincided with a hard machine freeze 2026-11-17, probably unrelated), then
-  to delete the .iso (warns when it has other hard links); "no" = never asked again (launcher settings
-  t3k_offer_compress / t3k_offer_delete). Output equals the Python tool's except the Ogg serials + page CRCs (random).
-  Tests: tempest.exe --compress-test=<iso> (T3KC_THREADS=N), and in a throwaway root (dummy t3k.exe, game\ = a hard
-  link of the .iso) --select=2 --press-start --answers=<y/n/c...> --prompt-shots=<prefix>.
-- src/lr_host.cpp: the shared libretro host for DLL cores (txk.exe: Vita3K, OpenGL on demand; t81.exe: MAME,
-  software frames, mouse deltas for the spinner, save states). GET_VARIABLE answers the defaults the core declared
-  (MAME takes a missing answer as an empty value). LR_LOG_DEBUG=1 shows the cores' debug log.
-- src/host.cpp: libretro host (env callbacks, options, video XRGB8888, audio, input, save states).
-- src/main.cpp: SDL3 window + headless test mode.
-- Shared by the programs: src/menu.cpp (the settings menu, below), src/pixfont.cpp (the launcher's glowing 5x7 font and
-  glow lines - the launcher and the menus), src/crt.cpp + src/crt_menu.cpp (CRT looks and their menu section),
-  src/controls.cpp (remapping), src/settings.cpp, src/runlog.cpp (started with --from-launcher: stderr and the core's
-  messages -> userdata\logs\<game>.log, the previous run kept as <game>.old.log).
-- src/launcher.cpp: build\tempest.exe, the Tempest Collection launcher (starts t2k.exe / t3k.exe as processes,
-  Steam link for T4K). PLAN.md "Tempest Collection".
-- Launcher look (2026-11-17, owner: "beautiful"): src/launcher_view.cpp, ported from the local design mockup
-  tools/launcher_mockup/index.html (open in a browser; keys L titles / C covers / M motion). Portrait 3:4 cover panels
-  scrolled LEFT / RIGHT (UP / DOWN = Space Giraffe's flavour), each game's logo animated in its flavour, moving
-  backgrounds (motion: SG > T3K > T2K > T4K > TxK > T81; T3K / SG = feedback buffers, emitters orbit OUTSIDE the panel
-  or they hide behind it), system text in a glowing 5x7 pixel font, a warp before a start. Art: tools/launcher_art.py
-  (art\ -> art\panels\<id>.png + <id>_logo.png; art\ is in .gitignore, never in git); the play folder gets art\
-  (package_collection.ps1). T81 cover = the colourful poster (owner). --shot saves the 90th frame;
-  LAUNCHER_FB_DEBUG=1 shows the raw feedback buffer.
-- Launcher stings (src/launcher_sound.cpp, tools/launcher_sounds.py -> art\sounds\, play folder sounds\): each game's
-  lane sound on selecting it, its death on starting it. T81 / T3K recorded headless (T3K music level poked to 0 at
-  boot), T2K from the raw samples ('tink' = a flipper landing on a lane - its claw moves silently; 'screeeam' = gotu;
-  signed 8-bit, ~16 kHz by cross-correlation with a recording, tools/t2k_samplerate.py), TxK / T4K asset WAVs, SG from
-  GRsounds.xwb (73 unnamed sounds, MS ADPCM decoded by the tool; SG_MOVE 21 (beep) / SG_LAUNCH 34 (phone), owner: perfect; all 73
-  in art\sounds\sg_bank\). tools/wav_events.py finds onsets in recordings.
-- Launcher settings menu (2026-11-18; PLAN.md item 5): Back / Esc, the shared src/menu.cpp page built in launcher.cpp
-  main (sting volume, motion, hide_missing, the T3K disc actions); B still quits. Tests: --menu[=all],
-  --menu-action=compress|delete (+ --answers / --prompt-shots).
-- Loudness (2026-11-18; PLAN.md item 5 step 2): src/volume.cpp in t2k / t3k / t81 / txk - every game at -20.44 LUFS (owner: -16 was hot, 60% = normal; master 0..150%)
-  (measured gains: tools/loudness.py on logs/loud/*.wav), x the launcher's master_volume / even_loudness (read from
-  userdata\launcher_settings.txt at start), x the game's own "volume" setting; volume::Put replaces
-  SDL_PutAudioStreamData (soft limiter). Prints "volume: ..." at start. Re-measure a game: record with --wav, run
-  tools/loudness.py --frames file.wav:F0-F1 --target -16, update kMeasured.
-- MORE LLAMASOFT (2026-11-18, owner): the last panel (Kind::Promo, id "more", gold, rainbow-band background); A opens a
-  list (lview::DrawMore): Jeff's Steam games by year (kMore in launcher.cpp: Gridrunner Revolution .. I, Robot), then
-  our two collections (GitHub). A on a row: steam://store/<id> when Steam is there (else the https store page);
-  GitHub pages in the browser (under Wine via steam://openurl/). Art: tools/more_art.py [--download] -> art\panels\
-  more.png (cover: a wall of the wide pictures) + more_<key>.png (920 x 430; Steam headers, ours from C:\Gridios\
-  Launcher\assets\steam and C:\LlamatronRecomp\res\steam, copied into art\more_src\). Test: --select=6 --more=N.
-- Launcher Y = Steam (src/steam_shortcut.cpp): adds TempestCollection.exe to the most recent account's shortcuts.vdf
-  (binary VDF, current Steam's spelling: appname / exe lower case, StartDir with a trailing \, sortas; Steam closed
-  with steam.exe -shutdown and restarted; .bak kept) + grid art (<appid>p.png / .png / _hero / _logo from steam_art\ =
-  tools/steam_art.py); when already in Steam (the Deck) only the art. Owner verified on Windows 2026-11-17 (in Steam
-  with the art). Deck art path untested. Tests: --steam-button, LAUNCHER_STEAM_NOT_RUNNING=1 + a fake root
-  (LAUNCHER_NO_REGISTRY + STEAM_COMPAT_CLIENT_INSTALL_PATH), tools/vdf_dump.py.
+## Rules
+- PUBLIC repo: https://github.com/jedeyesniv-art/Tempest-Collection (origin, main; release v1.0.0). PUSH AND RELEASES
+  ONLY WHEN THE OWNER ASKS. Commits use the GitHub no-reply email.
+- Never in git or a release: game images / ROMs / BIOS / Vita firmware / save states / owner userdata / dist\ / art\
+  source pictures. Jeff Minter has blessed work on these games: game-CODE reconstructions (native T3K) may go in the
+  repo; game data never. The Nuance core stays built WITHOUT AOT (the AOT modules are translated game code).
+- Credit native T3K to **Frogacuda** (never his real name), linking https://github.com/Frogacuda/OpenMinotaur.
+- Sources are in the main repo: vendored cores (third_party/virtualjaguar, NuanceResurrection; changes committed here);
+  MAME + Vita3K are fetched git clones with our commits as third_party/patches/<core>/*.patch - re-export after a
+  new commit in them (package_collection.ps1 warns). Never split cores into separate fork repos (owner was criticised).
+- Scripted runs ALWAYS use --userdata=logs\... (never the owner's saves). Owner bug reports with a save state: copy it
+  into logs\ first and test from the copy.
+- OWNER'S PLAY FOLDER: C:\JohnGames\TempestCollection (hooked to Steam, played most; the owner copies it to the Deck).
+  "Refresh / update the play copy" = copy the changed exes / DLLs from build\ (tempest.exe -> TempestCollection.exe)
+  with a dated .bak of each replaced file; NEVER touch its userdata; then a quick run from it with --userdata=logs\...
+  dist\TempestCollection is only packaging output.
+- Defender 2000 moved to C:\LlamatronRecomp (2026-11-22; D2K.md there). Core fixes in virtualjaguar may belong there too.
+
+## Working here (pitfalls that cost time)
+- Python edit scripts: write them with the Write tool and run `python -I <file>` (bash heredocs mangle backslashes).
+  README.md is not pure UTF-8 (a cp1252 dash): edit it as latin-1 with newline=''.
+- From bash give exes forward-slash paths; check file times when a fix "shows no change" (stale screenshots).
+- The exes are GUI programs: capture their stdout with PowerShell Start-Process -RedirectStandardOutput (a plain `>`
+  gets nothing). Time a single run before starting a batch; put a timeout on every run; give status in long loops, and
+  after 2-3 failed guesses build a measurement instead.
+- Ask before spawning subagents (token cost). Window-only bugs hide from headless shots (the owner's real screenshots:
+  Videos\Captures).
+
+## Layout (details: NOTES.md "Collection, launcher and build")
+- src/launcher.cpp (+ launcher_view / launcher_sound / steam_shortcut / t3k_compress): the launcher. Settings in
+  userdata\launcher_settings.txt (Back opens its menu).
+- src/main.cpp + host.cpp + t2k*.cpp: t2k.exe (libretro host for Virtual Jaguar, remaster renderer, stick hook).
+- src/t3k_main.cpp + src/t3k_runtime/ (game/ = T3K's code reconstructed, original addresses in comments;
+  native_live_host.h = the frame loop, input, nudge assist) + t3k_native.cpp (GPU renderer) + t3k_menu.cpp: t3k.exe.
+- src/lr_host.cpp: libretro host for DLL cores (t81.exe = MAME tempest_libretro.dll, txk.exe = vita3k_libretro.dll).
+- src/sg/d3d9_proxy.cpp, src/t4k/xinput_proxy.cpp: the Space Giraffe / Tempest 4000 helpers (32-bit DLLs).
+- Shared: src/menu.cpp (every program's settings menu; a game registers its page), pixfont, crt, controls (remapping),
+  settings, volume (even loudness), runlog (--from-launcher logs to userdata\logs\<game>.log).
+- third_party/: virtualjaguar, NuanceResurrection (vendored), mame-libretro, vita3k-libretro (clones), SDL 3.4.16,
+  libsndfile, strawberry (portable Perl + MinGW for the core builds). reference/tempest2k = mwenge's T2K source.
+- Game files (never in git): `Tempest 2000 (1994).jag`, Nuance_067\Tempest 3000.nuz (compressed disc; .iso also read),
+  tempest.zip (MAME, merged set), game\PCSB00494 (TxK), vita_firmware\.
 
 ## Build / test
-PUBLIC RELEASE (2026-11-22, owner): tools\package_collection.ps1 -Release -> dist\release\TempestCollection\ +
-dist\TempestCollection-<date>.zip (~53 MB): no game files / Vita firmware / userdata (the launcher stings ARE shipped, owner), the
-Nuon BIOS replacement shipped, licences\ = licence texts + each core's patch vs its upstream base (SOURCE.txt; commit
-core changes first or they are missing - it warns). Ends with a check that refuses game / owner files. The launcher
-greys a game out with "game files needed" + what / where (launcher.cpp MissingGameFiles). T3K reads .iso / .mdf /
-.img (a DVD .mdf == .iso). Release defaults = the owner's tune (T3K game_speed 21 + sp_top_speed 23 + sp_ramp_time 0.44 + menu_speed 30 + run_ahead 2, T2K lr ramp 20 /
-0.05 / 3 + particles 1.4 + fullscreen, TxK sharp + aniso 16). README.md = the GitHub page (header res/github/,
-tools/github_art.py). Tested: a copy of the release + hard-linked games (logs\reltest), all four from first start.
-OWNER'S MAIN PLAY FOLDER (2026-11-26): C:\JohnGames\TempestCollection - hooked to Steam, played most; its own
-userdata (never overwrite). "Refresh the play copy" = copy the changed exes / DLLs from build\ there (dated backup of
-each replaced file), then test from it with --userdata=logs\... dist\TempestCollection is only packaging output. The owner copies JohnGames to the Deck themselves.
-Owner 2026-11-26: Frogacuda's stable native T3K runs very well on the Deck (his handoff had only tested Windows).
-Play folder (all games, for the Deck): powershell -ExecutionPolicy Bypass -File tools\package_collection.ps1 [-SkipBuild]
--> dist\TempestCollection\ (TempestCollection.exe launcher, t2k / t3k / txk / t81 + cores + C++ runtime, system\ with the
-installed Vita firmware, game\ = the four games hard-linked (T3K as the .nuz), userdata\ = the play folder's own, KEPT across
-packaging (2026-11-18: only files it lacks come from build\userdata - those start fullscreen, TxK at 1x for the Deck); ~0.67 GB, never publish). The Nuance core is built WITHOUT AOT (tools\build_nuance.bat;
-"aot" argument -> build_nuance_aot\ for experiments): the AOT modules are translations of the game's code.
-Test build: powershell -ExecutionPolicy Bypass -File tools\package.ps1 -> dist\Tempest2000\ (Tempest2000.exe, the
-owner's .jag, userdata\settings.txt fullscreen = 1, README with Steam Deck steps) + dist\Tempest2000-test.zip. dist\ is not in git (the ROM is in it: never publish). Icon: tools/make_icon.py (an original claw ship) -> res/t2k.ico
-(exe, res/t2k.rc) + res/icon_rgba.h (window). userdata defaults to the exe's folder.
-Performance (2026-11-09): T2K_PERF=1 logs emulate / compose / present per shown frame every 5 s (--novsync is ignored
-by the compositor here). 4K fullscreen CRT++: 120 fps locked, emulate ~1.7 ms, compose < 0.7 ms. Headless in play:
-1.2 ms an emulated frame (the remaster skips the GPU work: 3x faster than the original's 3.8 ms); run-ahead 2 =
-3.6 ms a 60 Hz frame (pictures skipped for unseen frames via GET_AUDIO_VIDEO_ENABLE, state buffer reused).
-`build.bat` (clang + Ninja in the VS 18 Community env) -> build\t2k.exe.
-SMOKE TEST before packaging: python -I tools/smoke_test.py [--dist] [--only ...] [--no-windows] (~1 min): every game
-headless to play / attract / title, the launcher, each menu in a window, the play folder README; a table + logs/smoke/sheet.png.
-Headless T2K pictures need --set=remaster=0 (with the remaster on, the native drawing is not in the picture: HUD only).
-Headless: `build\t2k.exe "Tempest 2000 (1994).jag" --headless --frames=N --shot=F:file.bmp --press=F:btn[:len]
---wav=f.wav --opt=key=value --userdata=logs\ud`. Always use --userdata=logs\... for scripted runs (never the
-owner's saves). Buttons are RetroPad names (b=Jag B, a=Jag A, y=Jag C, start=Option, select=Pause).
-Known-good script: press b at 400/600/800/1000 (title -> level select), then any fire at 1500 -> in game by 2200.
-Runs ~4-5x real time headless. Core says 60.054 fps, 48044 Hz; picture 326x240.
+- `build.bat` (clang + Ninja in the VS 18 env) -> build\ (tempest.exe, t2k.exe, t3k.exe, t81.exe, txk.exe + tests).
+  Cores: tools\build_nuance.bat, tools\build_vita3k.bat, tools/build_mame.sh, tools\build_sg_helper.bat,
+  tools\build_t4k_helper.bat; shaders: tools/build_shaders.py (HLSL -> src/shaders/*.dxil.h).
+- `ctest` in build\ (4 T3K tests). SMOKE TEST before packaging: `python -I tools/smoke_test.py [--only ...] [--dist]`
+  (~1 min; logs/smoke/sheet.png). Its "t3k play" can read 9.8% lit vs its 10% rule on a normal play picture.
+- T2K headless: `build\t2k.exe "Tempest 2000 (1994).jag" --headless --frames=N --shot=F:f.bmp --press=F:btn[:len]
+  --userdata=logs\ud` (--set=remaster=0 for full pictures). T3K: no headless mode - `t3k.exe --check
+  --fine-check-limit=N` plays a scripted game in a small window (~35 s per 600); --menu=all, --winshot=N:f.bmp.
+  Launcher: --select=N --press-start --shot=f.bmp, LAUNCHER_DRY_URL=1 (prints what it would start).
+- Packaging: tools\package_collection.ps1 [-SkipBuild] -> dist\TempestCollection (the full play folder, never publish);
+  -Release -> dist\release + dist\TempestCollection-<date>.zip (no game files; ends with a check that refuses them).
 
-## Findings
-- Game source: readpad/dopad at yak.s ~17428; pad_now bit layout xxApxxBx RLDU741* xxCxxxox 2580369#.
-  `roconon` = rotary controller support built into the game.
-- Core enhancement db turns True Color and risc idle skip on for Tempest 2000 automatically.
-
-## Stick controls (2026-11-08)
-- Core change (branch llamasoft-jaguar): 68K writes to $DFFE00-$DFFEFF land in jagMemSpace (host port; reads
-  already came from there). Everything else is done host side in src/t2k.cpp.
-- Claw hook: clawcon $80CCCA's first 8 bytes -> jsr $DFFD00 + nop. The stub (hand-assembled in t2k.cpp) does,
-  for whichclaw=1 ($EA84) and not auto ($E9B6): claw ptr -> $DFFE10, ticks++ $DFFE14, and if $DFFE00 != 0 it
-  sets velocity 20(a6) = $DFFE04 and returns into domove $80CDAC. Install() checks the original bytes first.
-- Other addresses: web_x $C986, web_ptab $C988 (web_max+1 XY word pairs; lane i = points i, i+1; centre
-  (web_x, 8)), web_max $C990, connect $DB3E (closed web). Claw: 16(a6) pos 16.16 lanes, 20 vel, 24 accel.
-- Measured: the claw ticks once per 60 Hz frame; original pad accel = $400/tick up to $6000 (24 ticks to top
-  speed) and the claw stops dead on release.
-- Modes (userdata\settings.txt, F5 reloads, F2 toggles in the window): lr = deadzone, curve, smoothstep ramp
-  from lr_ramp_start to lr_max_speed over lr_ramp_frames, lr_release_frames linear ease-off; aim = stick angle
-  -> nearest lane by angle on closed webs (x position on open webs), hysteresis, proportional approach.
-  Physical d-pad left/right disables the hook (the game's own pad code runs).
-- Tests: --stick=F:x,y[:len], --set=stick_mode=aim, --trace=F0:F1 (pos / v / ticks per frame).
-  Verified: lr ramps 0.073 -> 0.45 over 14 frames, 2-frame ease; aim up -> top lane, left -> left lane.
-  Open webs are not verified yet.
-
-## Buttons, menu, camera (2026-11-08)
-- Game's own button meaning (fire_1/2/3 at yak.s ~23980, changeable in its options): Jag B = fire, A = jump,
-  C = Superzapper. pad_now: bit 29 A, 28 Pause, 25 B, 13 C, 9 Option; keypad: 1/4/7 = view 0, 2/5/8 = view 1,
-  3/6/9 = view 2 (donkeys, yak.s ~13814), 0 = music on/off, 6 = warp and Option = skip level (cheat mode
-  only), * + # = reset, * + # + Option = clear EEPROM.
-- Owner's layout (main.cpp ReadPad): A fire, X / RT jump, B / RB Superzapper, Y Option, Start Pause, Back = our
-  settings menu (pauses emulation), LB = camera view cycle, LT free.
-- Camera: `view` $E350 (0 standard follow, 1 whole web fixed, 2 close-up); the game resets it to 0 on game
-  select. Setting camera_view is written every in-play frame, so the choice persists.
-- Menu: src/menu.cpp, SHARED by every game program: a game registers its page with menu::SetPage
-  (src/<game>_menu.cpp; items show via `when` lambdas, game actions numbered from menu::kGameAction; menu::SetAccent =
-  its launcher colour) and its controls functions with controls::Setup. Look (2026-11-17): the launcher's (pixfont).
-  One layout in every game: Resume / GAME / CONTROLS / PICTURE / CRT / CHEATS / Return to launcher; folds inside a
-  section = Page::Sub ("Fine-tune stick", "Fine-tune look", "Fine-tune CRT", "Buttons" = Page::Binds); a label's
-  leading spaces indent it under the item above; Fullscreen shows On / Off. The launcher passes --from-launcher (last
-  item "Return to launcher"). t3k.exe: the emulation thread parks (emu_pause / emu_parked) before the menu may change
-  settings. Changes save at once via settings::Save (keeps the file's comments). Esc opens it on the keyboard.
-  Tests: --menu / --menu=all (sections open), MENU_ALL_SUBS=1 (folds too), MENU_SELECT=N (selection N rows down).
-  Owner's T2K top speed choice: lr_max_speed 0.41.
-
-## Pause line, quit to title, remapping, save states, EEPROM (2026-11-08)
-- Pause screen hook: paustuff's npspri $80DE3C "tst vadj" ($E9F8) -> jsr $DFFD80: if port $DFFE20 != 0 it prints
-  the 0-terminated string at $DFFC00 with the game's centext ($80408A) + cfont ($7B58) at y 200. Lower-case
-  text = the font's small caps. Main shows "press <first Option button> to quit to title" while pawsed ($E854).
-- Quit to title: write z ($E9B0) = 1 and auto ($E9B6) = 0, as checkpause ($80DD48) does for keypad * + #.
-  Works from the pause screen (melt transition to the title). Also in the Back menu.
-- Remapping: src/controls.cpp, settings bind_<a|b|x|y|lb|rb|lt|rt|start|ls|rs> = fire|jump|zap|option|pause|
-  camera|none. Menu: A on a function, then the button (pressing a bound one again unbinds it); Back cancels.
-  Back, d-pad and left stick are fixed. Defaults: A fire, X/LT/RT jump, B/RB zap, Y option, Start pause, LB cam.
-- Save states: menu slot 1-5, userdata\states\slotN.state (~2.6 MB, core format v17). Headless
-  --savestate=F:file / --loadstate=F:file: restored run is pixel-identical to the original 149 frames on.
-- EEPROM: the frontend's job in libretro (the core packs eeprom_ram into its SAVE_RAM buffer on every write and
-  unpacks the buffer on the first retro_run). userdata\tempest2000.eeprom, loaded before the first frame,
-  written when changed (checked every 60 frames) and at exit, old copy -> .bak. Keep a missing file as the
-  core's all-zero buffer, NOT 0xFF: eepromload rejects the chip unless word 63 = $6510, and eepromsave only
-  writes words that differ from epromcopy, so an all-ones start leaves stale words -> checksum fail -> reset.
-  The game saves on unpause (yak.s ~14325), option changes, high scores, clearee.
-
-## Remaster renderer
-Survey + design: REMASTER.md (frame structure, GPU modules, call sites, capture / compose / interpolate plan).
-Tools: core line-A host traps (src/traps.cpp), `--gpulog=F0:F1:file` (src/gpulog.cpp).
-reference/tools/rmac is a clone of the assembler; building / running it was refused by the permission
-classifier (downloaded code) - ask the owner before trying again.
-
-## Where we are (end of 2026-11-17, evening; start here next time)
-Latest (2026-11-22): Defender 2000 moved to C:\LlamatronRecomp (see the top); t2k.exe is Tempest 2000 only again.
-All committed; play folder current (dist\TempestCollection, ~0.67 GB; the owner plays it from Steam on Windows and on
-the Steam Deck). THE TO-DO LIST: PLAN.md "Collection status and open items". NEXT: item 5 step 2 (master volume + normalised loudness);
-step 1 (the launcher's settings menu shell + T3K disc again + launcher options) done 2026-11-18. Also done late 2026-11-17: the launcher's T3K disc
-compression (item 4). Done 2026-11-17 from it: the menus
-(restyle + one layout), T3K disc compression, T81 versions, T3K infinite lives. Left: the PUBLISH version (only when
-the owner decides; its prep notes are under item 4: no AOT, the launcher's T3K compression, no owner saves), maybe a
-launcher settings screen, maybe more T3K cheats (god mode, max level), Neon Mode much later. PLAN.md "Watch list": a
-one-off TxK no-music + hang (logs exist now). Decided against / parked: PLAN.md.
-Waiting on the owner's Deck checks: the new menus with the pad (Fullscreen Left / Right, the folds); a possible T3K
-hitch at a level start (a track's first 32 s of music decodes on the emulation thread, 28-43 ms here); T81's wide
-framing in play on Tempest Tubes.
-2026-11-17 evening's work (details in PLAN.md items 1-6 and the sections here):
-- T3K: the disc as .nuz (tools/t3k_compress.py, core src/disc_image.cpp; nuon.dat = 19 music tracks, 32 kHz); the core
-  without AOT; stick modes Step / Stiff / Left-right (Momentum and Off removed); "Restart the game" (power-on snapshot
-  in memory, t3kscores::Restart); infinite lives (cheat_inf_lives).
-- T2K: Renderer Remaster / Emulation (setting native), melt sliders gone. T81: Version (rev 3 / Tempest Tubes, reloaded
-  in place, ROMs checked by CRC first), CRT+ / CRT++ (GPU renderer). All: the menus, the run logs.
-- Tools from the session: tools/iso_list.py, t3k_datmap.py, t3k_musicrate.py, wav_compare.py.
-
-## SG / T4K from outside Steam (2026-11-27; a player's request: T4K free from Amazon)
-- Launcher settings sg_exe / t4k_exe = the program of a copy from elsewhere; menu "GAMES FROM OUTSIDE STEAM": choose
-  its program (SDL_ShowOpenFileDialog, answer via g_pick on the main loop) / use Steam's again. Order: a chosen program
-  (missing -> status "program not found") > Steam's install > DetectOwnCopy (fixed drives' Amazon Games\Library,
-  GOG Games, GOG Galaxy\Games, depth 3, once a session; T4K: Win7-8 under Wine, else Win10). Entry detail drops "STEAM".
-- Started by the launcher itself (CreateProcess, working dir = its folder) and watched as our own games (child);
-  helpers copied next to it (T4KFolders: Win10 + Win7-8 when laid out as Steam's, else the program's folder; SG: d3d9
-  + sg_helper.txt); under Wine WINEDLLOVERRIDES is set for the child (d3d9=n,b / xinput1_3,xinput1_4=n,b) and T4K
-  Win10 -> Win7-8 + the Tracks_xwma rename (music) as for Steam.
-- Tested with fake copies (logs\owntest: a throwaway root, LAUNCHER_DRY_URL=1 prints "would run", LAUNCHER_FAKE_WINE=1).
-  NOT tested: a real Amazon / GOG copy (their builds may differ from Steam's: the helpers' hooks), the file dialog
-  by hand, auto-detect on a real folder, the Deck (whether a Wine child honours WINEDLLOVERRIDES set this way).
-  LAUNCHER_NO_DETECT=1 skips the folder scan.
-
-## T3K native nudge assist (2026-11-27; owner: "perfect", hold 0.08 s)
-- Measured: the native game moves the claw by axis x 768/65536 lanes a tick (SimulationStep spreads it over the fine
-  steps: 0.21 lanes a 120 Hz step at axis 90) and NEVER settles it on a lane (lane = floor(position $800DC100, 16.16));
-  a sample shows in the position 3 frames later. So a 50 / 75 / 100 ms full flick moved 1.27 / 1.90 / 2.53 lanes.
-- NativeLiveHost::stick_frame (once per frame, before the journal records the input, so replays match): a push from
-  neutral = one lane - target ceil(cmd + 0.25) / floor(cmd - 0.25), driven at the user's top speed to target + 0.03
-  (floor = the lane; the last sample >= 20, the game's deadzone); cmd = the predicted position (sum of sent axis x
-  per-unit), re-synced from $800DC100 when the last 4 samples were 0. Held t3k_nudge_hold (default 0.08) -> the plain
-  stick (sweep); release after a sweep stops where it is; taps during a nudge add a lane; until the hold the claw waits
-  on its lane. Settings t3k_nudge (1) / t3k_nudge_hold; menu CONTROLS. Mouse mode untouched.
-- Test: python -I tools/t3k_nudgetest.py [--lens 3,6,9 --axis 90 --off --hold S --log] (parallel --check runs,
-  T3K_NUDGE_SCRIPT + T3K_CLAW_LOG; ~40 s). Result: every flick shorter than the hold = exactly one lane, both ways.
-
-## T3K nudges adding up (2026-11-24)
-- Owner: a few small nudges sometimes made a 2-lane move. A flick held just past sp_repeat_delay (7+ fields) became a
-  sweep; the model had already finished the nudge (it runs ~4 fields ahead of the seen claw), so sp_release off ("stop
-  where seen") stopped half way (0.5 lane), and the next nudge went round(p) + 1 (up to 1.5 lanes). Now: sp_goal keeps
-  the nudge's lane (a release never stops short of it) and a nudge from between lanes goes to the next centre that
-  way. Measured (scratch script; t3k_steptest.py all ok): flick 7 fields 0.5 -> 1.0, three 8-field flicks 2.8 -> 3.0.
-
-## T3K spikes at the level end (2026-11-24, owner's states logs/t3k/spikes/s1_start + s2_end, "Bonio of Doom")
-- Owner: "every lane has a tiny green spike, the descent feels like luck". From s2_end, descents after holding right /
-  left 0-45 fields (every lane) all survived EXCEPT ending on the lane of the enemy sitting on the rim as the level
-  ended ("CAUGHT YOU!!" during the drop, level replayed). s1_start's death was also CAUGHT YOU (in play).
-  CORRECTED by the owner's own testing: the stubs DO kill, but shots clear them - pick the lane early and keep firing;
-  a late move or a sweep runs into one. My runs survived because the claw kept firing on its lane (auto shooting).
-  In the drop the zoom feedback smears the stubs into long green streaks on every lane. Runs: logs/t3k/spikes/sw.
-
-## T3K stray web shard (2026-11-24, owner's state logs/t3k/pink/owner_pink.state)
-- A pink / red slab above (and below) the web that stayed across levels and deaths: live pictures (the draw gate =
-  every window picture) read web quads at $800BACF0 up to an all-zero record, but the game never clears that list, so
-  a smaller web after a bigger one drew the old web's last quads. Now the count comes as the module's (806AD454):
-  [[$20100020] + $900] + $28, bits 8-12. Headless shots without --gate=2 never showed it (captures stop where MPE0 did).
-
-## T3K jump (2026-11-22)
-- The game HAS a jump: Nuon R shoulder (our RB, and RT since 2026-11-22, owner). From play_f3150, R lifts the claw off the rim (camera pulls back), lands
-  ~30 fields later; the top-right HUD number (x2 -> 1) = jumps left. A = fire, B = Superzapper; C buttons / L: nothing
-  in play. VM Labs design doc 09/02/99 (arstechnica PDF) planned a "Hover" (fuel meter) instead of T2K's jump, plus
-  Guided Missiles, Rapid Fire, A.I. Droid. Disc speech/sound names (end of nuon.dat): "homing missiles", "superzapper
-  recharge", "remote destroyer", "thrust", "glide control", "auto shooting"; no "hover" / "jump". Shots: logs/t3k/jump3.
-  Not checked: how jumps are refilled, whether holding R longer hovers.
-- The jump's particle burst = type 00310108 with w4 bit 0 (never seen before: the owner's log_emulated caught it).
-  Native now (PLAN.md "The small types"); repro: play_f3150 + --press=3155:r:90, pictures 1042-1048.
-
-## T3K run-ahead + Step nudge fix (2026-11-18; PLAN.md item 8)
-- Lag: d-pad -> picture 5 fields inside the game. Step mode had 2 more + lost / half nudges (stuck check counted from the
-  first picture, per field): fixed; tools/t3k_steptest.py [--state --f0 --phase] checks nudges / three / wiggle / sweep.
-  T3K_STEP_LOG=1 logs the model.
-- Run-ahead: setting run_ahead 0-4 (menu CONTROLS, default Off); core nuance_ra_save / nuance_ra_load (fast snapshot,
-  no code flush), host nuon::RaSave / RaLoad, window emulation thread only (headless runs never run ahead). Auto-lowered
-  per session when over budget. Tests: T3K_RA_SIM=N[:F0] (headless cost + T3K_RA_SLOW=1 for the file state),
-  T3K_RA_LOG=1 (window: shown picture per field). Mind: a headless shot after hidden fields shows the hidden picture.
-  Only in play (web on screen, not a warp). Core state outside the save state must go in the snapshot (capture.cpp
-  CaptureRaState); the rewind clears interpreter caches + MPE3's compiled code. TEST FROM BOOT, IN THE WINDOW, WITH THE
-  GATE (--gate=2 headless): play-state-only tests missed the owner's flicker and boot crash (2026-11-18). Core switches:
-  NUANCE_RA_FLUSH / NUANCE_RA_FULLMEM / NUANCE_RA_STATS. The boot is not exact across any save / load (play is).
-- After building the core, copy build_nuance\nuance_libretro.dll to build\ (t3k's copy step only runs when t3k relinks).
-
-## T3K stick: step mode, owner's tuning, game-over input (2026-11-17)
-- stick_mode step (default; menu STICK): a push past sp_deadzone (0.20, 30% hysteresis) = exactly one lane (rapid
-  nudges add up); held sp_repeat_delay it sweeps (from sp_ramp_start of sp_top_speed over sp_ramp_time); release
-  after a sweep: sp_release off (owner's default: stops where seen, mo_err = 0 as the model trails the game) / back
-  (last lane passed by the SEEN claw, a centre within sp_back_grace 0.15 counts as reached) / nearest / ahead. Reverse
-  = release + a nudge. No lead past a nudge's end (it overshot). Headless (logs/t3k/step, from play_f2700): nudge
-  7 -> 8, three -> 10, wiggle RLRRL 8 7 8 9 8; first move 4 fields after the push (the game's late read).
-- Owner's tune = the defaults ("as good as we can get it for now"): sp_release off, sp_repeat_delay 0.10,
-  sp_ramp_time 0.30, sp_ramp_start 0.30, sp_step_time 0.09; stiff keeps the owner's earlier tune. (Momentum and Off
-  were removed 2026-11-17.)
-- No input on the title after a game over (every stick mode): the claw object stays in the pool from the first level
-  select on, so ClawControl took every later menu for play. Now "in play" = the newest picture draws the web surface
-  (SpeedControl::web, both renderers); else the stick is the d-pad. Rejected markers: pool handler $800B3090 (drops
-  mid-play), a $800DC100 rewrite probe (not rewritten each picture). A save state from play_f2700 goes black after its
-  game over even with the stick off (state artifact; from boot it's fine).
-- Still open there: T3K cheats (infinite lives in the menu since 2026-11-17; god mode not found; max level
-  candidates untested - "T3K menu cleanup, save states"); interpolation for everything + run-ahead (not needed now).
-
-## T3K background spin / death "kaleidoscope" (2026-11-16, owner's state logs/t3k/rot/owner_rot.state)
-- CORRECTED 2026-11-17: the kaleidoscope in the WINDOW was ours: the zoom angle was read unsigned ($FF70 = 359.21
-  deg), fine for a whole step (headless) but the window splits a step across presents (angle x step) -> ~90 deg a
-  present. Now signed (t3k_native.cpp). Test spin in the WINDOW (--winshot), not only headless --nativeshot.
-  States: logs/t3k/states/l3warp_f2860 / l3death_f3450 (level 3).
-  Then the warp's four-pointed star (original: a soft rounded square): tools/t3k_zoomfit2.py (per-picture zoom fit
-  from --span 00300004) showed the zoom step exact (our map + entry fade about 16/128, floored: err 0.27); the cause
-  was sharp_vectors - the thin centre sparkle, amplified x1.23 a picture, grew spikes. Pictures with a brightening
-  zoom (fade > 1: only the warps, 84 pictures each) now draw vectors the original way. A warp seen from a save state
-  starts its feedback from black (no history): compare from logs/t3k/states/lsel_f2400 (up, up, a = level 3). Original note: The zoom feedback's angle (entry 00300004 w6, copied each
-  picture by $8001F736 from the background preset's +$40 into $800B84BC) comes from per-level presets: three blocks
-  at $8075FB30 / FC30 / FD30 ($100 apart), loaded from disc data (ISO 0x2C041CCC: "0000 A1C0 0280 ... FF70 4C5F ...").
-  "Crosseyed and Painless" has rotation $FF70 = -0.79 deg a picture; level 1 has 0 in play. A death's feedback keeps
-  88% of each picture, so with the spin the trails become the kaleidoscope. T3K_ZOOM_LOG=1 prints every zoom entry.
-- Level select with right presses 24 fields apart only reached levels 1, 7 (V Sign) and 15 (Dark Side of the Moo):
-  the claw fix above was measured on those three.
-
-## T3K claw on every level (2026-11-16)
-- Owner: controls differed by level (close on some, slow / stiff on others). Cause: the claw is an object in the pool
-  $8003C000..$80040000 and its slot depends on the level ($8003E9E0 on level 1-2, $8003EA50 on others); ClawControl
-  only looked at $8003E9E0, so elsewhere the stick fell back to the plain d-pad. Now ClawControl::FindClaw finds the
-  slot (flags +12 = $80000401, position +0 = $800DC100) and re-scans when it moves. --clawlog prints the slot too.
-- Measured (tools/t3k_clawlevels.py; aligned pushes, levels 1 / 7 / 15): the same path until the web's end.
-  The game moves ~1.69x the driver's GameSpeed per input on every level (the position feedback absorbs it).
-
-## T3K menu cleanup, save states (2026-11-16)
-- Menu DISPLAY: Renderer = native_view (1 Remaster, default now; 0 Emulation); Remaster options (wide screens, smooth
-  motion = native_interpolate, vector lines) and Emulation's picture blend show only with their renderer. high_res
-  setting / --hires removed (the core keeps its code). F7 still cycles the test views 2 / 3 (they name themselves).
-- On screen: nothing while every picture is native; an orange "New effect - shown emulated (type X)" note for 3 s
-  after an emulated picture in Remaster.
-- Save states: menu GAME Save slot 1-5 -> userdata\states\t3k_slot<n>.state (~62 MB); done by the emulation thread
-  between fields (also while parked for the menu). Test: --statetest=N:save|load (window, at present N).
-- Core fix: retro_unserialize re-points the pad block (ControllerInitialize only runs at boot), so a session started
-  from a state takes input now (the old "--press after --loadstate does nothing" bug).
-- Cheats (paused by the owner): lives = $800BAC7C (a register spill of the game's context save at $80010200; holding
-  it at 3 keeps the game going through deaths). No "caught" flag found in sys / MPE3 memory yet. Max level (15 at
-  the menu) candidates: 800B2F4C 80139048 801B72AC 8024670C (untested).
-
-## T3K game speed + warp speed (2026-11-16)
-- 2026-11-22 smooth motion = the whole picture (owner: 20-22 pictures/s felt steppy): InterpolatePicture blends
-  vectors (as before), the web surface (64 vertices, the same each picture; it moves 1.5-5.5 game px a picture), discs
-  (paired by entry type (Op::type) + index, per disc only if it moved <= 30 px), numbers and planes. The title dot
-  field 0031000E is left out (its indices aren't the same dots). Test: T3K_WEBDUMP=1 headless (web moves, disc
-  pairing quality per type). Lag unchanged (up to one picture, as before).
-- 2026-11-22 (owner): three speeds. Play = the web surface AND the claw object (FindClawSlot) -> game_speed (menu
-  label "Play speed"); warp -> warp_speed; everything else (title, options, level select, high scores) -> menu_speed
-  (default 30). Each change ramps over warp_ramp. T3K_SPEED_LOG prints warp / web / claw; checked boot -> game over ->
-  second game (logs/t3k/speed4). Level select draws the web without the claw; the title after a game over has the claw
-  without the web. Bonus levels not checked.
-- game_speed = pictures a second, any 15-60 (default 24, owner); replaces flip_cap (--flipcap=F still works: 60 / F).
-  warp_speed (default 60, 0 = off) + warp_ramp (s, default 0.5): src/t3k_main.cpp SpeedControl sets the core's flip
-  interval after every field. Warp = a picture with zoom feedback and no web surface (warps between levels and after a
-  death, also game over); from the capture's entries headless, from the native picture in the window (the draw gate
-  leaves the capture empty). Pacing: each ring Slot carries its interval. Measured: warps 43-58 pictures/s (the core's
-  round budget caps them; the hardware estimate was 52-54), window holds 2 refreshes in the warp, 5 in play (120 Hz).
-- Display list types per screen: NUANCE_ENTRYLOG + tools/t3k_census.py. Memory searches by label:
-  tools/t3k_classsearch.py, tools/t3k_labelsearch.py (no single warp flag in memory: object-pool words only).
-  T3K_SPEED_LOG=1 (headless): warp / rate / interval / flips every 10 fields.
-
-## T3K wide screens (2026-11-16)
-- Setting widescreen (default 1, menu Display "Wide screens"): native pictures fill any window wider than 4:3 (16:10,
-  16:9, 21:9 checked); narrower windows get bars. Renderer::Draw / Seed / Redraw take a view around the 4:3 dst; the
-  feedback textures cover the view, full-width fills / planes (built 360 px wider each side) / zoom / ripple (shader
-  view uniform) carry on past the edges, and the game already places particles, dots, streaks there. HUD stays in its
-  4:3 spots. 4:3 unchanged (nativecheck play 2.39, boot 1.09). Tests: --nativeaspect=W:H with --nativeshot,
-  --winsize=WxH (window, not fullscreen). Shots: logs/t3k/wide/.
-
-## TxK buttons and prompts (2026-11-17)
-- Owner's layout (T4K-like): A Cross, B Circle, X Square, Y Triangle, LB = Select (title options, level-select mode,
-  pause quit), LT = L (hold + wiggle the claw), RT = R (jump), RB free, Back = our menu. txk_menu.cpp defaults (no
-  bind_ lines in the owner's settings, so the defaults apply).
-- The game's prompts are plain strings in eboot.bin's data (loaded as is around 0x81075000..0x810BB000); txk_main.cpp
-  PatchPrompts rewrites them in guest memory through the core's new llama_vita_write (third_party/vita3k-libretro,
-  branch llamasoft-vita): SELECT -> LB (3 exact strings), level select's '&' (title font's Cross) -> A, and in every
-  text containing "button" the menu-font symbols 0x84 Cross A, 0x85 Circle B, 0x82 Triangle Y, 0x83 Square X,
-  0x88 / 0x89 L / R -> LT / RT (a ~9xxx colour code dropped where the text would grow); d-pad arrows 0x80 0x81 0x86
-  0x87 stay. Every 120 frames until done, again after a restart. Verified headless: title, options, level select.
-  Mind: compare guest bytes as uint8_t (signed char missed every symbol string at first).
-- Touchscreen (Supertapper = tap; the Vita3K core already reads RETRO_DEVICE_POINTER as the front touchscreen): host
-  lr::SetTouch answers one pointer; txk.exe sends the left mouse button mapped onto the drawn picture (touches arrive
-  as mouse: SDL's touch-to-mouse, and Proton on the Deck), not while our menu is open. Headless --touch=F:x,y[:len]
-  (0..1 on the picture). Verified: a tap on HIGH SCORES in TxK Options opens it. Deck touch untested.
-
-## TxK point sprites (2026-11-24; core commit "Point sprites at the game's size")
-- Owner: particles tiny at higher resolutions. Real cause: Vita3K's GL renderer never enabled GL_PROGRAM_POINT_SIZE
-  and only synced the point width on change, so every point (TxK's particles, power-ups, scores, a background
-  starfield) was 1 px at ANY resolution - effects were missing, not minimalist (owner: "so much better"). Now the
-  shader PSIZE is used, x a new vertex uniform res_multiplier (shader cache v16). A first fix that only scaled PSIZE
-  changed nothing: measure first (a draw census by primitive / polygon mode / GL state found it in one run).
-
-## Space Giraffe (Steam 27800) in the launcher (2026-11-17)
-- Launcher entry SPACE GIRAFFE, LEFT / RIGHT = flavour (launcher setting sg_flavour, acid default). Start: finds the
-  game folder (HKCU Steam SteamPath + libraryfolders.vdf + appmanifest_27800.acf), copies the helper d3d9.dll (from
-  <launcher>\Space Giraffe helper\ or build\sg\) next to SpaceGiraffePC.exe when different, rewrites the flavour line
-  of sg_helper.txt there, then steam://rungameid/27800. Owner checked: speed normal at 120 fps, picture fills, menus ok.
-- Helper src/sg/d3d9_proxy.cpp (tools/build_sg_helper.bat -> build\sg\d3d9.dll, 32-bit). The exe is SteamStub-wrapped
-  (.bind): runtime hooks only. Dialogs via DialogBoxParamA IAT: 131 language -> English (1008), 135 flavour -> the
-  button whose text has "acid" (1014 "Acid-Mix") or not (1013 "Space Giraffe NUXX"), by a POSTED BM_CLICK (calling the
-  game's dialog proc directly in WM_INITDIALOG broke its start-up). D3D9: CreateDevice / Reset (vtable 16 / 16) ->
-  windowed, backbuffer = monitor, WS_POPUP over the monitor, interval ONE; Present (17) counted (log every 5 s) + an
-  optional max_fps cap (windowed D3D9 refuses INTERVAL_TWO). DirectInput8: the game polls GetDeviceState, range
-  -1000..1000, sets NO deadzone -> menus jumped; helper sets DIPROP_DEADZONE 20% after SetDataFormat.
-- MUST forward every named d3d9 export (jump stubs): D3DX looks up Direct3DShaderValidatorCreate9 at run time; without
-  it: "Impossible to initialise the Neon engine" (message box hidden behind the game window).
-- Game data: settings / progress in %APPDATA%\SpaceGiraffe\userprofile*.dat (binary; config.txt never written);
-  SGPCLogFile.txt next to the exe. The owner's in-game resolution is 4096x2160 fullscreen (made borderless 3840).
-- Tests: tools/sg_test.ps1 -Name x -Settings "k = v; k = v" [-Keep] (installs, starts via Steam, DPI-aware screenshot,
-  logs); tools/pe_dialogs.py (dialog resources); tools/dinput_probe.cpp (DirectInput pads + axes). An early erratic
-  stick episode was not reproduced (not the helper: it happened without it too; pad reads clean).
-- Deck: launch option WINEDLLOVERRIDES="d3d9=n,b" %command% (T4K: "xinput1_3,xinput1_4=n,b"), set once by hand.
-  Launcher Steam lookup (2026-11-17): roots = STEAM_COMPAT_CLIENT_INSTALL_PATH (Steam gives it to every Proton game,
-  Linux path -> Z:\...) + Windows registry SteamPath; libraryfolders.vdf paths mapped the same way; "installed" =
-  appmanifest found (no more registry Apps key). Copies both helpers (T4K's xinput DLLs into Win10 + Win7-8) on every
-  start. Under Wine (ntdll wine_get_version) no process wait (other prefix). Tested on Windows with
-  LAUNCHER_NO_REGISTRY=1 STEAM_COMPAT_CLIENT_INSTALL_PATH=/Program Files (x86)/Steam LAUNCHER_LINUX_DRIVE=C: (--shot).
-  Owner tested on the Deck: works (steam:// reaches Steam).
-- Launcher on the Deck, round 2 (2026-11-17): list in date order (SG between T3K and TxK). Steam entries show what to
-  do when selected: not installed (A opens steam://store/<id>), helper missing, or under Wine a missing launch option
-  (read from Steam's userdata\*\config\localconfig.vdf apps\<id>\LaunchOptions - read only: Steam rewrites that
-  file while running, so the launcher can't set it; VdfValue unescapes \" for it). "setup needed" still starts.
-  Return focus: under Wine the launcher watches Linux's process list (Z:\proc\<pid>\cmdline names the exe); when the
-  game is gone (2 checks, 1 s apart) it raises itself and takes the pad back (SDL background joystick events, only
-  when no watched game may run). Never seen in 90 s -> not watched (tap needed, as before). Tests on Windows:
-  LAUNCHER_FAKE_WINE=1, LAUNCHER_PROC_DIR=<fake proc dir>, LAUNCHER_DRY_URL=1, --select=N with --shot.
-  NOT yet tested on the Deck: whether Z:\proc shows other Proton containers' processes.
-- Front: the launcher calls AllowSetForegroundWindow(ASFW_ANY) before steam://, waits for the program (SteamExe:
-  SpaceGiraffePC.exe / Tempest4000.exe) as its `child`, and pushes the game's window while the launcher itself is
-  still in front (first 30 s). Measured: the helper's own SetForegroundWindow is refused; the launcher's push works.
-- PARKED (owner, 2026-11-17): "hi-res objects" is never saved - a game bug (also on the Deck). The profile is a memory
-  copy of $005091DC..$0050A0D8 and is byte-identical after toggling it. tools/sg_memwatch.py (snapshots of .data
-  while the owner toggled) found three menu entries $004D9B3C / $004D9C64 / $004D9CF8 (value 1 off / 2 on, then 2, 1),
-  but setting them to 2 at start (they stayed 2) still showed and played OFF: the real switch is elsewhere, probably
-  heap -> next step would be a heap scan + a pointer from .data, or hooking the code that reads it.
-
-## T3K options (2026-11-17, found, NOT kept - owner: not needed for now)
-- Options word $801133A8: bit $10 = backgrounds on (no visible change in play even via the game's own menu), bit $02 =
-  "nomen-clo-matic" level names; other bits are game state (in play it reads $14). FX level $8011344C (default 9),
-  music level $80113450 (default 14), u32. Menu code: MPE3 $80020CB8.. (eor $10 / eor 2, then rewrites the menu text).
-- Volumes reach the sound engine only by a call: start-up code $800206E6 calls $80022184(music << 25, fx << 25) once
-  (between boot fields 10 and 34; the pause sliders call it too). Defaults are in memory from field 2, so a keeper
-  would write the saved values at field 2 (untested). MediaOpen(2, "NUON.DAT") at boot is the disc's data file
-  (device 2 = DVD), not a save. Tools: --memdump also writes _mpe1 / _mpe2; tools/t3k_optsearch.py (label search
-  over dumps), tools/t3k_state3.py (A/B/A state compare); NUANCE_WATCH=<addr> + NUANCE_NOJIT=1 NUANCE_NOAOT=1 found
-  the menu code.
-
-## T3K high scores (2026-11-16)
-- The game saves nothing (BIOS log: no flash / MemDev calls; it has level passwords). Table: 8 x u32 scores at
-  $80113420 (defaults 10000 9123 8456 7789 6123 5456 4789 3123); names only in the high-score screen text at $8010C3A0
-  ("^Pn:^X " + 14-char name + "^M" + 10-char score digits). src/t3k_scores.cpp restores userdata\t3k_highscores.txt
-  (score|name lines) once the defaults are in memory, saves on change (every 60 fields) and at exit; a run whose
-  table isn't the defaults (a later save state) neither restores nor saves. Setting keep_high_scores.
-- Score $800DC240 (u32), lives probably $800DC274. Core NUANCE_BIOSLOG=1 (first 20 calls per BIOS index, 2 = all).
-- Known bug: headless --press after --loadstate does nothing (from boot it works). Options / fx / music levels
-  not saved yet.
-
-## T3K native renderer (reference; state end of 2026-11-15, see "Where we are" above for newer)
-Owner: decouple game speed from frame rate, Steam Deck = min spec -> draw T3K's display lists natively on the GPU
-instead of emulating its renderer MPEs; the renderer work is the priority. Ordered to-do: PLAN.md "Native renderer
-status" (end of the T3K section); per-type details in the PLAN sections above it.
-- Model: every picture = a display list (64-byte entries at $8004E040, type = last word) drawn by MPE0-2 in bands after
-  an MPE1 pre-pass; often feedback of the previous picture. 18 entry types in all. Takeover is per WHOLE picture:
-  a picture is native only if every entry type in it is ported, else the emulated picture is shown.
-- Code: core third_party\NuanceResurrection (branch llamasoft-nuon) src/capture.cpp publishes each picture's entries
-  + the bus words MPE0 read (+ mode 2: its frame buffer = ground truth) at the flip; host src/t3k_native.{h,cpp}
-  (BuildPicture -> ops; Renderer with two window-sized feedback textures; Interpolate). t3k.exe keys: F7 native_view
-  (0 off, 1 native pictures, 2 vectors over emulated, 3 vectors alone), F6 native_interpolate.
-- Ported + verified: 00710001 vector shapes, 00000300 fill, 00300004 zoom feedback, 0011000B web surface, 0010000D
-  glowing number (score / title 3000; tools/t3k_textfit.py).
-- VERIFY every type with ground truth, never with screenshots: NUANCE_ONLYTYPES=<done types> T3K_NATIVE_FORCE=1
-  t3k.exe --headless ... --nativecheck=F0:F1:<dir> (per-picture mean error + truth | native | diff images). Decode
-  a module with --disasm=F:3:<lib addr>:N, NUANCE_SPANLOG=<type> (pixel rows read / written + entry words, job word),
-  NUANCE_PCLOG=<local pc> + NUANCE_NOJIT=1 + NUANCE_AOT_SKIP=<module prefix> (registers inside one module), NUANCE_ENTRYLOG
-  + NUANCE_ENTRYDATA=1 (lists + data per picture), NUANCE_SKIPTYPE (what a type draws), NUANCE_NODRAW (cost).
-- Python models: tools/t3k_vecmodel.py, t3k_linefit.py, t3k_vecrender.py, t3k_zoomfit.py, t3k_webfit.py,
-  t3k_census.py, t3k_interpcheck.py.
-- Ported + verified 2026-11-15 (later): 00310108 (draws nothing in play), 00310309 particles, 00310209 dot images,
-  0031020E disc shapes, 00310010 disc grid (all GPU discs, Op::kBlobs), 00500005 ring (an image, the glyph path).
-  Whole play pictures, no forcing: every play picture tested is complete (2701-2960, 2881-2960 with an explosion,
-  3151-3299), mean error 2.80-2.86 against the full emulated pictures.
-- Step 3 DONE (PLAN.md "Step 3: the draw gate"): with native_view 1 (F7) + native_skip 1 the emulated renderers skip
-  every native picture (core nuance_set_picture_callback; pictures built from live memory): play 2.2-2.4x less
-  emulation time. Native from the menus on (boot / title still emulated). Tests: t3k --gate=1 (live == captured) /
-  --gate=2 (skip) headless, T3K_GATE_LOG=1.
-- 2026-11-16: no "controller configuration has changed" screen at boot (core nuance_set_pad_present_at_boot; t3k setting
-  skip_controller_screen, default 1). Boot route now: a at 900 / 1300 / 1700 / 2100 / 2500 (no start at 400); play
-  ~3000. Every picture is native now, boot logo included (0031000E, 00310409, 0000000F ported). Native: YCrCb pipeline (GPU renderer + src/shaders/ycc_*.hlsl), point-ring sign fix; open: orange patches
-  on the brightest warp / bonus screens.
-- 2026-11-16: claw feel study done for TxK; T3K stick_mode stiff (T2K feel + lane settle) is the default and the
-  owner likes it (PLAN.md "Claw feel study" Results). Momentum (TxK feel) and Off were removed 2026-11-17 (owner): Step, Stiff, Left/right remain.
-- Was next (owner 2026-11-15): the claw feel study (PLAN.md "Claw feel study: TxK and Tempest 4000") - measure TxK / T4K
-  claw response, tune T2K / T3K controls; then T3K game speed; step 4 (interpolate-all) only if still needed; YCrCb
-  pipeline (polish).
-- Workflow per type (tools from 2026-11-15): t3k --disasm=F:3:<lib>:N > m.dis; tools/t3k_annotate.py m.dis (local pcs,
-  helpers); tools/t3k_logrun.py --state play_f2900 --span <type> --entries --out logs/t3k/<x>/run; a fit script on
-  tools/t3k_spanlib.py (prepare / predict); unsure of a value -> --pc <local pcs> --interp <lib lo>-<hi> --pictures
-  P0:P1 --pix; port; --only <done types> --nativecheck with T3K_CHECK_MASK=<span log>. Read Nuance's instruction code
-  before guessing semantics.
-- Save states: t3k --savestate=F:file / --loadstate=F:file (continues at F + 1); play states in logs\t3k\states\
-  (play_f2700 / 2900 / 3000 / 3150). Start investigation runs from these, not from boot.
-- Pixel loads in the MPE modules: Y byte << 22, Cr / Cb signed (byte - 128) << 22, Z byte << 24. PCLOG inside a module:
-  NUANCE_NOJIT=1 NUANCE_AOT_SKIP=<lib prefix covering every chunk-start module> (timeline slips: same-run data only).
-
-## T2K leftovers (from the 2026-11-09 list; the rest is done - REMASTER.md steps 7-15)
-4. Unseen in tests: "Excellent" / one-up graphics, the AI droid's zap, Beastly mode (cheat_beastly unlocks it now).
-5. QoL: remember the window size / position; menu items for run_ahead (0-4) and hud_corners.
-6. Performance: 4K with CRT++; a low-end GPU (Steam Deck class) if that's a target.
-7. Open questions: the psycho bonus sphere invisible on the original (left to the GPU); the owner's "offset ghost
-   image of the UI" (not reproduced; ceiling bonus mfudj merge 8 lines low is a candidate).
-- Owner's test states: logs/owner_star.state (warp starfield between levels), logs/play.state (in play, level 1),
-  logs/demo6400.state (attract demo, pixel explosion at +104..+170).
-
-## Porting recipe (learned on Tempest 2000, 2026-11-09; for Defender 2000 and later)
-Finding things
-- Survey first: --gpulog over a long run (attract + play + a scripted route), grouped by caller / module / mode / frame
-  range; map callers to routines with reference/t2k.sym. A timeline contact sheet (--shot every N frames, a grid) shows
-  which screen each range is. --peek / --poke (RAM long / word) and RM_TRACE (published scene per frame) for state.
-- What draws a thing is often not what it looks like: the "dash lattice" was zoom text, the HUD is an OP overlay
-  (screen3) not a GPU draw, the tunnel is two point routines, the bonus ground grid a starfield. Check the picture
-  with the remaster ON (only uncaptured pixels remain) to see what is left.
-- Read the GPU routine fully before porting; copy its integer set-up exactly (fmult / sdiv / >> 7 / table bytes) and
-  its quirks (psphere steps its phase twice, texter's shrink hack keeps the narrower width, vect3d ends a list on a
-  zero vertex BYTE). Cheats / test routes come from the 68K source (pad masks, flags like chenable / warpy).
-Verifying
-- Same run, GPU vs ours: RM_NOSKIP + RM_OURS + --rmshot, tools/side_by_side.py, and a red / green pixel overlay for
-  exact positions. Window-only effects (feedback, ripple, mode7) need --state + --winshot comparisons against
-  --set=native=1 (Original mode). Feedback chains need a state from BEFORE they start.
-- Always test the path back (play -> quit to title), not just boot -> play; and run-ahead consistency
-  (--runahead=2 picture == plain + 2 frames, byte-identical).
-Architecture that worked
-- Capture at gpurun, skip the GPU for captured modes into the play buffers, draw natively in window space; the core's
-  picture over ours with black see-through. Interpolate captured inputs; hidden run-ahead frames rewind ALL host state.
-- Screens the game builds by feedback (scar), full-screen warps (ripple, mode7) or the blitter: take over the
-  full-overwrite op, keep our own window-sized feedback texture, and have the core's OP skip the stale buffers
-  (vjOPSkip ranges); gate other takeovers (text, sprites) on "this buffer's background is ours".
-- Overlays (HUD) as our own layer: skip the OP object in the core rather than masking pixels (masking leaves holes);
-  move content clusters to the corners, never fixed zones.
-- Emulated GPU / blitter work is nearly free: render-paced screens run too fast; pace them by holding the 68K in
-  gpuwait (host port), measured against the hardware's look (BigPEmu as the owner's reference).
-- Extending to wide screens: the game's world usually exists past 4:3 (widen culls); clipped textures can tile
-  mirrored (wrap addressing); far / minified lines need mip levels and a fade.
-- Small custom shaders (HLSL -> DXIL, tools/build_shaders.py) for CRY-style dimming (subtract from the brightest
-  channel, keep hue) - multiplying or subtracting RGB looks wrong.
-Working with the owner
-- They test in the window and report with screenshots / save states (copy slotN.state to logs\ first); every tunable
-  look gets a menu slider with a sensible default; "Original mode" must turn everything off.
-Tooling pitfalls (cost time today)
-- Inline python / heredocs mangle backslashes (\n): write edit scripts with Write and run python -I <file>.
-- From bash give the exe forward-slash paths; check file times when a fix "shows no change" (stale screenshots).
-- Headless runs keep only the LAST --savestate; window runs over ~100 s need the timeout raised.
-
-## Lessons (2026-11-15)
-- Vita3K core: system\vita3k\storage_location.txt names the folder the core last used; a core started with another
-  system folder MOVES the data from there. A copied system\vita3k must not carry that file (package_collection.ps1
-  leaves it out) - a test run from dist\ once moved build\system\vita3k away (reinstalled from vita_firmware\).
-- Tempest 4000 (Steam 688140, 32-bit, DXGI): its start-up video-mode dialog (resource 130) always runs and its
-  mode list keeps only the first 256 DXGI modes (no 4K @ 120 on a big monitor). src\t4k\xinput_proxy.cpp
-  (tools\build_t4k_helper.bat -> build\t4k\xinput1_4.dll / xinput1_3.dll, next to Win10\ / Win7-8\
-  Tempest4000.exe; Steam runs Win7-8 here) hooks DialogBoxParamW, picks the desktop mode, rewrites the chosen
-  entry of the game's mode table (found by matching the whole list) to the desktop mode, presses Start Game during
-  WM_INITDIALOG. Verified: 3840x2160 @ 120 full screen. Deck: WINEDLLOVERRIDES="xinput1_3,xinput1_4=n,b" bash -c
-  'exec "${@/Win10/Win7-8}"' -- %command% (2026-11-17: no music on the Deck - Proton = "Windows 10" launch entry, whose
-  music is xWMA only (Win10\Assets\Sounds\Tracks_xwma); Win7-8 has Tracks_adpcm WAVs; the launcher checks for "Win7-8").
-  Owner: still no music with Win7-8 alone - that build plays Tracks_xwma whenever the folder exists (ProtonDB:
-  protondb.com/app/688140). Now PrepareT4K under Wine renames Win7-8\Assets\Sounds\Tracks_xwma -> Tracks_xwma.proton-off
-  (then it plays Tracks_adpcm). Owner verified on the Deck 2026-11-17: music plays ("worked flawlessly").
-
-## Lessons (2026-11-09)
-- From bash, give the exe forward-slash paths (logs/x.bmp): a quoted backslash scratchpad path silently failed to
-  write AND to delete, so I re-read stale screenshots for three rounds. Check file times when a fix shows no change.
-- Menu tests: --menu / --menu=all open the Back menu at start (all sections), --winshot then counts presents.
-- Emulated GPU / blitter work is near free: screens paced on render completion (melt, ripple) run too fast. Measure
-  with a timeline contact sheet (--shot every N frames) and a brightness curve, fix with host pacing (gpuwait hold).
-- Heavy (menu) screens can't afford run-ahead: check real-time cost per screen (headless fps with --runahead).
-- Capture lists only refresh when the game clears with the GPU: screens drawn another way (blitter menus) leave
-  stale lists, so anything keyed off "what we captured" needs a staleness check. Tell play from menus by the HUD
-  overlay object (beasties+64 ObType 8/7) plus mainloop_routine == draw_objects; test the path play -> quit to
-  title too (mainloop_routine is not reset), not just boot -> play.
-- Run-ahead needs ALL host-side state rewound, not just the core's: our hooks keep state (t2k stick ramp, the
-  $DFFC00 port area in jagMemSpace, which the core's state does not include; remaster capture lists). Test it as:
-  run-ahead picture at f == plain run at f + N, audio and --trace byte-identical.
-- Interpolate the captured INPUTS (camera-relative positions, angles), not projected output; keep headless at t = 1
-  so the GPU-vs-ours checks stay exact. Angles need a fractional sine (SinT).
-- Only take over rex calls from the draw_vex object routines (by caller range): the title / yak / level-select
-  rex calls draw over backgrounds we don't capture, and skipping them there would hide them.
-- The game's world exists beyond the 4:3 frame (web, enemies, stars): wide screens only needed the culls widened.
-- Image previews may be scaled (e.g. 1.02x): measure offsets with tools (fit_origin.py), not by eye.
-- Tools: tools/side_by_side.py (original | ours, crop), tools/check_interp.py, RM_T=<t>, --runahead=N,
-  --aspect=W:H, --winsize=WxH.
-
-## Lessons (2026-11-08)
-- Verify each native primitive against the GPU in the SAME run: skipping GPU work shifts main-loop timing, so
-  remaster-on and remaster-off runs drift apart (claw animation frames differ) and side-by-sides across runs mislead.
-- The picture for a frame shows the buffer that was cscreen at the end of the PREVIOUS frame (one-frame lag).
-- Intensity bytes: vect3d / pixels = (value >> 16) of the blitter I3 form; polyo2d intensity words are $xx00
-  (byte = word >> 8); web3d bright = r0, far = r0 / 4.
-- Read the .gas routine fully before porting; "comments say X" was wrong twice (llama mode list, warp streaks).
-- When the owner reports a visual bug with a save state: copy build\userdata\states\slotN.state into logs\ and
-  test from the copy (--loadstate=1:<file> headless, --state=<file> --winshot=N:<bmp> in the window).
-- Python edit scripts with backslashes: write them with the Write tool (Bash heredocs mangle \n here); cmd won't
-  run exes from the current folder (use full paths).
-
-## Defender 2000 renderer: moved to C:/LlamatronRecomp/D2K.md (2026-11-22)
+## Where we are (2026-11-27)
+- Branch **t3k-native** (not merged to main, not pushed): native T3K = Frogacuda's reconstruction (initial 2026-11-25,
+  stable checkpoint 2026-11-26, final revision R3 2026-11-27; as received = local branches frog-stable / frog-r3). R3
+  fixed the leftover web and the bonus rounds (owner tested). His work is finished; T3K is ours from here.
+- Done 2026-11-27: T3K nudge assist (a tap = one lane, hold 0.08 s to sweep; owner: "perfect"); the launcher runs
+  Space Giraffe / Tempest 4000 copies from outside Steam (Amazon / GOG; untested with a real copy - wait for reports).
+- Next (PLAN.md "Native T3K: next"): general performance; before a release: README (T3K paragraphs), credit Frogacuda
+  + OpenMinotaur in the README and the launcher's MORE LLAMASOFT list, merge t3k-native, package + smoke test, Deck.
