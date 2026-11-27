@@ -1167,8 +1167,8 @@ defaults (gameplay 22, travel 22, entry 30, sensitivity 0.9); Framerate default 
 (nothing of Nuance is built or shipped; disc_image is our own code). Smoke test: T3K play picture 3700 at 8 %, stale
 pictures deleted before each run. LEFT: merge to main, package + smoke test, play folder / Deck.
 Open (not for this release unless the owner says):
-- 120Hz mode runs at HALF SPEED on the Deck's 90 Hz screen (owner). FOUND + FIXED 2026-11-27 (awaiting the owner's
-  Deck test): gameplay and bonus already skipped presents when behind, but every other scene (menus, level entry /
+- 120Hz mode runs at HALF SPEED on the Deck's 90 Hz screen (owner). FOUND + FIXED 2026-11-27 (owner tested on the
+  Deck: "works perfectly"): gameplay and bonus already skipped presents when behind, but every other scene (menus, level entry /
   travel / clear, death: time-integrated effect pictures) presented every 120 Hz step, and a present waits for the
   display -> those scenes ran at display Hz / 120 (x2.00 slower at 60 Hz, x1.33 at 90, x3 for 60Hz mode on 40 Hz -
   the 60Hz mode was broken too on 60 Hz screens: its next-present time fell behind and it presented every step).
