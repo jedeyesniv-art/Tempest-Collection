@@ -65,9 +65,9 @@ settings menu, which pauses the game.
 | Tempest (1981) | Arcade | MAME core, with our own vector renderer |
 | Tempest 2000 (1994) | Atari Jaguar | Virtual Jaguar core + our native renderer ("Remaster") |
 | Tempest 3000 (2000) | Nuon | Native reconstruction + GPU renderer |
-| Space Giraffe (2008) | PC | Your Steam copy, started and patched by the launcher |
+| Space Giraffe (2008) | PC | Your copy (Steam or elsewhere), started and patched by the launcher |
 | TxK (2014) | PS Vita | Vita3K core |
-| Tempest 4000 (2018) | PC | Your Steam copy, started and patched by the launcher |
+| Tempest 4000 (2018) | PC | Your copy (Steam, Amazon, GOG...), started and patched by the launcher |
 
 The last panel, **More Llamasoft**, lists Jeff Minter's games on Steam and our other collections.
 
@@ -84,7 +84,7 @@ greys that game out and tells you exactly which file it is looking for and where
 | Tempest 3000 | `game\<name with "Tempest">.iso` or `.mdf` | A DVD `.mdf` is read directly (the `.mds` beside it isn't needed). On first start the launcher offers to compress it (743 MB -> ~196 MB, about a minute), then to delete the original. |
 | TxK | `game\PCSB00494\` (the game folder: `eboot.bin`, `sce_sys\` ...) | Tested with PCSB00494 (Europe). |
 | PS Vita firmware (for TxK) | `vita_firmware\PSVUPDAT.PUP` and `vita_firmware\PSP2UPDAT.PUP` | Both are free downloads from Sony's PS Vita system software pages. Installed automatically on TxK's first start (the `.PUP` files can be deleted afterwards). |
-| Space Giraffe, Tempest 4000 | Install them in Steam | Not installed? The launcher's A button opens their store page. |
+| Space Giraffe, Tempest 4000 | Install them in Steam, or anywhere else | Not installed? The launcher's A button opens their store page. A copy from elsewhere (Amazon Games, GOG) is found in those stores' usual folders, or choose its program in the launcher's settings (Back): "Games from outside Steam". |
 
 The Nuon BIOS and Nuance core are not needed: Tempest 3000 now runs as native reconstructed C++ with the GPU renderer. See the [stable handoff notes](docs/T3K-STABLE-HANDOFF.md) for current settings, controls, limitations and validation.
 

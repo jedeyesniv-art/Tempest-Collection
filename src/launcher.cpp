@@ -29,7 +29,9 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -114,6 +116,7 @@ struct Game {
   std::string status;   // why it can't start (empty = ready); for Steam games also "setup needed" (it still starts)
   std::vector<std::string> help;   // what to do, shown under the list while this entry is selected
   bool store = false;   // a Steam game not installed: A opens its Steam store page
+  fs::path exe;         // a Steam game from elsewhere (OwnCopy): the launcher runs this program itself
 };
 
 // The program a Steam game runs as (the launcher waits for it to hand it the front and to come back when it quits).
@@ -274,18 +277,34 @@ bool CopyIfDifferent(const fs::path& src, const fs::path& dst) {
   return !ec;
 }
 
-// Tempest 4000's helper (src/t4k/xinput_proxy.cpp): xinput1_4.dll + xinput1_3.dll into its Win10 and Win7-8 folders.
-std::string PrepareT4K(const fs::path& base) {
-  const fs::path dir = SteamGameDir(kSteamAppT4K);
-  if (dir.empty()) return "";
+// Tempest 4000's program folders: Steam's install has Win10 and Win7-8 (each with Tempest4000.exe). A copy from
+// elsewhere (`own` = its chosen / found program: Amazon, GOG) is laid out the same way when the program's folder is
+// Win10 or Win7-8, else it is flat (just the program's folder).
+std::vector<fs::path> T4KFolders(const fs::path& own) {
+  fs::path root = own.empty() ? SteamGameDir(kSteamAppT4K) : own.parent_path();
+  if (root.empty()) return {};
+  if (!own.empty()) {
+    const std::wstring name = root.filename().wstring();
+    if (_wcsicmp(name.c_str(), L"Win10") != 0 && _wcsicmp(name.c_str(), L"Win7-8") != 0) return {root};
+    root = root.parent_path();
+  }
+  std::vector<fs::path> out;
+  std::error_code ec;
+  for (const char* sub : {"Win10", "Win7-8"})
+    if (fs::exists(root / sub, ec)) out.push_back(root / sub);
+  return out;
+}
+
+// Tempest 4000's helper (src/t4k/xinput_proxy.cpp): xinput1_4.dll + xinput1_3.dll into its program folders.
+std::string PrepareT4K(const fs::path& base, const fs::path& own = {}) {
+  const std::vector<fs::path> dirs = T4KFolders(own);
+  if (dirs.empty()) return "";
   for (const fs::path& from : {base / "Tempest 4000 helper", base / "t4k"}) {
     if (!fs::exists(from / "xinput1_4.dll")) continue;
-    for (const char* sub : {"Win10", "Win7-8"}) {
-      if (!fs::exists(dir / sub)) continue;
+    for (const fs::path& dir : dirs)
       for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll"})
-        if (fs::exists(from / dll) && !CopyIfDifferent(from / dll, dir / sub / dll))
+        if (fs::exists(from / dll) && !CopyIfDifferent(from / dll, dir / dll))
           return "could not copy the helper into Tempest 4000's folder";
-    }
     break;
   }
   // Under Proton (the Deck): no music - the game plays Tracks_xwma when it is there, and Proton can't decode xWMA. The
@@ -294,13 +313,15 @@ std::string PrepareT4K(const fs::path& base) {
   // brings it back and the next start renames it again). The Win10 build has only xWMA: the Deck needs the Win7-8 one
   // (Steam's "Tempest 4000" launch entry, or the launch option's Win10 -> Win7-8 swap).
   if (UnderWine()) {
-    const fs::path snd = dir / "Win7-8" / "Assets" / "Sounds";
-    std::error_code ec;
-    if (fs::exists(snd / "Tracks_xwma", ec) && fs::exists(snd / "Tracks_adpcm", ec)) {
-      fs::path off = snd / "Tracks_xwma.proton-off";
-      if (fs::exists(off, ec)) fs::remove_all(off, ec);   // (a "verify files" restored the original: renamed again)
-      fs::rename(snd / "Tracks_xwma", off, ec);
-      if (ec) return "could not switch Tempest 4000 to its WAV music (" + ec.message() + ")";
+    for (const fs::path& dir : dirs) {   // (only a build that has both: Win7-8, or a flat copy laid out like it)
+      const fs::path snd = dir / "Assets" / "Sounds";
+      std::error_code ec;
+      if (fs::exists(snd / "Tracks_xwma", ec) && fs::exists(snd / "Tracks_adpcm", ec)) {
+        fs::path off = snd / "Tracks_xwma.proton-off";
+        if (fs::exists(off, ec)) fs::remove_all(off, ec);   // (a "verify files" restored the original: renamed again)
+        fs::rename(snd / "Tracks_xwma", off, ec);
+        if (ec) return "could not switch Tempest 4000 to its WAV music (" + ec.message() + ")";
+      }
     }
   }
   return "";
@@ -308,8 +329,8 @@ std::string PrepareT4K(const fs::path& base) {
 
 // Puts the helper next to SpaceGiraffePC.exe (when missing or different) and the flavour into its sg_helper.txt
 // (other lines kept). Returns an error message, or empty.
-std::string PrepareSpaceGiraffe(const fs::path& base, const std::string& flavour) {
-  const fs::path dir = SteamGameDir(kSteamAppSG);
+std::string PrepareSpaceGiraffe(const fs::path& base, const std::string& flavour, const fs::path& own = {}) {
+  const fs::path dir = own.empty() ? SteamGameDir(kSteamAppSG) : own.parent_path();
   if (dir.empty()) return "";   // not found: Steam starts it as it is (a hand-installed helper still works)
   for (const fs::path& src : {base / "Space Giraffe helper" / "d3d9.dll", base / "sg" / "d3d9.dll"}) {
     if (!fs::exists(src)) continue;
@@ -335,6 +356,66 @@ std::string PrepareSpaceGiraffe(const fs::path& base, const std::string& flavour
     return "could not write sg_helper.txt";
   }
   return "";
+}
+
+// ---- copies from outside Steam (2026-11-27, a player's request: Tempest 4000 from Amazon) ----
+// The launcher setting naming a Steam game's program when it comes from elsewhere ("" = none).
+const char* OwnExeKey(const char* app) { return std::strcmp(app, kSteamAppSG) == 0 ? "sg_exe" : "t4k_exe"; }
+
+fs::path Utf8Path(const std::string& s) { return fs::path(reinterpret_cast<const char8_t*>(s.c_str())); }
+std::string PathUtf8(const fs::path& p) {
+  const std::u8string u = p.u8string();
+  return std::string(u.begin(), u.end());
+}
+
+// A copy found in the usual places of other stores (each drive's Amazon Games\Library, GOG Games, GOG Galaxy's
+// Games), looked up once a session; empty if none. Tempest 4000 laid out like Steam's (Win10 + Win7-8): the Win7-8
+// one under Wine (its music plays there), else Win10.
+fs::path DetectOwnCopy(const char* app) {
+  static std::map<std::string, fs::path> cache;
+  if (auto it = cache.find(app); it != cache.end()) return it->second;
+  const wchar_t* name = SteamExe(app);
+  std::vector<fs::path> found;
+  if (name && !std::getenv("LAUNCHER_NO_DETECT")) {
+    const DWORD drives = GetLogicalDrives();
+    for (int d = 2; d < 26; ++d) {   // C: .. Z: (not A: / B:)
+      if (!(drives & (1u << d))) continue;
+      const fs::path drive = std::wstring(1, wchar_t(L'A' + d)) + L":\\";
+      if (GetDriveTypeW(drive.c_str()) != DRIVE_FIXED) continue;   // (no network / card / disc waits)
+      for (const wchar_t* sub : {L"Amazon Games\\Library", L"GOG Games", L"Program Files (x86)\\GOG Galaxy\\Games",
+                                 L"Program Files\\GOG Galaxy\\Games"}) {
+        std::error_code ec;
+        const fs::path root = drive / sub;
+        if (!fs::is_directory(root, ec)) continue;
+        for (auto it = fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec);
+             !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+          if (it.depth() >= 3) it.disable_recursion_pending();
+          if (_wcsicmp(it->path().filename().c_str(), name) == 0) found.push_back(it->path());
+        }
+      }
+    }
+  }
+  fs::path pick;
+  for (const fs::path& f : found) {
+    const std::wstring folder = f.parent_path().filename().wstring();
+    const bool preferred = _wcsicmp(folder.c_str(), UnderWine() ? L"Win7-8" : L"Win10") == 0;
+    if (pick.empty() || preferred) pick = f;
+  }
+  return cache[app] = pick;
+}
+
+// The program a Steam game runs from when it comes from elsewhere: the one chosen in the settings menu (even if it
+// is gone: `missing` then says so), else - only when Steam doesn't have it - one found by DetectOwnCopy.
+fs::path OwnCopy(const char* app, bool steam_has_it, bool* missing) {
+  *missing = false;
+  const std::string chosen = settings::Str(OwnExeKey(app), "");
+  if (!chosen.empty()) {
+    std::error_code ec;
+    if (fs::is_regular_file(Utf8Path(chosen), ec)) return Utf8Path(chosen);
+    *missing = true;
+    return Utf8Path(chosen);
+  }
+  return steam_has_it ? fs::path{} : DetectOwnCopy(app);
 }
 
 // The Steam launch options the player set for `app` (Steam's userdata\<id>\config\localconfig.vdf, apps\<app>\
@@ -493,11 +574,27 @@ std::vector<Game> MakeGames(const fs::path& base) {
       const SteamSetup* su = nullptr;
       for (const auto& s : kSetups)
         if (std::strcmp(s.app, x.target) == 0) su = &s;
-      if (SteamGameDir(x.target).empty()) {
+      const bool steam = !SteamGameDir(x.target).empty();
+      bool gone = false;
+      const fs::path own = OwnCopy(x.target, steam, &gone);
+      if (gone) {
+        x.status = "program not found";
+        x.help = {"The program chosen for it is gone:", "    " + PathUtf8(own),
+                  "Choose it again (or use Steam again) in the settings: Back."};
+      } else if (!own.empty()) {
+        x.exe = own;
+        x.detail = std::strcmp(x.target, kSteamAppSG) == 0 ? "2008 - PC" : "2018 - PC";
+        if (!fs::exists(base / su->helper) && !fs::exists(base / su->helper_dev)) {
+          x.status = "helper missing";
+          x.help = {std::string("The helper is missing from the launcher's folder: ") + su->helper,
+                    "(copy it back from the Tempest Collection package)"};
+        }
+      } else if (!steam) {
         x.status = "not installed";
         x.store = true;
         x.help = {std::string("Buy and install ") + su->name + " in Steam (A opens its store page).",
-                  "Then come back here: the launcher sets it up each time it starts it."};
+                  "Then come back here: the launcher sets it up each time it starts it.",
+                  "Have it from elsewhere (Amazon, GOG)? Back > settings > choose its program."};
       } else if (!fs::exists(base / su->helper) && !fs::exists(base / su->helper_dev)) {
         x.status = "helper missing";
         x.help = {std::string("The helper is missing from the launcher's folder: ") + su->helper,
@@ -612,7 +709,21 @@ SDL_Gamepad* FirstPad() {
 }
 
 // The launcher menu's own actions (menu::Update returns them).
-enum LauncherAction : int { kCompressDisc = menu::kGameAction, kDeleteIso, kAskDiscAgain };
+enum LauncherAction : int { kCompressDisc = menu::kGameAction, kDeleteIso, kAskDiscAgain, kPickSG, kPickT4K,
+                            kSteamSG, kSteamT4K };
+
+// The file dialog's answer (SDL calls back on its own thread): the chosen program, read by the main loop.
+struct ExePick {
+  std::mutex lock;
+  std::string app, path;   // app = whose program (Steam app ID); path = "" when cancelled
+  bool done = false;
+};
+ExePick g_pick;
+void SDLCALL OnExePicked(void*, const char* const* files, int) {
+  std::lock_guard<std::mutex> hold(g_pick.lock);
+  g_pick.path = files && files[0] ? files[0] : "";
+  g_pick.done = true;
+}
 
 }  // namespace
 
@@ -748,6 +859,49 @@ int main(int argc, char** argv) {
     }
     if (!g.status.empty() && g.status != "setup needed") {   // (setup needed: it starts without the helper)
       message = std::string(g.title) + ": " + g.status;
+      return;
+    }
+    if (g.kind == Kind::Steam && !g.exe.empty()) {   // from elsewhere: the helper next to it, then run it ourselves
+      const bool sg = std::strcmp(g.target, kSteamAppSG) == 0;
+      const std::string err = sg ? PrepareSpaceGiraffe(base, settings::Str("sg_flavour", "acid"), g.exe)
+                                 : PrepareT4K(base, g.exe);
+      if (!err.empty()) {
+        message = err;
+        return;
+      }
+      fs::path exe = g.exe;
+      std::error_code ec;
+      if (!sg && UnderWine() && _wcsicmp(exe.parent_path().filename().c_str(), L"Win10") == 0 &&
+          fs::exists(exe.parent_path().parent_path() / "Win7-8" / exe.filename(), ec))
+        exe = exe.parent_path().parent_path() / "Win7-8" / exe.filename();   // (its music plays under Proton)
+      if (std::getenv("LAUNCHER_DRY_URL")) {   // tests: don't really start it
+        std::fprintf(stderr, "launcher: would run %s\n", PathUtf8(exe).c_str());
+        return;
+      }
+      starting = std::string("STARTING ") + g.title + "...";
+      draw_starting();
+      // Under Wine the helper DLL is only used with a native-first override; a program we start inherits it.
+      const wchar_t* var = L"WINEDLLOVERRIDES";
+      wchar_t old[512] = {};
+      const bool had = GetEnvironmentVariableW(var, old, 512) > 0;
+      if (UnderWine()) SetEnvironmentVariableW(var, sg ? L"d3d9=n,b" : L"xinput1_3,xinput1_4=n,b");
+      AllowSetForegroundWindow(ASFW_ANY);
+      STARTUPINFOW si{};
+      si.cb = sizeof(si);
+      PROCESS_INFORMATION pi{};
+      std::wstring cmd = L"\"" + exe.wstring() + L"\"";
+      const std::wstring dir = exe.parent_path().wstring();
+      const bool ok = CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi);
+      if (UnderWine()) SetEnvironmentVariableW(var, had ? old : nullptr);
+      if (!ok) {
+        starting.clear();
+        message = std::string("could not start ") + PathUtf8(exe.filename());
+        return;
+      }
+      CloseHandle(pi.hThread);
+      child = pi.hProcess;
+      child_started = SDL_GetTicksNS();
+      child_pushed = 0;
       return;
     }
     if (g.kind == Kind::Steam) {
@@ -1022,6 +1176,11 @@ int main(int argc, char** argv) {
     p.Button("Ask about the disc again on start", kAskDiscAgain)->when = [&] {
       return disc_iso && (settings::Num("t3k_offer_compress", 1) == 0 || settings::Num("t3k_offer_delete", 1) == 0);
     };
+    p.Header("GAMES FROM OUTSIDE STEAM");   // (Amazon, GOG, a backup: the launcher runs the program itself)
+    p.Button("Space Giraffe: choose its program (.exe)", kPickSG, true);
+    p.Button("  Space Giraffe: use Steam's again", kSteamSG)->when = [] { return !settings::Str("sg_exe", "").empty(); };
+    p.Button("Tempest 4000: choose its program (.exe)", kPickT4K, true);
+    p.Button("  Tempest 4000: use Steam's again", kSteamT4K)->when = [] { return !settings::Str("t4k_exe", "").empty(); };
     p.Header("");
     p.Button("Quit the collection", menu::kQuit, true);
     menu::SetPage("TEMPEST COLLECTION - SETTINGS", std::move(p));
@@ -1253,7 +1412,8 @@ int main(int argc, char** argv) {
     if (menu::IsOpen()) {
       const menu::Nav nav = pad_ours ? menu::ReadNav(FirstPad(), focused ? SDL_GetKeyboardState(nullptr) : nullptr)
                                      : menu::Nav{};
-      switch (menu::Update(nav, SDL_GetTicksNS())) {
+      const int action = menu::Update(nav, SDL_GetTicksNS());
+      switch (action) {
         case menu::kQuit: running = false; break;
         case menu::kToggleFullscreen: {
           const bool on = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
@@ -1263,6 +1423,33 @@ int main(int argc, char** argv) {
         }
         case kCompressDisc: ask_from_menu(Ask::Compress); break;
         case kDeleteIso: ask_from_menu(Ask::Delete); break;
+        case kPickSG:
+        case kPickT4K: {
+          const char* app = action == kPickSG ? kSteamAppSG : kSteamAppT4K;
+          {
+            std::lock_guard<std::mutex> hold(g_pick.lock);
+            g_pick.app = app;
+            g_pick.done = false;
+          }
+          static const SDL_DialogFileFilter filter[] = {{"Programs (*.exe)", "exe"}};
+          // start where it was, or in a usual place for it
+          bool gone = false;
+          fs::path at = OwnCopy(app, true, &gone);
+          std::error_code ec;
+          if (at.empty())
+            for (const char* d : {"C:\\Amazon Games\\Library", "C:\\GOG Games", "C:\\Program Files (x86)\\GOG Galaxy\\Games"})
+              if (fs::is_directory(d, ec)) { at = fs::path(d) / ""; break; }
+          const std::string from = at.empty() ? "" : PathUtf8(at);
+          SDL_ShowOpenFileDialog(OnExePicked, nullptr, win, filter, 1, from.empty() ? nullptr : from.c_str(), false);
+          break;
+        }
+        case kSteamSG:
+        case kSteamT4K:
+          settings::Save(action == kSteamSG ? "sg_exe" : "t4k_exe", "");
+          reload_games();
+          menu::Toast(std::string(action == kSteamSG ? "Space Giraffe" : "Tempest 4000") + " starts in Steam again",
+                      SDL_GetTicksNS());
+          break;
         case kAskDiscAgain:
           settings::Save("t3k_offer_compress", "1");
           settings::Save("t3k_offer_delete", "1");
@@ -1273,6 +1460,27 @@ int main(int argc, char** argv) {
       if (!menu::IsOpen()) ignore_until = SDL_GetTicksNS() + 150000000ull;   // (the closing press is not for us)
     }
     apply_settings();
+    {   // a program chosen in the file dialog
+      std::string app, path;
+      {
+        std::lock_guard<std::mutex> hold(g_pick.lock);
+        if (g_pick.done) {
+          g_pick.done = false;
+          app = g_pick.app;
+          path = g_pick.path;
+        }
+      }
+      if (!path.empty()) {
+        settings::Save(OwnExeKey(app.c_str()), path);
+        reload_games();
+        const bool sg = app == kSteamAppSG;
+        message = std::string(sg ? "SPACE GIRAFFE" : "TEMPEST 4000") + " starts " + PathUtf8(Utf8Path(path).filename()) +
+                  " (not Steam)";
+        const wchar_t* expect = SteamExe(app.c_str());
+        if (_wcsicmp(Utf8Path(path).filename().c_str(), expect) != 0)
+          message += " - its usual program is " + PathUtf8(fs::path(expect));
+      }
+    }
     if (ask == Ask::Compressing && job && job->phase == 3) {   // the compression finished
       job->worker.join();
       const bool ok = job->ok;

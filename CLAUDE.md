@@ -244,6 +244,20 @@ framing in play on Tempest Tubes.
   in place, ROMs checked by CRC first), CRT+ / CRT++ (GPU renderer). All: the menus, the run logs.
 - Tools from the session: tools/iso_list.py, t3k_datmap.py, t3k_musicrate.py, wav_compare.py.
 
+## SG / T4K from outside Steam (2026-11-27; a player's request: T4K free from Amazon)
+- Launcher settings sg_exe / t4k_exe = the program of a copy from elsewhere; menu "GAMES FROM OUTSIDE STEAM": choose
+  its program (SDL_ShowOpenFileDialog, answer via g_pick on the main loop) / use Steam's again. Order: a chosen program
+  (missing -> status "program not found") > Steam's install > DetectOwnCopy (fixed drives' Amazon Games\Library,
+  GOG Games, GOG Galaxy\Games, depth 3, once a session; T4K: Win7-8 under Wine, else Win10). Entry detail drops "STEAM".
+- Started by the launcher itself (CreateProcess, working dir = its folder) and watched as our own games (child);
+  helpers copied next to it (T4KFolders: Win10 + Win7-8 when laid out as Steam's, else the program's folder; SG: d3d9
+  + sg_helper.txt); under Wine WINEDLLOVERRIDES is set for the child (d3d9=n,b / xinput1_3,xinput1_4=n,b) and T4K
+  Win10 -> Win7-8 + the Tracks_xwma rename (music) as for Steam.
+- Tested with fake copies (logs\owntest: a throwaway root, LAUNCHER_DRY_URL=1 prints "would run", LAUNCHER_FAKE_WINE=1).
+  NOT tested: a real Amazon / GOG copy (their builds may differ from Steam's: the helpers' hooks), the file dialog
+  by hand, auto-detect on a real folder, the Deck (whether a Wine child honours WINEDLLOVERRIDES set this way).
+  LAUNCHER_NO_DETECT=1 skips the folder scan.
+
 ## T3K native nudge assist (2026-11-27; owner: "perfect", hold 0.08 s)
 - Measured: the native game moves the claw by axis x 768/65536 lanes a tick (SimulationStep spreads it over the fine
   steps: 0.21 lanes a 120 Hz step at axis 90) and NEVER settles it on a lane (lane = floor(position $800DC100, 16.16));
