@@ -1158,7 +1158,8 @@ Frogacuda's native T3K is in (CLAUDE.md "NATIVE T3K"). The owner's plan, in orde
 4. General performance fixes.
 5. DONE 2026-11-27: the leftover web (part of the web staying after Level 6, the whole web in bonus rounds; reported
    2026-11-26 after his stable checkpoint) - fixed by Frogacuda's R3, owner tested.
-Before release: README (Emulation++ / T3K paragraphs out of date, credit Frogacuda with his GitHub link), commit author
+Before release: README (Emulation++ / T3K paragraphs out of date, credit Frogacuda and link his OpenMinotaur: https://github.com/Frogacuda/OpenMinotaur - also in
+the launcher's MORE LLAMASOFT list), commit author
 -> his GitHub identity, package + smoke test, play folder for the Deck.
 
 ## Ideas from Frogacuda's native T3K (owner 2026-11-27: "write this up to try another time"; PARKED)
