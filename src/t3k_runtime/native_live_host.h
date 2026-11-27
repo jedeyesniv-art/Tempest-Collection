@@ -30,7 +30,7 @@ public:
         epoch_=due_=SDL_GetTicksNS();fineWindowStart_=epoch_;
         if(const char* path=std::getenv("T3K_PROFILE_CSV")){profile_=std::fopen(path,"w");if(!profile_)throw std::runtime_error("Cannot open native profile output");profiling::header(profile_);}
 
-        if(const char* path=std::getenv("T3K_BENCH_CSV")){bench_=std::fopen(path,"w");if(bench_)std::fprintf(bench_,"frame,divisions,substep,frame_ms,work_ms\n");}
+        if(const char* path=std::getenv("T3K_BENCH_CSV")){bench_=std::fopen(path,"w");if(bench_)std::fprintf(bench_,"frame,divisions,substep,frame_ms,work_ms,scene_hz,rate,presented\n");}
     }
     ~NativeLiveHost(){if(profile_)std::fclose(profile_);if(bench_)std::fclose(bench_);if(scene_)SDL_DestroyTexture(scene_);crt::Shutdown();if(device_)SDL_DestroyAudioStream(device_);}
     struct Checkpoint{
@@ -111,8 +111,11 @@ public:
             if(it->first==frames_){auto* picture=SDL_RenderReadPixels(renderer_,nullptr);if(picture){SDL_SaveBMP(picture,it->second.c_str());SDL_DestroySurface(picture);}it=collection.screenshots.erase(it);}else ++it;
         }
         if(presentThisFrame_){profiling::Scope profile(profiling::present);draw_overlay();if(!SDL_RenderPresent(renderer_))failed_=quit_=true;
-            if(step_.divisions>1){if(!stepScene_.referenceHz)++finePresents_;if(auto hz=presentation_rate())nextFinePresent_+=1000000000ULL/hz;}}
-        if(bench_){auto now=SDL_GetTicksNS();std::fprintf(bench_,"%llu,%u,%u,%.6f,%.6f\n",frames_,step_.divisions,step_.index,double(now-(benchLast_?benchLast_:benchStart_))/1000000.,double(now-benchStart_)/1000000.);benchLast_=now;}
+            fake_vsync();lastPresent_=SDL_GetTicksNS();
+            if(step_.divisions>1){if(!stepScene_.referenceHz)++finePresents_;
+                if(auto hz=presentation_rate()){nextFinePresent_+=1000000000ULL/hz;   // never a backlog of pictures to catch up
+                    if(nextFinePresent_<lastPresent_)nextFinePresent_=lastPresent_;}}}
+        if(bench_){auto now=SDL_GetTicksNS();std::fprintf(bench_,"%llu,%u,%u,%.6f,%.6f,%u,%.2f,%d\n",frames_,step_.divisions,step_.index,double(now-(benchLast_?benchLast_:benchStart_))/1000000.,double(now-benchStart_)/1000000.,unsigned(stepScene_.referenceHz),rate_,int(presentThisFrame_));benchLast_=now;}
         if(profile_&&profiling::fence()&&presentThisFrame_){profiling::Scope profile(profiling::gpu_drain);if(!SDL_WaitForGPUIdle(SDL_GetGPURendererDevice(renderer_)))failed_=quit_=true;}
         if(!check_||timed_){uint64_t interval=uint64_t(1000000000.0/rate_);due_+=interval;auto now=SDL_GetTicksNS();if(step_.divisions==1&&due_<now)due_=now;}
         }
@@ -156,6 +159,11 @@ public:
         auto feedback=!effectPicture||std::getenv("T3K_PINNED_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::pinned:std::getenv("T3K_CONTINUOUS_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::continuous:std::getenv("T3K_CLOCKED_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::clocked:t3knative::FeedbackSampling::timeIntegrated;
         bool late=(!check_||timed_)&&SDL_GetTicksNS()>due_+8333333;
         if(feedback==t3knative::FeedbackSampling::pinned&&step_.divisions>1&&!step_.legacy_boundary()&&(!presentThisFrame_||(late&&!screenshot))){presentThisFrame_=false;return pipeline.accept_without_draw(std::move(picture),serial,error);}
+        // Every other picture (time-integrated effects: menus, level entry / travel / clear, death...) is still drawn
+        // - its feedback needs every step - but not PRESENTED while the simulation is behind: a present waits for the
+        // display's refresh, so on a 60 / 90 Hz screen presenting every 120 Hz step slowed those scenes to the
+        // display's rate (half speed at 60 Hz; tools/t3k_pacing.py, 2026-11-27). At most 50 ms without a picture.
+        if(presentThisFrame_&&late&&!screenshot&&step_.divisions>1&&SDL_GetTicksNS()-lastPresent_<50000000ULL)presentThisFrame_=false;
         int outW=0,outH=0;SDL_GetRenderOutputSize(renderer,&outW,&outH);
         if(outW<=0||outH<=0){error="Invalid render output size";return false;}
         bool original=settings::Num("native_view",1)==0;
@@ -384,6 +392,14 @@ private:
         if(suppress_){bool held=(record_.words[1]>>16)!=0;record_.words[1]=0;mouseDelta_=0;suppress_=held;}
         return true;
     }
+    // Test switch T3K_FAKE_REFRESH_HZ=N (with --novsync): a present waits for the next refresh of an N Hz display, as
+    // vsync does - shows on a 120 Hz PC what a 60 / 90 Hz screen (the Steam Deck) does to the timing.
+    void fake_vsync(){
+        static const double hz=std::getenv("T3K_FAKE_REFRESH_HZ")?std::atof(std::getenv("T3K_FAKE_REFRESH_HZ")):0;
+        if(hz<=0)return;
+        static const uint64_t base=SDL_GetTicksNS();const uint64_t period=uint64_t(1e9/hz),now=SDL_GetTicksNS();
+        const uint64_t next=base+((now-base)/period+1)*period;SDL_DelayPrecise(next-now);
+    }
     void draw_overlay(){
         auto now=SDL_GetTicksNS();++displayFrames_;
         if(!rateFrom_){rateFrom_=now;rateFrames_=frames_;}
@@ -405,7 +421,7 @@ private:
     NativeTimingTrace timingTrace_{collection.timingTrace};
     SimulationStep step_{};uint64_t fineFrames_=0,gameplayUpdates_=0;bool presentThisFrame_=true;
     uint64_t fineWindowStart_=0,fineActiveNs_=0;
-    uint64_t nextFinePresent_=0,finePresents_=0,fineDraws_=0;
+    uint64_t nextFinePresent_=0,finePresents_=0,fineDraws_=0,lastPresent_=0;
     std::optional<unsigned> combatPattern_;
     NativeMedia& media_;NativeAudioStreamQueue& stream_;NativeAudioBackend& audio_;SDL_Window* window_;SDL_Renderer* renderer_;SDL_AudioStream* device_=nullptr;SDL_Gamepad* pad_=nullptr;bool menuTestOpened_=false;uint64_t menuPresents_=0;
     NativeMouseSpinner mouse_;NativeControllerPort record_{};std::vector<NiseStreamRead> pending_;
