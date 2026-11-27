@@ -1,4 +1,5 @@
 #include "t3k_runtime/native_audio_stream.h"
+#include "t3k_runtime/native_continuation.h"
 #include "t3k_runtime/native_state_archive.h"
 #include "t3k_runtime/native_service_journal.h"
 #include <chrono>
@@ -7,6 +8,13 @@
 using namespace tempest_native;
 static void require(bool value,const char* why){if(!value){std::fprintf(stderr,"checkpoint test: %s\n",why);std::exit(1);}}
 int main(){
+    {
+        t3knative::Picture previous,current;previous.flip=7;current.flip=8;t3knative::FeedbackState feedback;uint64_t serial=23;bool valid=true,retired=true;float phase=1;
+        for(bool pending:{false,true}){StateWriter writer;StateEncode encode{writer};encode(previous,current,feedback,serial,valid,retired,pending,phase);StateReader reader{writer.bytes};StateDecode decode{reader};NativeFrameRenderer::PresentationState state;decode(state);
+          require(reader.finished()==!pending,"settled legacy presentation states remain readable; unfinished generated frames are rejected");if(!pending)require(state.current.flip==8&&state.serial==23&&state.valid,"retired presentation flags cannot enable frame generation");}
+        NativeFrameRenderer::PresentationState state;state.current=current;state.serial=23;state.valid=true;StateWriter writer;StateEncode encode{writer};encode(state);StateReader reader{writer.bytes};StateDecode decode{reader};bool pending=true;retired=true;phase=0;decode(previous,current,feedback,serial,valid,retired,pending,phase);require(reader.finished()&&previous.segs.empty()&&!retired&&!pending&&phase==1,"new presentation states preserve settled legacy wire layout");
+    }
+
     {
         NativeFrameMemory bulk;NativeFrameMemory::Snapshot expected,original,phaseImage;
         for(unsigned bank=0;bank<4;++bank){auto data=bulk.bank(NativeFrameMemory::Bank(bank));expected[bank].assign(data.begin(),data.end());}original=expected;

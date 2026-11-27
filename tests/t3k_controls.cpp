@@ -6,6 +6,8 @@
 #include "t3k_runtime/native_input_response.h"
 #include <limits>
 #include "t3k_runtime/native_timing_profile.h"
+#include "t3k_runtime/native_hud_layout.h"
+#include "t3k_runtime/native_aspect.h"
 #include <cstdio>
 #include <cstdlib>
 static void require(bool v,const char* why){if(!v){std::fprintf(stderr,"control contract: %s\n",why);std::exit(1);}}
@@ -58,6 +60,30 @@ int main(){
     NativeMouseSpinner spinner;auto rotary=spinner.sample({true,true,true,true});
     require((rotary.words[1]>>16)==0x5008,"mouse fire, NUON jump, zapper coexist");
     require((rotary.words[0]&0x1000)!=0&&(record.words[0]&0x1000)==0,"rotary and pad are separate device identities");
+    require(native_hud_anchor(0x800B2FD0,0x800B94F0,0,0)==NativeHudAnchor::left,"score identity comes from native source and parameters");
+    require(native_hud_anchor(0x800B3010,0x800B6A90,0,0x8010CDF0)==NativeHudAnchor::left,"lives group anchors left regardless of transformed screen origin");
+    require(native_hud_anchor(0x800B3010,0x800B6A90,0,0x8010CE10)==NativeHudAnchor::right,"web number anchors right");
+    require(native_hud_anchor(0x800B3010,0,0x800B4F50,0)==NativeHudAnchor::right,"status icon anchors right");
+    require(native_hud_anchor(0x800B3010,0,0,0)==NativeHudAnchor::none,"generic vector shape is not guessed to be HUD");
+    require(!native_hud_layout_scene(SceneTimingKind::opening)&&!native_hud_layout_scene(SceneTimingKind::levelSelect)&&native_hud_layout_scene(SceneTimingKind::levelClear),"title/menu composition stays original while score echoes remain anchored");
+    for(float margin:{0.f,60.f,135.f}){
+      t3knative::Picture pic;pic.segs={ {100,20,110,30,{1,1,1,1},{1,1,1,1}}, {40,200,50,210,{1,1,1,1},{1,1,1,1}} };
+      t3knative::Op world{t3knative::Op::kSegs};world.count=1;pic.ops.push_back(world);
+      t3knative::Op life{t3knative::Op::kSegs};life.first=1;life.count=1;life.hudAnchor=unsigned(NativeHudAnchor::left);pic.ops.push_back(life);
+      t3knative::Glyph score;score.x=32;score.y=32;score.w=16;score.h=20;pic.glyphs.push_back(score);
+      t3knative::Op text{t3knative::Op::kText};text.count=1;text.hudAnchor=unsigned(NativeHudAnchor::left);pic.ops.push_back(text);
+      apply_native_hud_layout(pic,margin);
+      require(pic.segs[0].x0==100&&pic.segs[0].x1==110,"wide HUD does not shift world geometry");
+      require(pic.segs[1].x0==40-margin&&pic.segs[1].y0==200,"lives shift as a group with fixed vertical placement");
+      require(pic.glyphs[0].x==32-margin&&pic.glyphs[0].w==16&&pic.glyphs[0].h==20,"score keeps edge inset and scale at 4:3, 16:9 and 21:9");
+    }
+    settings::Set("widescreen","0");require(native_aspect_choice()=="4:3","old original-aspect preference is retained");
+    settings::Set("widescreen","1");require(native_aspect_choice()=="16:9","old wide preference maps to 16:9");
+    settings::Set("native_aspect","21:9");require(native_aspect_choice()=="21:9","explicit aspect overrides old toggle");
+    for(auto size:{std::pair{720.f,540.f},std::pair{960.f,540.f},std::pair{1260.f,540.f}})
+      for(float ratio:{4.f/3,16.f/9,21.f/9}){auto r=native_aspect_fit(size.first,size.second,ratio);
+        require(std::abs(r.w/r.h-ratio)<.00001f&&r.w<=size.first+.001f&&r.h<=size.second+.001f,"all selected aspects fit each window without cropping or stretch");
+        require(std::abs(r.x*2+r.w-size.first)<.001f&&std::abs(r.y*2+r.h-size.second)<.001f,"aspect framing is centered with symmetric bars");}
     // Exercise actual overlay navigation, including dynamically visible pending
     // restart rows. Opening each fold with Right avoids relying on row indices.
     for(const auto& field:timingFields)settings::Set(field.key,std::to_string(field.initial));

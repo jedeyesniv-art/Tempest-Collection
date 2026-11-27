@@ -8,6 +8,7 @@ namespace tempest_native {
 // Read-only evidence at the complete native-picture boundary. No synthetic
 // timestamps or modified counters are fed back into game memory.
 class NativeTimingTrace {
+    std::string capturePrefix_;uint64_t captureFrame_=0;
     std::ofstream frames_,effects_,values_,temporal_,motion_,motionInfo_;
     uint64_t motionStart_=0,motionCount_=0,motionWritten_=0;
     std::vector<uint8_t> previousPixels_;unsigned previousScene_=~0U;
@@ -22,6 +23,7 @@ class NativeTimingTrace {
     }
 public:
     explicit NativeTimingTrace(const std::string& prefix){
+        if(const char* path=std::getenv("T3K_RENDER_CAPTURE")){capturePrefix_=path;if(const char* frame=std::getenv("T3K_RENDER_CAPTURE_FRAME"))captureFrame_=std::strtoull(frame,nullptr,10);}
         if(const char* path=std::getenv("T3K_TEMPORAL_TRACE")){
             temporal_.open(path);if(!temporal_)throw std::runtime_error("Cannot open temporal comparison trace");
             temporal_<<"host_frame,scene_kind,substep,divisions,numerator,mean_rgb,mean_absolute_change\n";
@@ -63,6 +65,16 @@ public:
         previousScene_=unsigned(cadence.kind);previousPixels_=std::move(bytes);
     }
     void picture(uint64_t serial,bool gameplay,const t3knative::Picture& pic,const NativeFrameMemory& memory,SimulationStep step={},SceneCadence cadence={}){
+        if(!capturePrefix_.empty()&&serial==captureFrame_){
+            std::filesystem::path prefix(capturePrefix_);if(!prefix.parent_path().empty())std::filesystem::create_directories(prefix.parent_path());
+            const char* names[]{"system","main","local"};unsigned index=0;
+            for(auto bank:{NativeFrameMemory::system,NativeFrameMemory::main,NativeFrameMemory::rendererLocal}){
+                auto bytes=memory.bank(bank);std::ofstream output(capturePrefix_+"-"+names[index++]+".bin",std::ios::binary);output.write(reinterpret_cast<const char*>(bytes.data()),std::streamsize(bytes.size()));if(!output)throw std::runtime_error("Cannot save rendering coverage capture");
+            }
+            std::ofstream sources(capturePrefix_+"-sources.csv");sources<<"draw,object,template,parameters,globals,content\n";
+            const auto view=memory.renderer_view();if(view.drawSources)for(const auto& source:*view.drawSources)sources<<source.draw<<','<<source.object<<','<<source.source<<','<<source.parameters<<','<<source.globals<<','<<source.content<<'\n';
+            if(!sources)throw std::runtime_error("Cannot save rendering source provenance");
+        }
         if(!frames_.is_open())return;
         auto s=memory.bank(NativeFrameMemory::system),r=memory.bank(NativeFrameMemory::rendererLocal);
         frames_<<serial<<','<<gameplay<<','<<word(s,0x806B991C)<<','<<word(s,0x80110AA0)<<','<<word(r,0x100000)<<','<<word(s,0x806B9924)<<','<<word(s,0x806B9930)<<','<<word(s,0x800DC100);

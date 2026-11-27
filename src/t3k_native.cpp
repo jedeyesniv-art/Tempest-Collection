@@ -8,6 +8,7 @@ namespace profiling=tempest_native::profiling;
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 
 #include "shaders/ycc_fade.dxil.h"
 #include "shaders/ycc_in.dxil.h"
@@ -16,6 +17,9 @@ namespace profiling=tempest_native::profiling;
 #include "shaders/ycc_ring.dxil.h"
 #include "shaders/ycc_number.dxil.h"
 #include "shaders/ycc_web.dxil.h"
+#include "shaders/ycc_disc.dxil.h"
+#include "shaders/ycc_vector.dxil.h"
+#include "shaders/ycc_plane_z.dxil.h"
 #include "shaders/ycc_temporal.dxil.h"
 
 namespace t3knative {
@@ -119,8 +123,8 @@ void Segment(const uint32_t* e, const Matrix& m, uint32_t cur, uint32_t prev, ui
 
 // --- the line look ---
 
-// The tent's radius (game pixels from the centre line to zero coverage) is the width byte (w5 low) less ~0.06:
-// width 2 -> 1.94 (all play lines), 13 -> 12.96, 14 -> 14.2 (the bonus screen's big numbers; tools/t3k_linefit.py).
+// Generic colour helper for non-vector producers. Shape replaces its alpha
+// with the original module-1 weight equation.
 constexpr float kZPeak = 0.00888f;    // centre opacity per unit of the colour's 4th byte
 
 // A YCrCbZ colour word -> RGB as Nuance shows it (BT.601, video range), alpha = the line's centre opacity.
@@ -151,10 +155,16 @@ SDL_FColor ToRgb(const SDL_FColor& c) {
 
 // --- the YCrCb pipeline's shaders (GPU renderer only) ---
 SDL_GPUDevice* g_device = nullptr;
-SDL_GPUShader* g_shader[8] = {};
+SDL_Renderer* g_pipelineRenderer=nullptr;
+uint64_t g_pipelineGeneration=0;
+SDL_GPUShader* g_shader[11] = {};
 SDL_GPUSampler* g_temporalSampler=nullptr;
 SDL_GPURenderState* g_number=nullptr;
 SDL_GPURenderState* g_web=nullptr;
+SDL_GPURenderState* g_disc=nullptr;
+SDL_GPURenderState* g_vector=nullptr;
+SDL_GPURenderState* g_planeZ=nullptr;
+SDL_Texture* g_vectorTexture=nullptr;
 SDL_GPURenderState* g_ring = nullptr;
 SDL_GPURenderState* g_ripple = nullptr;   // ripple feedback (uniforms: ripple, colour)
 SDL_GPURenderState* g_fade = nullptr;   // zoom feedback with fade (uniform: x = fade)
@@ -292,7 +302,13 @@ void Shape(const uint32_t* entry, const Mem& mem, std::vector<Seg>* segs,const P
         float dx=float(x-Sext(e[0]>>16,16)),dy=float(y-Sext(e[0],16));sg.x0+=dx;sg.x1+=dx;sg.y0+=dy;sg.y1+=dy;
         for(float* value:{&sg.x0,&sg.x1,&sg.y0,&sg.y1})if(*value<-32768||*value>=32768)*value-=std::floor((*value+32768)/65536)*65536;
       }}
-      sg.r = std::max(float(e[5] & 0xFF) - 0.06f, 0.5f);
+      // The original uses colour Z as a signed 8.24 lane, and multiplies
+      // (radius - distance) by 2 * strength / radius. Preserve peak values
+      // above one until coverage is evaluated, rather than clipping the
+      // endpoints first (which incorrectly weakens the sides of bright lines).
+      float intensity=float(e[5]>>2)/1073741824.f*(1.f-float(t)/65536.f);
+      sg.c0.a=intensity*float(int8_t(e[2]&255))/32.f;sg.c1.a=intensity*float(int8_t(e[3]&255))/32.f;
+      sg.r=std::max(float(e[5]&0xFFFF),.0001f);sg.originalGradient=true;
       segs->push_back(sg);
     }
     prev = w;previousAddress=currentAddress;
@@ -327,7 +343,7 @@ void Text(const uint32_t* e, const Mem& mem, Picture* out, bool gpu) {
   const int32_t w2 = int32_t(e[2]), w3 = int32_t(e[3]);
   if (w2 <= 0 || w3 <= 0) return;
   for (int k = 0; k < 20; ++k) Read(mem, e[12] + 4 * uint32_t(k), &blkw[k]);
-  for (int k = 0; k < 256; ++k) Read(mem, e[11] + 4 * uint32_t(k), &tex2[k]);
+  for (int k = 0; k < 256; ++k) Read(mem, (e[11]?e[11]:0x20100930u) + 4 * uint32_t(k), &tex2[k]);
   // the block lands at local $DF0: DF0 glyph u0 v0, tex2 U0 V0; E00 glyph du dv d2u d2v a pixel; E10 tex2 the same;
   // E20 glyph a row; E30 tex2 a row. E00 / E24 are replaced by 1 / w2, 1 / w3 (the module's reciprocal 806AF8D8
   // comes out a hair low: 2.0 -> 0x7FFF a pixel, not 0x8000)
@@ -351,7 +367,9 @@ void Text(const uint32_t* e, const Mem& mem, Picture* out, bool gpu) {
     y -= w3 >> 13;
   }
   const float w4 = float(int32_t(e[4])), w5 = float(int32_t(e[5]));
-  const float zf = float(e[6]) / float(1 << 23);   // opacity per unit of glyph Z (Z << 24, x w6 >> 16 >> 1, 2.30)
+  // Original ld_s / signed mul: flash decay can cross zero for one picture.
+  // Unsigned conversion turns that negative opacity into a fully opaque panel.
+  const float zf = float(int32_t(e[6])) / float(1 << 23);   // opacity per unit of glyph Z (Z << 24, x w6 >> 16 >> 1, 2.30)
   // per digit the tex2 origin is stepped DB0 pixels along x (the advance before it); the stepped origin and steps are
   // written back, so later digits step again (806AF520) - kept
   int32_t U0 = blk[2], V0 = blk[3], e10[4] = {blk[8], blk[9], blk[10], blk[11]};
@@ -615,6 +633,7 @@ void FlowerAt(const uint32_t* e, const Mem& mem, Picture* out, bool grid, int32_
       bl.r = float(size / 2.0);
       bl.colour = colour;
       bl.colour.a = std::clamp(float(inten) / 1073741824.f, 0.f, 1.f);
+      if(grid&&(e[7]&127)==1){bl.flat=true;bl.colour.a=1-bl.colour.a;}
       out->blobs.push_back(bl);
       a += step_a;
       if (--n > 0) continue;
@@ -625,7 +644,10 @@ void FlowerAt(const uint32_t* e, const Mem& mem, Picture* out, bool grid, int32_
   }
 }
 
-void Flower(const uint32_t* e, const Mem& mem, Picture* out) { FlowerAt(e, mem, out, false, 0, 0, 0); }
+void Flower(const uint32_t* e, const Mem& mem, Picture* out) {
+  if((e[7]&127)==1)return; // module14 row 20300C92 returns without drawing
+  FlowerAt(e, mem, out, false, 0, 0, 0);
+}
 
 // --- 00310010 disc grid (806A6E40 mode 0; tools/t3k_gridfit.py: the emulator's calls exactly) ---
 
@@ -853,6 +875,7 @@ void Burst(const uint32_t* e, const Mem& mem, Picture* out) {
 // --- 0031000E title dot field (806AFA80 mode 0, handler 806AFECA; tools/t3k_fieldfit.py) ---
 
 void TitleField(const uint32_t* e, const Mem& mem, Picture* out) {
+  if((e[7]&127)==1)return; // module14 row 20300C92 returns without drawing
   uint32_t cam_y = 0, cam_x = 0;
   Read(mem, 0x800DC108, &cam_y);
   Read(mem, 0x800DC10C, &cam_x);
@@ -970,14 +993,16 @@ void TitleWave(const uint32_t* e, const Mem& mem, Picture* out) {
 // --- 00100200 textured plane (806A3108 mode 2; tools/t3k_planefit.py) ---
 
 void PlaneOp(const uint32_t* e, const Mem& mem, Picture* out) {
-  Plane pl;
-  for (int k = 0; k < 256; ++k) Read(mem, e[9] + 4 * uint32_t(k), &pl.texture[k]);
+  Plane pl;pl.nearestZ=((e[15]>>8)&127)==5;
+  for(int k=0;k<256;++k)if(!Read(mem,e[9]+4*uint32_t(k),&pl.texture[k])&&pl.nearestZ){out->complete=false;out->first_unknown=e[15];std::copy(e,e+16,out->unknown_entry);return;}
   const double x0 = Sext(e[0] >> 16, 16), y0 = Sext(e[0], 16), w = double(e[1] >> 16), h = double(e[1] & 0xFFFF);
   if (w <= 0 || h <= 0 || w > 1024 || h > 1024) return;
   auto hi = [](uint32_t v) { return double(Sext(v >> 16, 16)); };
   auto lo = [](uint32_t v) { return double(Sext(v, 16)); };
   const double U0 = double(int32_t(e[2])), V0 = double(int32_t(e[3])), DU = double(int32_t(e[4])), DV = double(int32_t(e[5]));
   const double RU = double(int32_t(e[7])), RV = double(int32_t(e[10]));
+  const float mapping[16]={float(x0),float(y0),float(w),float(h),float(U0/65536),float(V0/65536),float(DU/65536),float(DV/65536),float(RU/65536),float(RV/65536),float(hi(e[6])/65536),float(lo(e[6])/65536),float(hi(e[11])/65536),float(lo(e[11])/65536),float(hi(e[12])/65536),float(lo(e[12])/65536)};std::copy(mapping,mapping+16,pl.mapping);
+  if(pl.nearestZ){out->planes.push_back(std::move(pl));return;}
   // (u, v) for the pixel at column i, row j (continuous): rows plain sums, columns in 64-pixel chunks, each starting one
   // step further on (the module's pipelined loop)
   auto uv = [&](double i, double j, float* u, float* v) {
@@ -1062,17 +1087,29 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         const uint32_t first = uint32_t(out->segs.size());
         Shape(e, mem, &out->segs,clocks,entries[i]);
         const uint32_t n = uint32_t(out->segs.size()) - first;
-        out->items.push_back({e[7], float(Sext(e[0] >> 16, 16)), float(Sext(e[0], 16)), first, n});
         Op op{Op::kSegs};
         op.first = first;
         op.count = n;
         if (n) out->ops.push_back(op);
         break;
       }
+      case 0x00100100: { // original module0 mode1: same-coordinate framebuffer copy and colour relaxation
+        int x=Sext(e[0]>>16,16),y=Sext(e[0],16),right=std::min(360,x+int(e[1]>>16)),bottom=std::min(240,y+int(e[1]&65535));
+        x=std::max(0,x);y=std::max(0,y);if(x>=right||y>=bottom)break;
+        Glyph glyph;glyph.x=float(x+int(e[2]>>16));glyph.y=float(y+int(e[2]&65535));glyph.w=float(right-x);glyph.h=float(bottom-y);glyph.pw=right-x;glyph.ph=bottom-y;glyph.rgba.resize(size_t(glyph.pw)*glyph.ph);
+        for(int j=0;j<glyph.ph;++j)for(int k=0;k<glyph.pw;++k){uint32_t word=0;int px=int(glyph.x)+k,py=int(glyph.y)+j;
+          if(!Read(mem,e[9]+uint32_t((int64_t(py)*360+px)*4),&word)){out->complete=false;out->first_unknown=e[15];std::copy(e,e+16,out->unknown_entry);return;}uint32_t packed=0xFF000000;
+          for(unsigned c=0;c<3;++c){int shift=24-int(c)*8,source=int((word>>shift)&255),neutral=int((e[11]>>shift)&255);
+            int32_t delta=Mul(int32_t((source-neutral)*4194304),int32_t(e[7]),30);int64_t value=int64_t(neutral)*4194304+delta;int result=int(std::clamp<int64_t>(value>>22,0,255));packed|=uint32_t(result)<<(16-c*8);}
+          if(!g_ycc)packed=0xFF000000|YccToXrgb((packed&0xFFFFFF)<<8);
+          glyph.rgba[size_t(j)*glyph.pw+k]=packed;
+        }
+        Op op{Op::kText};op.first=uint32_t(out->glyphs.size());op.count=1;out->glyphs.push_back(std::move(glyph));out->ops.push_back(op);break;
+      }
       case 0x00000300: {   // fill
         Op op{Op::kFill};
-        op.x = float(e[0] >> 16);
-        op.y = float(e[0] & 0xFFFF);
+        op.x = float(Sext(e[0] >> 16,16));
+        op.y = float(Sext(e[0],16));
         op.w = float(e[1] >> 16);
         op.h = float(e[1] & 0xFFFF);
         op.colour = Colour(e[2] | 0xFF, 1.f);
@@ -1082,6 +1119,8 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
       }
       case 0x00300004: {   // zoom feedback
         Op op{Op::kZoom};
+        op.count=e[7]&127; // original row selector; 1 is raw nearest-neighbour copy
+        if(op.count>1){out->complete=false;out->first_unknown=e[15];std::copy(e,e+16,out->unknown_entry);break;}
         op.cx = float(e[0] >> 16);
         op.cy = float(e[0] & 0xFFFF);
         op.zx = float(e[4]) / 65536.f;
@@ -1090,7 +1129,7 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         // across presents (angle x step), and 359.21 x 1/4 turned the feedback ~90 deg a present: the kaleidoscope
         // on "Crosseyed and Painless" (owner 2026-11-17)
         op.angle = float(int16_t(e[6] & 0xFFFF)) * 6.2831853f / 65536.f;
-        op.fade = float(e[7] >> 16) / 16384.f;
+        op.fade = op.count==1?1.f:float(e[7] >> 16) / 16384.f;
         if (std::getenv("T3K_ZOOM_LOG"))
           std::fprintf(stderr, "zoom flip %u: centre %.0f,%.0f zoom %.4f %.4f angle %.2f deg fade %.3f w6 %08X w1 %08X w2 %08X "
                        "w3 %08X w8 %08X w9 %08X w10 %08X w11 %08X\n", cap.flip, op.cx, op.cy, op.zx, op.zy,
@@ -1099,8 +1138,28 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         break;
       }
       case 0x0011000B: {   // web surface
+        // Original 806AD3CA / relocated 203003EA: a signed mode controls
+        // dispatch before any texture or quad reads. Ring courses set -1
+        // while leaving old web scratch intact; those records are not live.
+        const int32_t mode=int32_t(e[1]);
+        if(std::getenv("T3K_NATIVE_DEBUG"))std::fprintf(stderr,"web dispatch flip %u mode %08X\n",flip,e[1]);
+        if(mode<0)break;
+        if(mode==0){uint32_t level=0;if(Read(mem,0x801095A0u,&level)&&int32_t(level)>127)break;}
         Web web;
         for (int k = 0; k < 256; ++k) Read(mem, e[0] + 4 * uint32_t(k), &web.texture[k]);
+        if(mode>0){
+          // 20300402..20300446 copies the four inline position/UV pairs
+          // directly to the rasterizer. No live-web definition, scratch quads
+          // or picture-clock texture scroll participates in this mode.
+          for(unsigned k:{0u,1u,3u,2u}){uint32_t position=e[4+k*2],uv=e[5+k*2];
+            web.quads.push_back({180.f+float(Sext(position,16))/2.f,120.f+float(Sext(position>>16,16))/2.f,
+                                 float(uv>>16)/512.f,float(uv&65535)/512.f});
+          }
+          web.explicitQuad=true;web.gpuMapping=clocks.gpuWeb;
+          if(std::getenv("T3K_NATIVE_DEBUG"))std::fprintf(stderr,"web inline flip %u p %08X %08X %08X %08X\n",flip,e[4],e[6],e[8],e[10]);
+          Op op{Op::kWeb};op.first=uint32_t(out->webs.size());op.fade=0;
+          out->webs.push_back(std::move(web));out->ops.push_back(op);break;
+        }
         uint32_t job = 0;
         Read(mem, 0x20100000u, &job);
         if (clocks.overrideWebTextureTick) job = clocks.webTextureTick;
@@ -1118,6 +1177,8 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         // This is the canonical active definition also used by level select
         // and sessions; full-memory emulator views can use the same fallback.
         if(!bounded&&Read(mem,0x800AF700u,&definition))bounded=shape_count(definition);
+        uint32_t laneMask=0;if(definition)Read(mem,definition+0x6Cu,&laneMask);
+        web.unsignedChromaLanes=uint16_t(laneMask>>16);
         for (uint32_t a = 0x800BACF0u; web.quads.size() < 4 * size_t(segments); a += 32) {
           uint32_t w[8];
           bool any = false;
@@ -1153,6 +1214,7 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         if (op.count) out->ops.push_back(op);
         break;
       }
+      case 0x00100500: // nearest texture, signed Z-weighted blend
       case 0x00100200: {   // textured plane
         Op op{Op::kPlane};
         op.first = uint32_t(out->planes.size());
@@ -1250,6 +1312,7 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         if (op.count) out->ops.push_back(op);
         break;
       }
+      case 0x00310009: // original module9 primary0: immediate return, no pixels
       case 0x000000FF: case 0x000000FE: case 0x003102FE:   // end of list; entries that draw nothing
         break;
       case 0x007100FE:   // (a disabled vector entry: the low byte FE makes the renderers pass over it)
@@ -1276,7 +1339,7 @@ void BuildFrom(const std::vector<uint32_t>& entries, const Mem& mem, uint32_t fl
         break;
       }
     }
-    for (size_t k = ops_before; k < out->ops.size(); ++k) out->ops[k].type = e[15];
+    for (size_t k = ops_before; k < out->ops.size(); ++k){out->ops[k].type=e[15];out->ops[k].sourceEntry=entries[i];}
   }
 }
 
@@ -1315,6 +1378,7 @@ Renderer::~Renderer() {
   for (SDL_Texture* t : tex_)
     if (t) SDL_DestroyTexture(t);
   if (web_tex_) SDL_DestroyTexture(web_tex_);
+  if (plane_z_tex_) SDL_DestroyTexture(plane_z_tex_);
   for (SDL_Texture* t : glyph_tex_)
     if (t) SDL_DestroyTexture(t);
   if (disc_tex_) SDL_DestroyTexture(disc_tex_);
@@ -1367,6 +1431,12 @@ bool Renderer::RestoreFeedback(SDL_Renderer* ren,const FeedbackState& in,std::st
   cur_=0;glyph_flip_=0xFFFFFFFFu;simulationPhase_=simulationDivisions_=simulationBasePhase_=0;continuousSimulation_=echoSimulation_=echoNeedsPin_=integratedSimulation_=false;error.clear();return true;
 }
 
+bool SupportsTimeIntegratedFeedback(const Picture& picture){
+  if(picture.ops.empty()||(picture.ops.front().kind!=Op::kZoom&&picture.ops.front().kind!=Op::kRipple))return false;
+  if(picture.ops.front().kind==Op::kZoom&&picture.ops.front().count)return false;
+  for(size_t i=1;i<picture.ops.size();++i)if(picture.ops[i].kind==Op::kZoom||picture.ops[i].kind==Op::kRipple||picture.ops[i].kind==Op::kFill)return false;
+  return true;
+}
 bool Renderer::DrawSimulationSample(SDL_Renderer* ren,const Picture& picture,const SDL_FRect& dst,
                                     unsigned substep,unsigned divisions,std::string& error,const SDL_FRect* view,unsigned numerator,FeedbackSampling feedback){
   bool active=simulationDivisions_!=0&&!continuousSimulation_&&!echoSimulation_&&!integratedSimulation_;
@@ -1389,10 +1459,7 @@ bool Renderer::DrawSimulationSample(SDL_Renderer* ren,const Picture& picture,con
     if(!simulationBase_){error=SDL_GetError();return false;}
     SDL_SetTextureScaleMode(simulationBase_,SDL_SCALEMODE_LINEAR);
   }
-  bool integrated=feedback==FeedbackSampling::timeIntegrated&&divisions>1&&!picture.ops.empty()&&
-      (picture.ops.front().kind==Op::kZoom||picture.ops.front().kind==Op::kRipple);
-  for(size_t i=1;integrated&&i<picture.ops.size();++i)
-    if(picture.ops[i].kind==Op::kZoom||picture.ops[i].kind==Op::kRipple||picture.ops[i].kind==Op::kFill)integrated=false;
+  bool integrated=feedback==FeedbackSampling::timeIntegrated&&divisions>1&&SupportsTimeIntegratedFeedback(picture);
   if(integrated){
     if(!g_ycc||!g_shader[7]||!g_temporalSampler){error="Elapsed-time feedback GPU pipeline unavailable";return false;}
     if(!paintLayer_){
@@ -1585,6 +1652,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         break;
       }
       case Op::kZoom: {profiling::Scope profile(profiling::feedback);
+        struct Sampling{SDL_Texture* texture;SDL_ScaleMode mode;Sampling(SDL_Texture* t,bool nearest):texture(t){SDL_GetTextureScaleMode(t,&mode);if(nearest)SDL_SetTextureScaleMode(t,SDL_SCALEMODE_NEAREST);}~Sampling(){SDL_SetTextureScaleMode(texture,mode);}} sampling(prev,op.count==1);
         // Each output point p samples the previous picture at c + R(-a) (p - c) / z (game pixels); for an in-between
         // frame the step's share: z^step, a x step, fade^step.
         const float zx = std::pow(op.zx, step), zy = std::pow(op.zy, step), a = -op.angle * step;
@@ -1595,7 +1663,9 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           const float dx = px - op.cx, dy = py - op.cy;
           const float rx = (dx * ca - dy * sa) / zx, ry = (dx * sa + dy * ca) / zy;
           // (the module samples bilinear at the mapped point, as the texture does)
-          return SDL_FPoint{((op.cx + rx) * sx + ox) / float(w), ((op.cy + ry) * sy + oy) / float(h)};
+          // Raw UV loads address integer pixel corners, unlike GPU sample centres.
+          const float dx0=op.count==1?-.5f*(ca-sa)/zx:0,dy0=op.count==1?-.5f*(sa+ca)/zy:0;
+          return SDL_FPoint{((op.cx + rx+dx0) * sx + ox) / float(w), ((op.cy + ry+dy0) * sy + oy) / float(h)};
         };
         const float f1 = std::min(fade, 1.f), f2 = std::max(fade - 1.f, 0.f);
         auto quad = [&](float k, SDL_BlendMode mode) {
@@ -1696,7 +1766,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           static const float voff=std::getenv("T3K_WEB_VOFF")?float(std::atof(std::getenv("T3K_WEB_VOFF"))):0;
           float params[260]{};SDL_Vertex vertices[64];int indices[96];unsigned count=0;
           for(size_t k=0;k+3<web.quads.size();k+=4){
-            for(unsigned j=0;j<4;++j){auto q=web.quads[k+j];params[(k+j)*4]=q.x;params[(k+j)*4+1]=q.y;params[(k+j)*4+2]=q.u;params[(k+j)*4+3]=q.v;vertices[k+j]={{q.x*sx+ox,q.y*sy+oy},{float(k/4)/255.f,1,1,1},{q.x/360.f,q.y/240.f}};}
+            for(unsigned j=0;j<4;++j){auto q=web.quads[k+j];params[(k+j)*4]=q.x;params[(k+j)*4+1]=q.y;params[(k+j)*4+2]=q.u;params[(k+j)*4+3]=q.v;vertices[k+j]={{q.x*sx+ox,q.y*sy+oy},{float(k/4)/255.f,float((web.unsignedChromaLanes>>(k/4))&1),1,1},{q.x/360.f,q.y/240.f}};}
             for(unsigned j:{0u,1u,2u,0u,2u,3u})indices[count++]=int(k+j);
           }
           params[256]=op.fade;params[257]=uoff;params[258]=voff;
@@ -1707,11 +1777,13 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
         // texel i at coordinate i; the GPU puts texel centres at i + 1/2.)
         std::vector<SDL_Vertex> v;
         v.reserve(web.quads.size() / 4 * 6);
+        bool unsignedLane=false;
+        const bool maskedMesh=web.unsignedChromaLanes&&g_web&&g_ycc;
         auto V = [&](const Web::Vertex& q) {
           const float a = std::clamp(1.f - q.v / 32.f, 0.f, 1.f);
           static const float uoff = std::getenv("T3K_WEB_UOFF") ? float(std::atof(std::getenv("T3K_WEB_UOFF"))) : 0.f;
           static const float voff = std::getenv("T3K_WEB_VOFF") ? float(std::atof(std::getenv("T3K_WEB_VOFF"))) : 0.f;
-          return SDL_Vertex{{q.x * sx + ox, q.y * sy + oy}, {1.f, 1.f, 1.f, a},
+          return SDL_Vertex{{q.x * sx + ox, q.y * sy + oy}, {1.f, maskedMesh?float(unsignedLane):1.f, 1.f, a},
                             {(q.u + uoff + 0.5f) / 16.f, (q.v + op.fade + voff + 0.5f) / 16.f}};
         };
         // The module edge-walks each quad: on a scanline, (u, v) where it crosses the quad's left and right edges
@@ -1743,6 +1815,7 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           return true;
         };
         for (size_t k = 0; k + 3 < web.quads.size(); k += 4) {
+          unsignedLane=((web.unsignedChromaLanes>>(k/4))&1)!=0;
           const Web::Vertex* q = &web.quads[k];
           Web::Vertex g[N + 1][N + 1];
           for (int j = 0; j <= N; ++j)
@@ -1763,14 +1836,25 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
               v.insert(v.end(), {a, b, c, a, c, d});
             }
         }
+        if(maskedMesh){float params[260]{};params[259]=1;SDL_SetGPURenderStateFragmentUniforms(g_web,0,params,sizeof(params));SDL_SetGPURenderState(ren,g_web);}
         SDL_SetTextureBlendMode(web_tex_, SDL_BLENDMODE_BLEND);
         SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_WRAP, SDL_TEXTURE_ADDRESS_WRAP);
         SDL_RenderGeometry(ren, web_tex_, v.data(), int(v.size()), nullptr, 0);
+        if(maskedMesh)SDL_SetGPURenderState(ren,nullptr);
         SDL_SetRenderTextureAddressMode(ren, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
         break;
       }
       case Op::kPlane: {
         const Plane& pl = pic.planes[op.first];
+        if(pl.nearestZ){
+          if(!g_planeZ||!g_ycc)throw std::runtime_error("Native signed-Z plane shader unavailable");
+          if(!plane_z_tex_){plane_z_tex_=SDL_CreateTexture(ren,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,16,16);SDL_SetTextureBlendMode(plane_z_tex_,SDL_BLENDMODE_BLEND);}
+          uint32_t pixels[256];for(unsigned k=0;k<256;++k){auto word=pl.texture[k];pixels[k]=((word&255)<<24)|(word>>8);}
+          if(!planeZValid_||!std::equal(pixels,pixels+256,planeZPixels_.begin())){SDL_UpdateTexture(plane_z_tex_,nullptr,pixels,64);std::copy(pixels,pixels+256,planeZPixels_.begin());planeZValid_=true;}
+          float x0=pl.mapping[0],y0=pl.mapping[1],x1=x0+pl.mapping[2],y1=y0+pl.mapping[3];if(x0<=0&&x1>=360){x0=std::min(x0,gx0);x1=std::max(x1,gx1);}
+          auto V=[&](float x,float y){return SDL_Vertex{{x*sx+ox,y*sy+oy},{1,1,1,1},{(x+32768)/65536,(y+32768)/65536}};};SDL_Vertex vertices[4]={V(x0,y0),V(x1,y0),V(x1,y1),V(x0,y1)};const int indices[6]={0,1,2,0,2,3};
+          SDL_SetGPURenderStateFragmentUniforms(g_planeZ,0,pl.mapping,sizeof(pl.mapping));SDL_SetGPURenderState(ren,g_planeZ);SDL_RenderGeometry(ren,plane_z_tex_,vertices,4,indices,6);SDL_SetGPURenderState(ren,nullptr);break;
+        }
         if (!web_tex_) {
           web_tex_ = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, 16, 16);
           SDL_SetTextureScaleMode(web_tex_, SDL_SCALEMODE_LINEAR);
@@ -1824,11 +1908,20 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
           const Blob& b = pic.blobs[op.first + k];
           const float x0 = (b.x - b.r) * sx + ox, x1 = (b.x + b.r) * sx + ox;
           const float y0 = (b.y - b.r) * sy + oy, y1 = (b.y + b.r) * sy + oy;
-          const SDL_Vertex a{{x0, y0}, b.colour, {0, 0}}, bb{{x1, y0}, b.colour, {1, 0}};
-          const SDL_Vertex c{{x1, y1}, b.colour, {1, 1}}, d{{x0, y1}, b.colour, {0, 1}};
+          if(b.flat&&!g_disc){
+            for(unsigned j=0;j<48;++j){float a=j*6.28318530718f/48,beta=(j+1)*6.28318530718f/48;
+              auto vertex=[&](float x,float y){return SDL_Vertex{{x*sx+ox,y*sy+oy},b.colour,{.5f,.5f}};};
+              v.insert(v.end(),{vertex(b.x,b.y),vertex(b.x+b.r*std::cos(a),b.y+b.r*std::sin(a)),vertex(b.x+b.r*std::cos(beta),b.y+b.r*std::sin(beta))});
+            }continue;
+          }
+          const float u=b.flat&&g_disc?4.f:0.f;
+          const SDL_Vertex a{{x0, y0}, b.colour, {u, 0}}, bb{{x1, y0}, b.colour, {u+1, 0}};
+          const SDL_Vertex c{{x1, y1}, b.colour, {u+1, 1}}, d{{x0, y1}, b.colour, {u, 1}};
           v.insert(v.end(), {a, bb, c, a, c, d});
         }
+        if(g_disc)SDL_SetGPURenderState(ren,g_disc);
         SDL_RenderGeometry(ren, disc_tex_, v.data(), int(v.size()), nullptr, 0);
+        if(g_disc)SDL_SetGPURenderState(ren,nullptr);
         break;
       }
       case Op::kText: {profiling::Scope profile(profiling::images);
@@ -1890,136 +1983,6 @@ void Renderer::Draw(SDL_Renderer* ren, const Picture& pic, const std::vector<Seg
   cur_ ^= 1;
 }
 
-void Interpolate(const Picture& prev, const Picture& cur, float t, std::vector<Seg>* out, float max_move) {
-  out->assign(cur.segs.begin(), cur.segs.end());
-  if (t >= 1.f) return;
-  t = std::max(t, 0.f);
-  // Candidate pairs (same shape and segment count), nearest first; each item used once.
-  struct Pair { float d; uint32_t c, p; };
-  std::vector<Pair> pairs;
-  for (uint32_t c = 0; c < cur.items.size(); ++c)
-    for (uint32_t p = 0; p < prev.items.size(); ++p) {
-      const Item &ic = cur.items[c], &ip = prev.items[p];
-      if (ic.shape != ip.shape || ic.count != ip.count || !ic.count) continue;
-      // distance: the first segment's start (covers shapes placed by their vertices, e.g. the web)
-      const Seg &sc = cur.segs[ic.first], &sp = prev.segs[ip.first];
-      pairs.push_back({std::hypot(sc.x0 - sp.x0, sc.y0 - sp.y0) + std::hypot(ic.x - ip.x, ic.y - ip.y), c, p});
-    }
-  std::sort(pairs.begin(), pairs.end(), [](const Pair& a, const Pair& b) { return a.d < b.d; });
-  std::vector<char> used_c(cur.items.size(), 0), used_p(prev.items.size(), 0);
-  auto lerp = [t](float a, float b) { return a + (b - a) * t; };
-  auto lerpc = [&](const SDL_FColor& a, const SDL_FColor& b) {
-    return SDL_FColor{lerp(a.r, b.r), lerp(a.g, b.g), lerp(a.b, b.b), lerp(a.a, b.a)};
-  };
-  for (const Pair& pr : pairs) {
-    if (used_c[pr.c] || used_p[pr.p]) continue;
-    used_c[pr.c] = used_p[pr.p] = 1;
-    const Item &ic = cur.items[pr.c], &ip = prev.items[pr.p];
-    bool ok = true;
-    for (uint32_t k = 0; k < ic.count && ok; ++k) {
-      const Seg &a = prev.segs[ip.first + k], &b = cur.segs[ic.first + k];
-      ok = std::fabs(a.x0 - b.x0) + std::fabs(a.y0 - b.y0) <= max_move &&
-           std::fabs(a.x1 - b.x1) + std::fabs(a.y1 - b.y1) <= max_move;
-    }
-    if (!ok) continue;
-    for (uint32_t k = 0; k < ic.count; ++k) {
-      const Seg &a = prev.segs[ip.first + k], &b = cur.segs[ic.first + k];
-      (*out)[ic.first + k] = {lerp(a.x0, b.x0), lerp(a.y0, b.y0), lerp(a.x1, b.x1), lerp(a.y1, b.y1),
-                              lerpc(a.c0, b.c0), lerpc(a.c1, b.c1), lerp(a.r, b.r)};
-    }
-  }
-}
-
-void InterpolatePicture(const Picture& prev, const Picture& cur, float t, Picture* out) {
-  *out = cur;
-  if (t >= 1.f) return;
-  t = std::max(t, 0.f);
-  Interpolate(prev, cur, t, &out->segs);
-  auto lerp = [t](float a, float b) { return a + (b - a) * t; };
-  // The web surface: the same lanes from picture to picture (4 vertices each), moved by the camera. Blended vertex by
-  // vertex when both pictures have it with the same lane count and nothing jumped (a new level, a camera cut); the
-  // texture coordinates too, unless they wrapped (the surface pattern scrolls).
-  if (prev.webs.size() == cur.webs.size())
-    for (size_t w = 0; w < cur.webs.size(); ++w) {
-      const auto &a = prev.webs[w].quads, &b = cur.webs[w].quads;
-      if (a.size() != b.size() || b.empty()) continue;
-      bool ok = true;
-      for (size_t i = 0; i < b.size() && ok; ++i)
-        ok = std::fabs(a[i].x - b[i].x) + std::fabs(a[i].y - b[i].y) <= 60.f;
-      if (!ok) continue;
-      auto& q = out->webs[w].quads;
-      for (size_t i = 0; i < b.size(); ++i) {
-        q[i].x = lerp(a[i].x, b[i].x);
-        q[i].y = lerp(a[i].y, b[i].y);
-        if (std::fabs(a[i].u - b[i].u) < 4.f && std::fabs(a[i].v - b[i].v) < 4.f) {
-          q[i].u = lerp(a[i].u, b[i].u);
-          q[i].v = lerp(a[i].v, b[i].v);
-        }
-      }
-    }
-  // Discs, numbers, planes: an op pairs with prev's op of the same kind from the same entry type, by order (the k-th
-  // of that type in each picture); items blend index by index when the counts agree (lists that grew or shrank:
-  // drawn as in cur), each only if it moved little (a particle that wrapped or a reused slot: drawn as in cur).
-  auto pairs = [&](Op::Kind kind) {
-    std::vector<std::pair<const Op*, const Op*>> v;
-    std::vector<char> used(prev.ops.size(), 0);
-    for (const Op& ob : cur.ops) {
-      if (ob.kind != kind) continue;
-      for (size_t j = 0; j < prev.ops.size(); ++j)
-        if (!used[j] && prev.ops[j].kind == kind && prev.ops[j].type == ob.type) {
-          used[j] = 1;
-          v.push_back({&prev.ops[j], &ob});
-          break;
-        }
-    }
-    return v;
-  };
-  // Measured 2026-11-22 (T3K_WEBDUMP: a true pair's motion continues from the last pair): the grid 00310010, shapes
-  // 0031020E, bursts, particles 00310309, rings / wave pair by index; the title dot field 0031000E does NOT (median
-  // velocity change 11.7 px against a speed of 2: its index i is another dot each picture) - drawn as in cur.
-  for (const auto& [pa, pb] : pairs(Op::kBlobs)) {
-    if (pa->count != pb->count || pb->type == 0x0031000Eu) continue;
-    for (uint32_t i = 0; i < pb->count; ++i) {
-      const Blob &a = prev.blobs[pa->first + i], &b = cur.blobs[pb->first + i];
-      if (std::fabs(a.x - b.x) + std::fabs(a.y - b.y) > 30.f) continue;
-      Blob& o = out->blobs[pb->first + i];
-      o.x = lerp(a.x, b.x);
-      o.y = lerp(a.y, b.y);
-      o.r = lerp(a.r, b.r);
-    }
-  }
-  for (const auto& [pa, pb] : pairs(Op::kText)) {
-    {
-      const Op &oa = *pa, &ob = *pb;
-      if (oa.count != ob.count) continue;
-      for (uint32_t i = 0; i < ob.count; ++i) {
-        const Glyph &a = prev.glyphs[oa.first + i], &b = cur.glyphs[ob.first + i];
-        if (std::fabs(a.x - b.x) + std::fabs(a.y - b.y) > 30.f) continue;
-        Glyph& o = out->glyphs[ob.first + i];
-        o.x = lerp(a.x, b.x);
-        o.y = lerp(a.y, b.y);
-        o.w = lerp(a.w, b.w);
-        o.h = lerp(a.h, b.h);
-      }
-    }
-  }
-  for (const auto& [pa, pb] : pairs(Op::kPlane)) {
-    {
-      const Plane &a = prev.planes[pa->first], &b = cur.planes[pb->first];
-      if (a.cols != b.cols || a.rows != b.rows || a.grid.size() != b.grid.size()) continue;
-      bool ok = true;
-      for (size_t i = 0; i < b.grid.size() && ok; ++i)
-        ok = std::fabs(a.grid[i].x - b.grid[i].x) + std::fabs(a.grid[i].y - b.grid[i].y) <= 60.f;
-      if (!ok) continue;
-      auto& g = out->planes[pb->first].grid;
-      for (size_t i = 0; i < b.grid.size(); ++i) {
-        g[i].x = lerp(a.grid[i].x, b.grid[i].x);
-        g[i].y = lerp(a.grid[i].y, b.grid[i].y);
-      }
-    }
-  }
-}
-
 void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRect& dst, bool rgb) {
   profiling::Scope profile(profiling::vectors);
   if (segs.empty()) return;
@@ -2027,6 +1990,23 @@ void DrawVectors(SDL_Renderer* ren, const std::vector<Seg>& segs, const SDL_FRec
   // The module samples coverage at integer pixel coordinates (a pixel's corner): shift half a pixel to centres.
   auto X = [&](float x) { return dst.x + (x + 0.5f) * sx; };
   auto Y = [&](float y) { return dst.y + (y + 0.5f) * sy; };
+  if(g_vector&&g_vectorTexture){
+    SDL_SetRenderDrawBlendMode(ren,SDL_BLENDMODE_BLEND);SDL_SetGPURenderState(ren,g_vector);
+    for(size_t first=0;first<segs.size();first+=64){
+      float params[1024]{};std::vector<SDL_Vertex> vertices;vertices.reserve(64*6);
+      for(size_t n=first;n<std::min(first+64,segs.size());++n){const auto& s=segs[n];unsigned index=unsigned(n-first);float* p=params+index*16;
+        p[0]=s.x0;p[1]=s.y0;p[2]=s.x1;p[3]=s.y1;auto c0=rgb?ToRgb(s.c0):s.c0,c1=rgb?ToRgb(s.c1):s.c1;
+        p[4]=c0.r;p[5]=c0.g;p[6]=c0.b;p[7]=c0.a;p[8]=c1.r;p[9]=c1.g;p[10]=c1.b;p[11]=c1.a;p[12]=std::max(s.r,.0001f);p[13]=s.originalGradient?1.f:0.f;
+        float dx=s.x1-s.x0,dy=s.y1-s.y0,len=std::hypot(dx,dy);if(len>1e-4f){dx/=len;dy/=len;}else{dx=1;dy=0;}
+        float ex=dx*s.r,ey=dy*s.r,nx=-dy*s.r,ny=dx*s.r;
+        auto V=[&](float x,float y){return SDL_Vertex{{X(x),Y(y)},{float(index)/255,1,1,1},{(x+32768)/65536,(y+32768)/65536}};};
+        auto a=V(s.x0-ex+nx,s.y0-ey+ny),b=V(s.x1+ex+nx,s.y1+ey+ny),c=V(s.x1+ex-nx,s.y1+ey-ny),d=V(s.x0-ex-nx,s.y0-ey-ny);
+        vertices.insert(vertices.end(),{a,b,c,a,c,d});
+      }
+      SDL_SetGPURenderStateFragmentUniforms(g_vector,0,params,sizeof(params));SDL_RenderGeometry(ren,g_vectorTexture,vertices.data(),int(vertices.size()),nullptr,0);
+    }
+    SDL_SetGPURenderState(ren,nullptr);return;
+  }
   std::vector<SDL_Vertex> v;
   v.reserve(segs.size() * 30);
   for (const Seg& s : segs) {
@@ -2077,14 +2057,20 @@ void SetLineStyle(bool sharp, float core, float glow, float max_size) {
 }
 
 void ShutdownPipeline() {
-  for(auto* state:{g_fade,g_out,g_in,g_ripple,g_ring,g_number,g_web})if(state)SDL_DestroyGPURenderState(state);
-  g_fade=g_out=g_in=g_ripple=g_ring=g_number=g_web=nullptr;
+  if(g_vectorTexture)SDL_DestroyTexture(g_vectorTexture);g_vectorTexture=nullptr;
+  for(auto* state:{g_fade,g_out,g_in,g_ripple,g_ring,g_number,g_web,g_disc,g_vector,g_planeZ})if(state)SDL_DestroyGPURenderState(state);
+  g_fade=g_out=g_in=g_ripple=g_ring=g_number=g_web=g_disc=g_vector=g_planeZ=nullptr;
   for(auto*& shader:g_shader){if(shader&&g_device)SDL_ReleaseGPUShader(g_device,shader);shader=nullptr;}
   if(g_temporalSampler&&g_device)SDL_ReleaseGPUSampler(g_device,g_temporalSampler);g_temporalSampler=nullptr;
-  g_device=nullptr;g_ycc=false;
+  g_device=nullptr;g_ycc=false;g_pipelineRenderer=nullptr;
 }
 
 bool InitPipeline(SDL_Renderer* ren) {
+  // These shaders belong to the SDL renderer, not to each frame/history
+  // wrapper. Releasing and recreating them on the same renderer invalidates
+  // existing temporal states and can collide with SDL's pointer-keyed GPU
+  // pipeline cache when shader addresses are reused.
+  if(g_ycc&&g_pipelineRenderer==ren&&g_device==SDL_GetGPURendererDevice(ren))return true;
   ShutdownPipeline();
   g_ycc = false;
   if (SDL_getenv("T3K_NATIVE_RGB")) return false;   // tests: the old RGB path
@@ -2097,6 +2083,11 @@ bool InitPipeline(SDL_Renderer* ren) {
   g_ring = MakeState(ren, k_ycc_ring_dxil, sizeof(k_ycc_ring_dxil), 1, &g_shader[4]);
   g_number=MakeState(ren,k_ycc_number_dxil,sizeof(k_ycc_number_dxil),1,&g_shader[5]);
   g_web=MakeState(ren,k_ycc_web_dxil,sizeof(k_ycc_web_dxil),1,&g_shader[6]);
+  g_disc=MakeState(ren,k_ycc_disc_dxil,sizeof(k_ycc_disc_dxil),0,&g_shader[8]);
+  g_vector=MakeState(ren,k_ycc_vector_dxil,sizeof(k_ycc_vector_dxil),1,&g_shader[9]);
+  g_vectorTexture=SDL_CreateTexture(ren,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STATIC,1,1);
+  if(g_vectorTexture){uint32_t white=0xFFFFFFFF;SDL_UpdateTexture(g_vectorTexture,nullptr,&white,4);SDL_SetTextureBlendMode(g_vectorTexture,SDL_BLENDMODE_BLEND);}
+  g_planeZ=MakeState(ren,k_ycc_plane_z_dxil,sizeof(k_ycc_plane_z_dxil),1,&g_shader[10]);
   SDL_GPUShaderCreateInfo temporal{};temporal.code=k_ycc_temporal_dxil;temporal.code_size=sizeof(k_ycc_temporal_dxil);
   temporal.entrypoint="main";temporal.format=SDL_GPU_SHADERFORMAT_DXIL;temporal.stage=SDL_GPU_SHADERSTAGE_FRAGMENT;temporal.num_samplers=2;temporal.num_uniform_buffers=1;
   g_shader[7]=SDL_CreateGPUShader(g_device,&temporal);
@@ -2104,6 +2095,7 @@ bool InitPipeline(SDL_Renderer* ren) {
   sampler.address_mode_u=sampler.address_mode_v=sampler.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
   g_temporalSampler=SDL_CreateGPUSampler(g_device,&sampler);
   g_ycc = g_fade && g_out && g_in && g_ripple;
+  if(g_ycc){g_pipelineRenderer=ren;SDL_SetNumberProperty(SDL_GetRendererProperties(ren),"tempest.t3k.pipeline_generation",++g_pipelineGeneration);}
   if (!g_ycc) std::fprintf(stderr, "t3k native: no YCrCb pipeline (%s), RGB\n", SDL_GetError());
   return g_ycc;
 }

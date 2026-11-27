@@ -178,7 +178,7 @@ int run(const char* image,const std::string& scenario){bool check=!scenario.empt
                 bool valid=reader.finished()&&uint32_t(saved.driver.phase)<=uint32_t(CollectionPhase::finished)&&uint32_t(saved.driver.session.phase)<=uint32_t(GameSessionPhase::finished);
                 for(const auto& bank:saved.memory)valid&=bank.size()==0x800000;
                 for(const auto& event:saved.events)valid&=uint32_t(event.kind)<=uint32_t(NativeServiceKind::scores);
-                if(collection.timingResearch&&(saved.presentation.interpolate||saved.presentation.pending)){menu::Toast("Timing research requires a state saved without interpolation",SDL_GetTicksNS());return;}
+
                 if(!valid){menu::Toast("Invalid native continuation",SDL_GetTicksNS());return;}
                 throw NativeLoad{std::move(saved)};
             }
@@ -201,8 +201,13 @@ int run(const char* image,const std::string& scenario){bool check=!scenario.empt
                 // the complete bonus-game caller with its genuine initialized data.
                 if(scenario=="--check-warp"&&flow.simulation_frames()>=500&&state.phase==CollectionPhase::sessionStep&&state.session.phase==GameSessionPhase::active){
                     if(!flow.configure_timing(nullptr))throw std::runtime_error("Cannot release gameplay timing for warp validation");
+                    // The real caller reaches this course after life/level
+                    // settlement. In particular that restores feedback mode;
+                    // jumping from active play inherits its opaque clear.
+                    auto settled=state.session;settled.phase=GameSessionPhase::lifeEnded;
+                    if(!settle_session_life(memory,flow,settled))throw std::runtime_error("Cannot settle gameplay before warp validation");
                     for(unsigned delay=20;delay<800;delay+=8)host.schedule_button(delay,0x4000);
-                    uint32_t result=0;ok=flow.warp_skip(state.session.context,result);
+                    uint32_t result=0;ok=flow.warp_skip(settled.context,result);
                     std::printf("Native warp-game validation: %s, result=%u, pictures=%llu\n",ok?"passed":"FAILED",result,host.frames());
                     if(ok)state.phase=CollectionPhase::finished;break;
                 }

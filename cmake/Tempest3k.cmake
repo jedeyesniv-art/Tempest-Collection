@@ -31,6 +31,10 @@ if(TEMPEST_T3K_REFERENCE_TESTS)
   target_include_directories(t3k_idle_benchmark PRIVATE src/t3k_runtime)
   target_compile_definitions(t3k_idle_benchmark PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
   target_link_libraries(t3k_idle_benchmark PRIVATE SDL3::SDL3-static)
+  add_executable(t3k_renderer_replay tests/native_renderer_replay.cpp src/t3k_runtime/native_renderer_bridge.cpp src/t3k_native.cpp)
+  target_include_directories(t3k_renderer_replay PRIVATE src/t3k_runtime)
+  target_compile_definitions(t3k_renderer_replay PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
+  target_link_libraries(t3k_renderer_replay PRIVATE SDL3::SDL3-static)
   foreach(kind jump whole_frame)
     add_executable(t3k_${kind}_replay tests/native_${kind}_replay.cpp
       src/t3k_runtime/native_renderer_bridge.cpp src/t3k_runtime/native_frame_integration.cpp

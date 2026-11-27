@@ -29,7 +29,9 @@ inline bool run_session_warp_skip(CommandMemory& m,const OpeningAnimationInput& 
             if(!write(0x800B4D68,c[11]+(c[4]<<4))||!m.read32(0x800B4D70,value))return false;
             uint32_t event=value&255;
             if(event){c[9]=c[1];c[16]=event;c[3]+=0x3000;
-                if(event==2){if(!m.read32(0x800B4D6C,value)||!write(0x800B4D6C,int32_t(value)>0xEFFF?0xF000:value+uint32_t(cadence.delta(0x200,9))))return false;}
+                // One ring crossing awards one full speed step. This is an
+                // event, not acceleration applied continuously each sample.
+                if(event==2){if(!m.read32(0x800B4D6C,value)||!write(0x800B4D6C,int32_t(value)>0xEFFF?0xF000:value+0x200))return false;}
                 else if(event==3){if(!m.read32(0x800B4D6C,value)||!write(0x800B4D6C,int32_t(value)>0x1000?value-0x200:0x1000))return false;}
                 else if(event==4)c[5]-=0x40;
                 else if(event==5)c[5]+=0x40;

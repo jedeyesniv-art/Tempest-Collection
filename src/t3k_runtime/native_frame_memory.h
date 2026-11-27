@@ -12,7 +12,7 @@ class NativeFrameMemory:public CommandMemory{
 public:
     enum Bank:unsigned{system,main,gameLocal,rendererLocal};
     NativeFrameMemory(){for(auto& bank:banks_)bank.resize(0x800000);}
-    bool load(Bank bank,std::span<const uint8_t> data){if(active_||data.size()!=0x800000)return false;banks_[bank].assign(data.begin(),data.end());webPrecision_.clear();checkpointBefore_.clear();checkpointActive_=false;return true;}
+    bool load(Bank bank,std::span<const uint8_t> data){if(active_||data.size()!=0x800000)return false;banks_[bank].assign(data.begin(),data.end());webPrecision_.clear();drawSources_.clear();checkpointBefore_.clear();checkpointActive_=false;return true;}
     std::span<const uint8_t> bank(Bank bank)const{return banks_[bank];}
     using Snapshot=std::array<std::vector<uint8_t>,4>;
     // A phase checkpoint is independent of a frame transaction: aborting a
@@ -26,7 +26,7 @@ public:
     }
     bool restore(const Snapshot& in){
         if(active_)return false;for(const auto& bank:in)if(bank.size()!=0x800000)return false;
-        banks_=in;webPrecision_.clear();before_.clear();checkpointBefore_.clear();checkpointActive_=false;return true;
+        banks_=in;webPrecision_.clear();drawSources_.clear();before_.clear();checkpointBefore_.clear();checkpointActive_=false;return true;
     }
     template<class Edit> bool edit_words(Bank bank,uint32_t offset,uint32_t bytes,Edit edit){
         if(bank>rendererLocal||(offset&3)||(bytes&3)||offset>0x800000||bytes>0x800000-offset)return false;
@@ -34,13 +34,21 @@ public:
         edit(std::span<uint8_t>(banks_[bank]).subspan(offset,bytes));return true;
     }
     bool in_transaction()const{return active_;}
-    RendererMemory renderer_view()const{return {banks_[system],banks_[main],banks_[rendererLocal],&webPrecision_};}
+    RendererMemory renderer_view()const{return {banks_[system],banks_[main],banks_[rendererLocal],&webPrecision_,&drawSources_};}
     void render_transform_point(uint32_t address,uint32_t packed,double x,double y)override{webPrecision_.record_transform(address,packed,x,y);}
     void web_render_point(uint32_t address,uint32_t packed,double x,double y)override{webPrecision_.record(address,packed,x,y);}
-    void begin_render_precision_frame(){webPrecision_.clear();}
+    void render_draw_source(uint32_t draw,uint32_t object,uint32_t source,uint32_t parameters)override{
+        NativeDrawSource v{draw,object,source,parameters};
+        if(!read32(0x80113164,v.globals))return;
+        if(v.globals>=0x80000000&&v.globals<0x807FFFE8)read32(v.globals+20,v.content);
+        v.anchor=native_hud_anchor(v.source,v.parameters,v.globals,v.content);
+        auto at=std::lower_bound(drawSources_.begin(),drawSources_.end(),draw,[](const NativeDrawSource& a,uint32_t b){return a.draw<b;});
+        if(at!=drawSources_.end()&&at->draw==draw)*at=v;else drawSources_.insert(at,v);
+    }
+    void begin_render_precision_frame(){webPrecision_.clear();drawSources_.clear();}
     bool begin(){if(active_)return false;before_.clear();active_=true;return true;}
     void commit(){before_.clear();active_=false;}
-    void rollback(){before_.restore(banks_);webPrecision_.clear();before_.clear();active_=false;}
+    void rollback(){before_.restore(banks_);webPrecision_.clear();drawSources_.clear();before_.clear();active_=false;}
     void track_accesses(){for(auto& a:access_)a.assign(0x200000,0);tracking_=true;}
     bool tracking_accesses()const{return tracking_;}
     std::vector<uint32_t> written_offsets(Bank bank)const{return before_.written(bank);}
@@ -62,6 +70,7 @@ public:
     bool renderer_word(uint32_t offset,uint32_t value){if(offset>0x7FFFFC||offset&3)return false;store(rendererLocal,offset,value,true);return true;}
 private:
     WebRenderPrecision webPrecision_{};
+    std::vector<NativeDrawSource> drawSources_;
     std::array<std::vector<uint8_t>,4> banks_;NativeMemoryJournal before_,checkpointBefore_;bool active_=false,checkpointActive_=false;
     std::array<std::vector<uint8_t>,2> access_;bool tracking_=false;
     void touch(Bank bank,uint32_t offset,unsigned flags){if(tracking_&&bank<=main)access_[bank][offset>>2]|=uint8_t(flags);}

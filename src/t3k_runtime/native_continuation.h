@@ -50,7 +50,7 @@ template<class A> void state_fields(A& a,NativeMedia::Job& v){
 template<class A> void state_fields(A& a,NativeMedia::Checkpoint& v){a(v.handles,v.jobs);}
 template<class A> void state_fields(A& a,NativeControllerPort& v){a(v.words);}
 template<class A> void state_fields(A& a,NativeMouseSpinner::Checkpoint& v){a(v.position,v.pending,v.fraction);}
-template<class A> void state_fields(A& a,NativeLiveHost::Checkpoint& v){a(v.frames,v.elapsed,v.record,v.mouse,v.pending,v.mouseDelta,v.sampled,v.mouseMode,v.reseed,v.naming,v.rate,v.speedFrom,v.speedTo,v.blendElapsed,v.blendDuration);}
+template<class A> void state_fields(A& a,NativeLiveHost::Checkpoint& v){a(v.frames,v.elapsed,v.record,v.mouse,v.pending,v.mouseDelta,v.sampled,v.mouseMode,v.reseed,v.naming,v.rate,v.speedFrom,v.speedTo,v.reservedPresentationElapsed,v.reservedPresentationDuration);}
 template<class A> void state_fields(A& a,NativeMenuFlow::Checkpoint& v){a(v.serial,v.jobs,v.callbacks,v.incoming,v.preparedContext,v.prepared,v.gameplay);}
 template<class A> void state_fields(A& a,SessionStartRequest& v){a(v.arguments,v.incoming);}
 template<class A> void state_fields(A& a,GameSessionState& v){a(v.context,v.frameBase,v.phase);}
@@ -67,7 +67,13 @@ template<class A> void state_fields(A& a,t3knative::Blob& v){a(v.x,v.y,v.r,v.col
 template<class A> void state_fields(A& a,t3knative::Plane& v){a(v.cols,v.rows,v.grid);for(auto& word:v.texture)a(word);}
 template<class A> void state_fields(A& a,t3knative::Op& v){a(v.kind,v.x,v.y,v.w,v.h,v.colour,v.cx,v.cy,v.zx,v.zy,v.angle,v.fade,v.first,v.count,v.type);}
 template<class A> void state_fields(A& a,t3knative::Picture& v){a(v.flip,v.segs,v.items,v.ops,v.webs,v.glyphs,v.blobs,v.planes,v.complete,v.first_unknown);for(auto& word:v.unknown_entry)a(word);}
-template<class A> void state_fields(A& a,NativeFrameRenderer::PresentationState& v){a(v.previous,v.current,v.feedback,v.serial,v.valid,v.interpolate,v.pending,v.alpha);}
+template<class A> void state_fields(A& a,NativeFrameRenderer::PresentationState& v){
+    // Preserve the existing archive layout, without retaining an interpolation
+    // engine. Native settled states have an empty/ignored previous picture.
+    t3knative::Picture discarded;bool retired=false,pending=false;float phase=1;
+    a(discarded,v.current,v.feedback,v.serial,v.valid,retired,pending,phase);
+    if constexpr(A::reading)if(pending||!std::isfinite(phase)||phase<0||phase>1)a.stream.valid=false;
+}
 struct NativeContinuation {
     NativeFrameMemory::Snapshot memory;
     std::array<uint8_t,8192> preparation{};

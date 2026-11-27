@@ -8,6 +8,8 @@
 #include "native_timing_trace.h"
 #include "native_scene_clock.h"
 #include "native_timing_profile.h"
+#include "native_hud_layout.h"
+#include "native_aspect.h"
 #include <functional>
 #include <numeric>
 #include <cmath>
@@ -37,19 +39,19 @@ public:
         std::vector<NiseStreamRead> pending;
         int32_t mouseDelta=0;
         bool sampled=false,mouseMode=false,reseed=false,naming=false;
-        double rate=24,speedFrom=24,speedTo=24;uint64_t blendElapsed=0,blendDuration=0;
+        double rate=24,speedFrom=24,speedTo=24;uint64_t reservedPresentationElapsed=0,reservedPresentationDuration=0; // legacy archive slots
     };
     NativeServiceJournal journal;
     std::function<void()> resumeContinuation;
     std::function<void(int)> stateAction;
     bool checkpoint(Checkpoint& out)const{
         if(active_)return false;
-        out={frames_,(pauseStart_?pauseStart_:SDL_GetTicksNS())-epoch_,record_,mouse_.checkpoint(),pending_,mouseDelta_,sampled_,mouseMode_,reseed_,naming_,rate_,speedFrom_,speedTo_,(pauseStart_?pauseStart_:SDL_GetTicksNS())-blendStart_,blendDuration_};return true;
+        out={frames_,(pauseStart_?pauseStart_:SDL_GetTicksNS())-epoch_,record_,mouse_.checkpoint(),pending_,mouseDelta_,sampled_,mouseMode_,reseed_,naming_,rate_,speedFrom_,speedTo_,0,0};return true;
     }
     bool restore(const Checkpoint& in){
         if(active_||in.rate<15||in.rate>60||!std::isfinite(in.speedFrom)||!std::isfinite(in.speedTo)||!mouse_.restore(in.mouse))return false;
         frames_=in.frames;record_=in.record;pending_=in.pending;mouseDelta_=in.mouseDelta;sampled_=in.sampled;mouseMode_=in.mouseMode;reseed_=in.reseed;naming_=in.naming;
-        rateFrom_=rateFrames_=displayFrames_=0;pauseStart_=0;blendStart_=SDL_GetTicksNS()-in.blendElapsed;blendDuration_=in.blendDuration;rate_=in.rate;speedFrom_=in.speedFrom;speedTo_=in.speedTo;epoch_=SDL_GetTicksNS()-in.elapsed;due_=speedTime_=SDL_GetTicksNS();failed_=quit_=false;
+        rateFrom_=rateFrames_=displayFrames_=0;pauseStart_=0;rate_=in.rate;speedFrom_=in.speedFrom;speedTo_=in.speedTo;epoch_=SDL_GetTicksNS()-in.elapsed;due_=speedTime_=SDL_GetTicksNS();failed_=quit_=false;
         return true;
     }
     void resume_live(){SDL_ResumeAudioStreamDevice(device_);sampled_=false;suppress_=true;mouse_.clear_motion();SDL_ClearAudioStream(device_);}
@@ -146,8 +148,11 @@ public:
         if(journal.replaying())return pipeline.accept_without_draw(std::move(picture),serial,error);
         presentThisFrame_=step_.divisions==1||!presentation_rate()||SDL_GetTicksNS()>=nextFinePresent_;
         bool screenshot=false;for(const auto& shot:collection.screenshots)screenshot|=shot.first==frames_+1;if(screenshot)presentThisFrame_=true;
-        bool effectScene=(stepScene_.kind==SceneTimingKind::opening||stepScene_.kind==SceneTimingKind::levelTravel||stepScene_.kind==SceneTimingKind::levelClear||stepScene_.kind==SceneTimingKind::transition||stepScene_.kind==SceneTimingKind::entry);
-        auto feedback=!effectScene||std::getenv("T3K_PINNED_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::pinned:std::getenv("T3K_CONTINUOUS_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::continuous:std::getenv("T3K_CLOCKED_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::clocked:t3knative::FeedbackSampling::timeIntegrated;
+        // Feedback is a property of the drawing operation order, not the
+        // scene label. This also covers course/death/menu particles when
+        // they use the same supported leading feedback composition.
+        bool effectPicture=t3knative::SupportsTimeIntegratedFeedback(picture);
+        auto feedback=!effectPicture||std::getenv("T3K_PINNED_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::pinned:std::getenv("T3K_CONTINUOUS_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::continuous:std::getenv("T3K_CLOCKED_TRANSITION_FEEDBACK")?t3knative::FeedbackSampling::clocked:t3knative::FeedbackSampling::timeIntegrated;
         bool late=(!check_||timed_)&&SDL_GetTicksNS()>due_+8333333;
         if(feedback==t3knative::FeedbackSampling::pinned&&step_.divisions>1&&!step_.legacy_boundary()&&(!presentThisFrame_||(late&&!screenshot))){presentThisFrame_=false;return pipeline.accept_without_draw(std::move(picture),serial,error);}
         int outW=0,outH=0;SDL_GetRenderOutputSize(renderer,&outW,&outH);
@@ -156,7 +161,9 @@ public:
         int cap=int(settings::Num("resolution",0)),height=cap>0?(std::min)(cap,outH):outH;
         int width=(std::max)(1,int(double(outW)*height/outH));
         if(original){width=360;height=240;}
-        if(step_.divisions>1&&step_.index&&scene_){width=sceneWidth_;height=sceneHeight_;original=presentationOutput_;}
+        float aspect=original?4.f/3:native_aspect_ratio();
+        if(step_.divisions>1&&step_.index&&scene_){width=sceneWidth_;height=sceneHeight_;original=presentationOutput_;aspect=sceneAspect_;}
+        sceneAspect_=aspect;
         if(!scene_||sceneWidth_!=width||sceneHeight_!=height){
             if(scene_)SDL_DestroyTexture(scene_);
             scene_=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_TARGET,width,height);
@@ -166,20 +173,23 @@ public:
         }
         t3knative::SetLineStyle(!original&&settings::Num("sharp_vectors",1)!=0,float(settings::Num("sharp_core",0.35)),float(settings::Num("sharp_glow",0.4)),float(settings::Num("sharp_max_size",100)));
         SDL_SetRenderTarget(renderer,scene_);SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);
-        float h=(std::min)(float(height),float(width)*0.75f),w=h*4/3;
-        SDL_FRect dst{(width-w)/2,(height-h)/2,w,h},wide{0,(height-h)/2,float(width),h};
-        pipeline.set_view(!original&&settings::Num("widescreen",1)!=0&&width>w+1?&wide:nullptr);
-        pipeline.set_interpolation(!collection.timingResearch&&step_.divisions==1&&!original&&(!check_||timed_)&&settings::Num("native_interpolate",1)!=0);
+        SDL_FRect wide=original?SDL_FRect{0,0,float(width),float(height)}:native_aspect_fit(float(width),float(height),aspect);
+        float h=(std::min)(wide.h,wide.w*0.75f),w=h*4/3;
+        SDL_FRect dst{wide.x+(wide.w-w)/2,wide.y+(wide.h-h)/2,w,h};
+        bool expanded=!original&&wide.w>w+1;
+        if(collection.sceneHz&&expanded&&settings::Num("native_wide_hud",1)!=0&&native_hud_layout_scene(stepScene_.kind))
+            apply_native_hud_layout(picture,(wide.w-w)*180.f/w);
+        pipeline.set_view(expanded?&wide:nullptr);
+
         bool ok=step_.divisions>1?pipeline.submit_simulation_picture(renderer,std::move(picture),serial,dst,step_.index,step_.divisions,error,step_.numerator,feedback):pipeline.submit_picture(renderer,std::move(picture),serial,dst,error);
         if(ok)timingTrace_.display(frames_,renderer,step_,stepScene_);
         SDL_SetRenderTarget(renderer,nullptr);
         if(!ok)return false;
         if(step_.divisions>1&&!stepScene_.referenceHz)++fineDraws_;
-        presentation_=&pipeline;presentationDst_=dst;presentationOutput_=original;blendStart_=SDL_GetTicksNS();blendDuration_=uint64_t(1000000000.0/rate_);
+        presentationOutput_=original;
         if(!presentThisFrame_)return true;
         SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);crt::LoadSettings();if(profile_&&crt::Mode()!=0){error="Profiling requires CRT disabled";return false;}
-        SDL_FRect output{0,0,float(outW),float(outH)};
-        if(original){float oh=(std::min)(float(outH),float(outW)*0.75f),ow=oh*4/3;output={(outW-ow)/2,(outH-oh)/2,ow,oh};}
+        SDL_FRect output=native_aspect_fit(float(outW),float(outH),original?4.f/3:float(sceneWidth_)/sceneHeight_);
         crt::DrawPicture(renderer,scene_,output,360,240);return true;
     }
     void published_picture(const t3knative::Picture& picture,NativeFrameMemory& memory,bool gameplay)override{
@@ -244,7 +254,6 @@ private:
                 pads::HandleEvent(event);
                 if(event.type==SDL_EVENT_KEY_DOWN&&!event.key.repeat){if(event.key.scancode==SDL_SCANCODE_F11)toggle_fullscreen();if(event.key.scancode==SDL_SCANCODE_F5)settings::Reload();
                     if(event.key.scancode==SDL_SCANCODE_F4)settings::Save("show_rates",settings::Num("show_rates",0)==0?"1":"0");
-                    if(!collection.timingResearch&&event.key.scancode==SDL_SCANCODE_F6)settings::Save("native_interpolate",settings::Num("native_interpolate",1)==0?"1":"0");
                     if(event.key.scancode==SDL_SCANCODE_F7)settings::Save("native_view",settings::Num("native_view",1)==0?"1":"0");}
                 if(event.type==SDL_EVENT_QUIT)quit_=true;
                 if(event.type==SDL_EVENT_KEY_DOWN&&!event.key.repeat&&event.key.scancode==SDL_SCANCODE_ESCAPE){if(menu::IsOpen())menu::Close();else menu::Open();}
@@ -277,20 +286,11 @@ private:
                         if(it->first==menuPresents_){auto* picture=SDL_RenderReadPixels(renderer_,nullptr);if(picture){SDL_SaveBMP(picture,it->second.c_str());SDL_DestroySurface(picture);}it=collection.screenshots.erase(it);if(collection.screenshots.empty())quit_=true;}else ++it;}}
                     SDL_RenderPresent(renderer_);SDL_Delay(8);
                 }
-                auto paused=SDL_GetTicksNS()-start;pauseStart_=0;epoch_+=paused;due_+=paused;blendStart_+=paused;displayDue_+=paused;nextFinePresent_+=paused;if(step_.divisions>1)fineWindowStart_+=paused;SDL_ResumeAudioStreamDevice(device_);suppress_=true;mouse_.clear_motion();reseed_=true;
+                auto paused=SDL_GetTicksNS()-start;pauseStart_=0;epoch_+=paused;due_+=paused;nextFinePresent_+=paused;if(step_.divisions>1)fineWindowStart_+=paused;SDL_ResumeAudioStreamDevice(device_);suppress_=true;mouse_.clear_motion();reseed_=true;
                 if(quit_)return false;
             }
             if((check_&&!timed_)||SDL_GetTicksNS()>=due_)break;
-            auto now=SDL_GetTicksNS();
-            if(!collection.timingResearch&&presentation_&&scene_&&settings::Num("native_interpolate",1)!=0&&now>=displayDue_){
-                SDL_SetRenderTarget(renderer_,scene_);
-                presentation_->advance_presentation(renderer_,presentationDst_,blendDuration_?float(double(now-blendStart_)/blendDuration_):1);
-                SDL_SetRenderTarget(renderer_,nullptr);int w=0,h=0;SDL_GetRenderOutputSize(renderer_,&w,&h);
-                SDL_SetRenderDrawColor(renderer_,0,0,0,255);SDL_RenderClear(renderer_);
-                SDL_FRect dst{0,0,float(w),float(h)};
-                if(presentationOutput_){float dh=(std::min)(float(h),float(w)*0.75f),dw=dh*4/3;dst={(w-dw)/2,(h-dh)/2,dw,dh};}
-                crt::DrawPicture(renderer_,scene_,dst,360,240);draw_overlay();SDL_RenderPresent(renderer_);displayDue_=SDL_GetTicksNS()+8000000;
-            }else SDL_Delay(1);
+            SDL_Delay(1);
         }
         bool mouse=settings::Str("controller","auto")=="mouse";
         if(mouse!=mouseMode_){mouseMode_=mouse;suppress_=true;mouse_.clear_motion();reseed_=true;}
@@ -343,8 +343,8 @@ private:
     }
     uint64_t rateFrom_=0,rateFrames_=0,displayFrames_=0;std::string rateLabel_="Native Tempest 3000";
     void toggle_fullscreen(){bool value=(SDL_GetWindowFlags(window_)&SDL_WINDOW_FULLSCREEN)==0;if(SDL_SetWindowFullscreen(window_,value))settings::Save("fullscreen",value?"1":"0");}
-    NativeFrameRenderer* presentation_=nullptr;SDL_FRect presentationDst_{};bool presentationOutput_=false;uint64_t blendStart_=0,blendDuration_=0,displayDue_=0;
-    SDL_Texture* scene_=nullptr;int sceneWidth_=0,sceneHeight_=0;
+    bool presentationOutput_=false;
+    SDL_Texture* scene_=nullptr;int sceneWidth_=0,sceneHeight_=0;float sceneAspect_=4.f/3;
     uint32_t bindHeld_=0;double rate_=24,speedFrom_=24,speedTo_=24;uint64_t speedTime_=0,pauseStart_=0;
     NativeSceneClock virtualClock_;uint64_t authoredFrames_=0,sceneFineFrames_=0;SceneCadence pendingScene_{},stepScene_{};
     NativeTimingTrace timingTrace_{collection.timingTrace};

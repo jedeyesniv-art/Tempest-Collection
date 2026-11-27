@@ -7,7 +7,8 @@
 //   00000300 fill (806A3108): rectangle w0 (x, y) / w1 (w, h) in colour w2;
 //   00300004 zoom feedback (806A5280; tools/t3k_zoomfit.py): the previous picture sampled at
 //            centre + R(-angle) (p - centre) / zoom, x the fade (w7 >> 16 as 2.14);
-//   0011000B web surface (806AD2B0; tools/t3k_webfit.py: mean error 1.4 grey levels): per lane a quad (records at
+//   0011000B surface (806AD2B0): signed w1 < 0 disables it, > 0 supplies one inline quad at w4..w11;
+//            w1 = 0 draws the live web (tools/t3k_webfit.py: mean error 1.4 grey levels): per lane a quad (records at
 //            $800BACF0: 4 x (position y hi / x lo, signed half pixels about (180, 120); u hi / v lo, 1/512 texel))
 //            textured with the 16 x 16 texture at w0 (bilinear, wrapping; v scrolled by MPE0's job word / 2), blended
 //            out = T + (dest - T) v / 32;
@@ -54,10 +55,11 @@ namespace t3knative {
 struct Seg {
   float x0, y0, x1, y1;
   SDL_FColor c0, c1;
-  float r = 1.94f;   // game pixels from the centre line to zero coverage: the width byte (w5 low) - 0.06
+  float r = 1.94f;   // game pixels from the centre line to zero coverage
+  bool originalGradient=false; // original padded dominant-axis colour ramp
 };
 
-// One drawn vector entry: which segments it made, and what identifies it for interpolation.
+// One drawn vector entry and its segment range (retained in legacy state layout).
 struct Item {
   uint32_t shape;        // w7: the shape stream
   float x, y;            // w0: screen position
@@ -69,7 +71,9 @@ struct Web {
   struct Vertex { float x, y, u, v; };     // game pixels; texels
   std::vector<Vertex> quads;               // 4 per lane
   uint32_t texture[256] = {};              // 16 x 16 YCrCbZ
+  uint16_t unsignedChromaLanes=0;             // definition +6C upper half: texture chroma is unsigned
   bool gpuMapping=false;
+  bool explicitQuad=false;                // decode-only provenance: never replace inline vertices with web scratch
 };
 
 // One glowing-number digit: the colour it blends toward and how strongly, as an image over its cell.
@@ -88,11 +92,14 @@ struct Glyph {
 // One soft disc (particle): centre and radius in game pixels, colour, peak strength.
 struct Blob {
   float x = 0, y = 0, r = 0;
+  bool flat=false;       // alternate grid row: constant blend inside circular coverage
   SDL_FColor colour{};   // a = the peak strength I
 };
 
 // A textured plane: a grid of vertices (game pixels, texels) over a rectangle, and its 16 x 16 texture.
 struct Plane {
+  bool nearestZ=false;
+  float mapping[16]{};
   int cols = 0, rows = 0;                  // grid cells
   std::vector<Web::Vertex> grid;           // (cols + 1) x (rows + 1)
   uint32_t texture[256] = {};
@@ -106,6 +113,7 @@ struct Op {
   float cx = 0, cy = 0, zx = 1, zy = 1;        // zoom: centre (game pixels), zoom
   float angle = 0, fade = 1;                   // zoom: rotation (radians), intensity factor
   uint32_t first = 0, count = 0;               // segs: the range in Picture::segs
+  uint32_t sourceEntry=0,hudAnchor=0; // render-only source identity and HUD group
   uint32_t type = 0;                           // the display list entry type that made it
 };
 
@@ -113,7 +121,7 @@ struct Op {
 struct Picture {
   uint32_t flip = 0;
   std::vector<Seg> segs;
-  std::vector<Item> items;
+  std::vector<Item> items;        // legacy archive layout; no live interpolation records
   std::vector<Op> ops;
   std::vector<Web> webs;          // kWeb ops: Op::first indexes this
   std::vector<Glyph> glyphs;      // kText ops: Op::first / count index this
@@ -123,6 +131,7 @@ struct Picture {
   uint32_t first_unknown = 0;     // (if not) the first type we don't draw
   uint32_t unknown_entry[16] = {};  // (if not) that entry's words
 };
+bool SupportsTimeIntegratedFeedback(const Picture&); // operation ordering, independent of scene names
 using Vectors = Picture;          // (the vector layer: Picture::segs)
 
 // A YCrCb(A) frame buffer word -> XRGB8888 as Nuance shows it (BT.601, video range).
@@ -144,13 +153,6 @@ void BuildPicture(const nuon::Capture& cap, Picture* out, const PictureBuildCloc
 // show it. False if the memory isn't reachable.
 bool BuildPictureLive(int mpe, uint32_t flip, Picture* out, const PictureBuildClocks& clocks = {});
 inline void BuildVectors(const nuon::Capture& cap, Picture* out) { BuildPicture(cap, out); }
-
-// The segments between two consecutive pictures (t = 0: prev, 1: cur), in cur's order (so cur's ops still apply).
-// Vector entries of cur are matched to prev's by shape, segment count and nearest position (each used once);
-// unmatched ones, or moves of more than max_move game pixels, are drawn as in cur.
-void Interpolate(const Picture& prev, const Picture& cur, float t, std::vector<Seg>* out, float max_move = 30.f);
-// A whole in-between picture: cur with its segments (Interpolate) and web surface blended toward prev by 1 - t.
-void InterpolatePicture(const Picture& prev, const Picture& cur, float t, Picture* out);
 
 // Draw segments into dst (the window rectangle the 360 x 240 picture fills). rgb: onto the window (picture colours
 // converted from YCrCb when the YCrCb pipeline is on); false: into a native picture (colours as they are).
@@ -187,7 +189,7 @@ class Renderer {
   bool DrawSimulationSample(SDL_Renderer*,const Picture&,const SDL_FRect&,unsigned substep,unsigned divisions,std::string& error,const SDL_FRect* view=nullptr,unsigned numerator=1,FeedbackSampling feedback=FeedbackSampling::pinned);
   void EndSimulationInterval(unsigned phase=0){simulationPhase_=simulationDivisions_=0;simulationBasePhase_=phase;continuousSimulation_=false;echoSimulation_=echoNeedsPin_=integratedSimulation_=false;}
   ~Renderer();
-  // Draw pic (its segments: segs, e.g. interpolated) into dst. step = how much of one game step the zoom feedback
+  // Draw pic (its segments: segs, from the current simulation sample) into dst. step = how much of one game step the zoom feedback
   // advances (1 = a whole picture, as the original; less for in-between frames: zoom^step, angle x step, fade^step).
   // view (wide screens): the window area to fill, around dst - the feedback, full-screen fills and planes carry on
   // past the 4:3 edges, and whatever the game places out there shows. nullptr = dst.
@@ -220,6 +222,8 @@ class Renderer {
   bool continuousSimulation_=false,echoSimulation_=false,echoNeedsPin_=false,drawingEchoTransform_=false;
   std::array<double,6> echoUv_{1,0,0,1,0,0};
   double echoFade_=1;
+  SDL_Texture* plane_z_tex_=nullptr;
+  std::array<uint32_t,256> planeZPixels_{};bool planeZValid_=false;
   SDL_Texture* web_tex_ = nullptr;             // the web surface's 16 x 16 texture
   std::vector<SDL_Texture*> glyph_tex_;        // kText images (uploaded once per picture)
   uint32_t glyph_flip_ = 0xFFFFFFFFu;

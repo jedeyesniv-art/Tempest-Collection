@@ -12,11 +12,31 @@
 #include "t3k_runtime/game/TempestAnimatedMenu.h"
 #include <cstdlib>
 #include <numeric>
+#include <memory>
 #include "t3k_runtime/game/TempestSessionDeath.h"
 #include "t3k_runtime/game/TempestSessionWarpBonus.h"
+#include "t3k_runtime/game/TempestSessionWarpSkip.h"
 using namespace tempest_native;
 static void require(bool value,const char* why){if(!value){std::fprintf(stderr,"cycle intent: %s\n",why);std::exit(1);}}
 static uint32_t read(NativeFrameMemory& m,uint32_t at){uint32_t value=0;require(m.read32(at,value),"valid fixture address");return value;}
+__declspec(noinline) static void color_clock_contracts(){
+    auto owned=std::make_unique<NativeFrameMemory>();auto& memory=*owned;
+    // Colour effects use authored scene time, including rational rates which
+    // do not divide 120. No palette changes may be caused by extra presents.
+    for(unsigned hz:{16u,20u,24u,30u,36u,48u}){
+        unsigned divisor=120/std::gcd(120u,hz),numerator=hz/std::gcd(120u,hz),phase=0,rotations=0;
+        struct Driver:DriverPresentationServices{SimulationStep step;unsigned presents=0;SimulationStep simulation_step()const override{return step;}bool present(const DriverPresentation&)override{++presents;return true;}bool maintain_music()override{return true;}} driver;
+        require(memory.write32(0x806B9910,0x80072000)&&memory.write32(0x801133F0,0)&&memory.write32(0x801133E8,0)&&memory.write32(0x800DC2DC,0),"colour driver controller and pending stream");
+        uint32_t list=0x80070000;for(unsigned k=0;k<=hz;++k)require(memory.write32(list+k*4,0x40808000+k),"scene colour stream fixture");
+        require(memory.write32(0x800B84CC,list)&&memory.write32(0x800B84B4,0x10808000)&&memory.write32(0x20100A60,0x11223344)&&memory.write32(0x20100A64,0x55667788),"seed one second colour clocks");
+        for(unsigned sample=0;sample<120;++sample){SimulationStep step{divisor,phase,numerator};uint32_t before=read(memory,0x800B84CC);PreparationAnimation animation{memory};animation.cursor=0x20100A20;animation.left=16;animation.step=step;
+            require(animation.rotate(0x0001F000),"fractional palette rotation");driver.step=step;require(finish_driver_frame(memory,driver),"colour driver frame at rational cadence");if(step.legacy_boundary())++rotations;else require(read(memory,0x800B84CC)==before,"colour stream cannot accelerate between authored ticks");
+            phase=(phase+numerator)%divisor;
+            require(read(memory,0x800B84CC)==list+4*rotations&&read(memory,0x20100A60)==(rotations%2?0x55667788:0x11223344),"colour stream and palette rotation share exact authored boundaries");
+        }
+        require(rotations==hz&&phase==0&&driver.presents==120,"one second at 120Hz presents 120 times but advances colour at its scene reference rate");
+    }
+}
 struct SceneFixture:GameSessionServices{
     SimulationStep clock;unsigned frames=0,transitions=0,sounds=0;explicit SceneFixture(unsigned den,unsigned num=1):clock{den,0,num}{}
     unsigned begin_scene_timing(SceneTimingKind)override{return clock.divisions;}
@@ -37,7 +57,49 @@ struct SceneFixture:GameSessionServices{
     bool vertical_axis(uint32_t,uint32_t,uint32_t&)override{return false;}
     bool high_score_entry(uint32_t,uint32_t,uint32_t,uint32_t,const std::array<uint32_t,20>&)override{return false;}
 };
+#ifdef _MSC_VER
+__declspec(noinline)
+#else
+__attribute__((noinline))
+#endif
+static void ring_contracts(){
+    {
+        // Ring events are discrete rewards, independent of the sample at
+        // which the worker reports crossing the ring.
+        struct RingEventFixture:SceneFixture{
+            NativeFrameMemory& memory;unsigned gameplayFrames=0;uint32_t event;
+            RingEventFixture(NativeFrameMemory& m,unsigned den,unsigned num,uint32_t e):SceneFixture(den,num),memory(m),event(e){}
+            bool select_music(uint32_t)override{return true;}
+            bool play_request(const SoundRequest&,uint32_t& handle)override{handle=1;return true;}
+            bool gameplay_frame(const std::array<uint32_t,20>& c)override{
+                ++gameplayFrames;
+                return SceneFixture::gameplay_frame(c)&&memory.write32(0x800B4D70,gameplayFrames==1?event:0xFE);
+            }
+        };
+        for(auto rate:std::array<std::array<unsigned,2>,4>{{{1,1},{2,1},{5,1},{10,3}}})for(uint32_t event:{2u,3u}){
+            auto storage=std::make_unique<NativeFrameMemory>();auto& memory=*storage;RingEventFixture services(memory,rate[0],rate[1],event);
+            OpeningAnimationInput input{};input.incoming[19]=0x80080000;uint32_t result=99;
+            require(run_session_warp_skip(memory,input,services,result),"complete ring event and failure presentation at each cadence");
+            require(read(memory,0x800B4D6C)==(event==2?0x1200u:0x1000u),"ring speed reward and slowdown floor retain authored magnitude at every cadence");
+        }
+        auto storage=std::make_unique<NativeFrameMemory>();auto& memory=*storage;
+        PreparationShapeWriter writer{memory,0x201006F0,0x401A0000};PreparationDepth worker{memory,writer};
+        require(memory.write32(0x201009C0,0x00001901)&&memory.write32(0x201009A0,1),"moving shootable ring and centered shot");
+        worker.bonus_slot(0,0,0,0,0,0);
+        require(worker.good&&((read(memory,0x201009C0)>>16)&255)==5&&read(memory,0x201009A0)==0x101,"shot tests pre-movement ring position before drawing its advanced position");
+    }
+}
 int main(){
+    ring_contracts();
+    {
+        NativeFrameMemory memory;require(memory.write32(0x80113164,0x800B6750),"HUD metadata globals");
+        auto before=std::vector<uint8_t>(memory.bank(NativeFrameMemory::system).begin(),memory.bank(NativeFrameMemory::system).end());
+        memory.render_draw_source(0x8004E040,0x8003C000,0x800B3010,0);
+        auto view=memory.renderer_view();require(view.drawSources&&view.drawSources->size()==1&&view.drawSources->front().anchor==NativeHudAnchor::left,"draw provenance is retained beside original memory");
+        require(std::equal(before.begin(),before.end(),memory.bank(NativeFrameMemory::system).begin()),"HUD provenance cannot mutate game state");
+        memory.begin_render_precision_frame();require(memory.renderer_view().drawSources->empty(),"new frame cannot reuse an old draw slot's HUD role");
+    }
+
     {
         for(unsigned hz:{16u,20u,24u,30u,36u,48u}){
             unsigned divisor=std::gcd(120u,hz),den=120/divisor,num=hz/divisor;
@@ -156,6 +218,7 @@ int main(){
         require(animation.rotate(0x0001F000)&&read(memory,0x20100A60)==0x11223344,"colour rotation is held between authored effect ticks");
         animation.step={5,4};require(animation.rotate(0x0001F000)&&read(memory,0x20100A60)==0x55667788&&read(memory,0x20100A64)==0x11223344,"colour rotation advances once at effect boundary");
     }
+    color_clock_contracts();
     require(memory.write32(0x800DC258,512)&&memory.write32(0x800DC25C,0)&&memory.write32(0x800DC254,0)&&memory.write32(0x8010F174,4096),"seed camera approach and web spring");
     for(unsigned substep=0;substep<5;++substep)require(frame_finish(memory,{5,substep}),"fine camera and occupancy pass");
     require(read(memory,0x800DC25C)==32,"camera approach advances one original increment in five fine steps");

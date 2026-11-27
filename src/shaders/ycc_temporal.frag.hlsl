@@ -27,7 +27,10 @@ float4 main(PSInput input):SV_Target {
     float3 d=abs(round((h-neutral.rgb)*255));
     gain=max(1,trunc(d*clock.y+0.001)/max(d,1));
   }
-  float uncovered=1-saturate(p.a);
+  // Signed vector weights can paint away from a colour. Negative alpha
+  // therefore has uncovered > 1; clamping it would discard the gain term.
+  // Coverage beyond one still has no real-valued fractional affine power.
+  float uncovered=max(0,1-p.a);
   float3 a=max(0,gain*uncovered),ah=pow(a,clock.x);
   float3 q=float3(abs(a.x-1)<0.0001?clock.x:(ah.x-1)/(a.x-1),
                    abs(a.y-1)<0.0001?clock.x:(ah.y-1)/(a.y-1),

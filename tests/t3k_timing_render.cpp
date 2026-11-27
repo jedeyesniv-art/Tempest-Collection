@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
+#include <memory>
 using namespace tempest_native;
 static void require(bool value,const char* why){if(!value){std::fprintf(stderr,"render clocks: %s (%s)\n",why,SDL_GetError());std::exit(1);}}
 static bool same(const t3knative::FeedbackState& a,const t3knative::FeedbackState& b){return a.width==b.width&&a.height==b.height&&a.format==b.format&&a.pixels==b.pixels;}
@@ -78,10 +79,28 @@ int main(){
         }
         t3knative::ShutdownPipeline();SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();return 0;
     }
+    {
+      t3knative::Picture p;require(!t3knative::SupportsTimeIntegratedFeedback(p),"empty picture is not feedback");
+      p.ops.push_back(t3knative::Op{t3knative::Op::kZoom});p.ops.push_back(t3knative::Op{t3knative::Op::kBlobs});require(t3knative::SupportsTimeIntegratedFeedback(p),"particle feedback eligibility does not depend on scene identity");
+      for(auto kind:{t3knative::Op::kFill,t3knative::Op::kZoom,t3knative::Op::kRipple}){p.ops.push_back(t3knative::Op{kind});require(!t3knative::SupportsTimeIntegratedFeedback(p),"interleaved feedback/clear retains reference composition");p.ops.pop_back();}
+    }
+    {
+      require(t3knative::InitPipeline(renderer),"no-op fixture pipeline");
+      NativeFrameMemory memory;const uint32_t entry=0x8004E040;std::string error;
+      require(memory.write32(entry+124,0xFF),"no-op fixture terminator");
+      for(auto type:{0x00310009u,0x0031000Eu,0x0031020Eu}){
+        require(memory.write32(entry+60,type)&&memory.write32(entry+28,1),"no-op drawing selector");t3knative::Picture picture;
+        require(build_renderer_picture(memory.renderer_view(),0,picture,error)&&picture.complete&&picture.ops.empty(),"original no-op primary/particle rows do not fabricate geometry from absent resources");
+      }
+    }
     unsigned comparisons=0;
     {
         NativeFrameRenderer reference,display;t3knative::Renderer fine;std::string error;
         require(reference.initialize(renderer,error)&&display.initialize(renderer,error),"initialize pipeline");
+        auto generation=SDL_GetNumberProperty(SDL_GetRendererProperties(renderer),"tempest.t3k.pipeline_generation",0);
+        require(generation>0,"native shader pipeline has renderer-owned lifetime");
+        {NativeFrameRenderer additional;require(additional.initialize(renderer,error),"additional independent feedback owner");
+         require(SDL_GetNumberProperty(SDL_GetRendererProperties(renderer),"tempest.t3k.pipeline_generation",0)==generation,"initializing another frame wrapper must not replace shared shaders or invalidate live temporal bindings");}
         {
             NativeFrameMemory memory;std::string why;const uint32_t entry=0x8004E040,definition=0x80071000,texture=0x80074000,root=0x80076000;
             require(memory.write32(entry,texture)&&memory.write32(entry+60,0x0011000B)&&memory.write32(entry+124,0xFF)&&memory.write32(0x800AF700,definition)&&memory.write32(definition+4,15u<<16)&&memory.write32(definition+0x28,16u<<8),"open-web definition with sixteen logical lanes and fifteen surface segments");
@@ -108,7 +127,53 @@ int main(){
             uint32_t after;require(memory.read32(0x800BACF0+15*32,after)&&after==poison,"decoder does not clear or rewrite original game memory to remove stale panels");
             require(memory.edit_words(NativeFrameMemory::rendererLocal,0x100020,4,[&](auto bytes){for(unsigned k=0;k<4;++k)bytes[k]=uint8_t(root>>(24-k*8));})&&memory.write32(root+0x900,definition+0x100)&&memory.write32(definition+0x104,12u<<16),"drawing-MPE definition fixture");t3knative::Picture local;
             require(build_renderer_picture(memory.renderer_view(),3,local,why)&&local.webs[0].quads.size()==48,"drawing-MPE context uses geometric segment count rather than logical lane count");
+            require(memory.write32(definition+0x16C,0x80010001),"lane chroma fixture in drawing-MPE definition");
+            t3knative::Picture chroma;require(build_renderer_picture(memory.renderer_view(),3,chroma,why)&&chroma.webs[0].unsignedChromaLanes==0x8001,"only upper mask bits select unsigned chroma lanes");
+            // The original tests the signed dispatch mode before consulting
+            // surface bounds. A disabled entry can retain a complete old web.
+            for(uint32_t mode:{0xFFFFFFFFu,0x80000000u,0xFFFFFFFEu}){
+                require(memory.write32(entry+4,mode),"negative web dispatch mode with nonzero stale geometry");
+                t3knative::Picture disabled;
+                require(build_renderer_picture(memory.renderer_view(),4,disabled,why)&&disabled.complete&&disabled.webs.empty(),"negative surface modes draw nothing despite a valid old definition and quad stream");
+                t3knative::Renderer draw;auto pixels=capture_cached(renderer,draw,disabled);
+                for(size_t pixel=0;pixel<pixels.size();pixel+=4)require(pixels[pixel]<=1&&pixels[pixel+1]<=1&&pixels[pixel+2]<=1,"disabled web leaves an empty picture clear");
+            }
+            require(memory.write32(entry+4,0)&&memory.write32(0x801095A0,127),"last ordinary web level");
+            t3knative::Picture lastWeb;require(build_renderer_picture(memory.renderer_view(),5,lastWeb,why)&&lastWeb.webs.size()==1,"ordinary web remains visible at level-limit boundary");
+            require(memory.write32(0x801095A0,128),"beyond ordinary surface level limit");
+            t3knative::Picture beyond;require(build_renderer_picture(memory.renderer_view(),6,beyond,why)&&beyond.webs.empty(),"original ordinary-surface level gate prevents stale web drawing");
+            uint32_t inlineQuad[8]={packed(10,20),0,packed(110,20),8u*512<<16,packed(10,100),8u*512,packed(110,100),(8u*512<<16)|8u*512};
+            for(unsigned k=0;k<8;++k)require(memory.write32(entry+16+k*4,inlineQuad[k]),"explicit surface positions and UVs");
+            require(memory.write32(entry+4,1),"positive mode is independent of ordinary-web level gate");
+            uint32_t oldPoint;require(memory.read32(0x800BACF0,oldPoint),"old scratch point");memory.web_render_point(0x800BACF0,oldPoint,2000,2000);
+            for(bool gpu:{false,true}){
+                t3knative::PictureBuildClocks clocks{};clocks.gpuWeb=gpu;clocks.preciseWeb=true;clocks.overrideWebTextureTick=true;clocks.webTextureTick=12345;
+                t3knative::Picture explicitPicture;require(build_renderer_picture(memory.renderer_view(),7,explicitPicture,why,clocks)&&explicitPicture.webs.size()==1,"positive surface mode decodes one inline quad");
+                const auto& quad=explicitPicture.webs[0];require(quad.explicitQuad&&quad.quads.size()==4&&quad.quads[0].x==10&&quad.quads[0].y==20&&quad.quads[2].x==110&&quad.quads[2].y==100,"inline geometry ignores old web count, scratch and precision sidecar");
+                auto op=std::find_if(explicitPicture.ops.begin(),explicitPicture.ops.end(),[](const auto& op){return op.kind==t3knative::Op::kWeb;});require(op!=explicitPicture.ops.end()&&op->fade==0,"explicit quad does not inherit the ordinary web's clock-based UV scroll");
+                t3knative::Renderer draw;auto pixels=capture_cached(renderer,draw,explicitPicture);auto inside=(40*360+40)*4,outside=(130*360+230)*4;
+                require(pixels[inside]>30&&pixels[outside]<=1&&pixels[outside+1]<=1&&pixels[outside+2]<=1,"CPU and GPU draw explicit surface only at its inline positions");
+            }
             std::printf("Web bounds: open/closed counts, stale tail, degenerate head, both mapping paths and MPE context passed\n");
+        }
+        {
+            auto owned=std::make_unique<NativeFrameMemory>();auto& memory=*owned;uint32_t entry=0x8004E040,source=0x40064600;
+            require(memory.write32(entry,30u<<16|40)&&memory.write32(entry+4,32u<<16|24)&&memory.write32(entry+8,5u<<16|7)&&memory.write32(entry+28,0x20000000)&&memory.write32(entry+36,source)&&memory.write32(entry+44,0x40809000)&&memory.write32(entry+60,0x00100100)&&memory.write32(entry+124,255),"framebuffer copy fixture");
+            for(unsigned y=47;y<71;++y)for(unsigned x=35;x<67;++x)require(memory.write32(source+(y*360+x)*4,0xA0807000),"framebuffer copy source");
+            t3knative::Picture copied;require(build_renderer_picture(memory.renderer_view(),0,copied,error)&&copied.glyphs.size()==1,"copy path decodes");const auto& g=copied.glyphs[0];require(g.x==35&&g.y==47&&g.pw==32&&g.ph==24&&g.rgba[0]==0xFF708080,"copy offsets affect both source and destination; full signed 2.30 colour blend is preserved");
+            require(memory.write32(entry+60,0x00300004)&&memory.write32(entry+28,0x12340001),"raw zoom selector fixture");t3knative::Picture zoom;require(build_renderer_picture(memory.renderer_view(),0,zoom,error)&&zoom.ops[0].count==1&&zoom.ops[0].fade==1&&!t3knative::SupportsTimeIntegratedFeedback(zoom),"raw nearest zoom bypasses fade and unverified fractional feedback");
+            require(memory.write32(entry+28,0x12340002),"unimplemented composite zoom selector");require(!build_renderer_picture(memory.renderer_view(),0,zoom,error),"composite zoom cannot silently execute the ordinary single-source algorithm");
+        }
+        {
+          auto owned=std::make_unique<NativeFrameMemory>();auto& memory=*owned;uint32_t entry=0x8004E040,texture=0x80070000;
+          require(memory.write32(entry,20u<<16|30)&&memory.write32(entry+4,128u<<16|16)&&memory.write32(entry+16,65536)&&memory.write32(entry+36,texture)&&memory.write32(entry+60,0x00100500)&&memory.write32(entry+124,255),"nearest Z plane entry");
+          t3knative::Renderer draw;
+          for(unsigned z:{0u,64u,127u,255u}){
+            for(unsigned k=0;k<256;++k)require(memory.write32(texture+k*4,0xA0808000|z),"signed Z plane texture mutation");t3knative::Picture p;require(build_renderer_picture(memory.renderer_view(),0,p,error)&&p.planes.size()==1&&p.planes[0].nearestZ&&p.planes[0].grid.empty(),"Z plane bypasses opaque bilinear mesh decoding");capture_cached(renderer,draw,p);t3knative::FeedbackState h;require(draw.CaptureFeedback(renderer,h,error),"Z plane readback");std::vector<float> pixels(360*240*4);
+            require(SDL_ConvertPixelsAndColorspace(360,240,SDL_PixelFormat(h.format),SDL_COLORSPACE_SRGB,0,h.pixels.data(),360*SDL_BYTESPERPIXEL(SDL_PixelFormat(h.format)),SDL_PIXELFORMAT_RGBA128_FLOAT,SDL_COLORSPACE_SRGB,0,pixels.data(),360*16),"Z plane float conversion");float weight=float(int8_t(z))*(1.f/256)*(8191.f/8192);float expected=16+144*weight;
+            require(std::abs(pixels[(35*360+45)*4]*255-expected)<.15f&&std::abs(pixels[(35*360+45)*4+1]*255-128)<.15f,"signed sampled Z drives the original plane blend, including same-picture alpha cache changes");require(std::abs(pixels[0]*255-16)<.15f,"Z plane coverage stays inside its rectangle");
+          }
+          std::printf("Z plane: nearest sampling, signed blend weights, rectangle bounds and same-tick texture changes passed\n");
         }
         {
             NativeFrameMemory memory;uint32_t entry=0x8004E040,glyphs=0x80070000,texture=0x80074000,block=0x80075000;
@@ -125,6 +190,18 @@ int main(){
                 auto capture=[&](const t3knative::Picture& pic){t3knative::Renderer draw;SDL_FRect dst{0,0,360,240};draw.Draw(renderer,pic,pic.segs,dst,1);auto* raw=SDL_RenderReadPixels(renderer,nullptr);require(raw,"number capture");auto* rgba=SDL_ConvertSurface(raw,SDL_PIXELFORMAT_RGBA32);SDL_DestroySurface(raw);require(rgba,"number conversion");std::vector<unsigned char> bytes(size_t(rgba->w)*rgba->h*4);for(int y=0;y<rgba->h;++y)std::copy_n(static_cast<unsigned char*>(rgba->pixels)+y*rgba->pitch,rgba->w*4,bytes.data()+size_t(y)*rgba->w*4);SDL_DestroySurface(rgba);return bytes;};
                 auto a=capture(cpu),b=capture(gpu);double total=0;unsigned maximum=0;for(size_t i=0;i<a.size();++i){unsigned d=unsigned(std::abs(int(a[i])-int(b[i])));total+=d;maximum=std::max(maximum,d);}
                 std::printf("Number GPU comparison number=%u scale=%u mean=%.6f max=%u\n",number,scale,total/a.size(),maximum);require(total/a.size()<.1&&maximum<12,"number shader/reference agreement");
+            }
+            for(unsigned k=0;k<256;++k){uint32_t value;require(memory.read32(texture+k*4,value)&&memory.renderer_word(0x100930+k*4,value),"seed retained renderer-local number texture");}
+            for(bool gpu:{false,true}){t3knative::Picture direct,retained;t3knative::PictureBuildClocks clocks{};clocks.gpuNumbers=gpu;
+              require(build_renderer_picture(memory.renderer_view(),0,direct,error,clocks)&&memory.write32(entry+44,0)&&build_renderer_picture(memory.renderer_view(),0,retained,error,clocks)&&memory.write32(entry+44,texture),"conditional number texture uses existing renderer scratch when upload pointer is zero");
+              t3knative::Renderer a,b;require(capture_cached(renderer,a,direct)==capture_cached(renderer,b,retained),"retained texture has the same number pixels as an explicit upload in CPU and GPU paths");}
+            require(memory.write32(0x800DC240,100)&&memory.write32(entry+8,0x10000)&&memory.write32(entry+12,0x10000),"number opacity boundary fixture");
+            for(uint32_t opacity:{0u,0xFFFFFFFFu,0xFFFFE3FFu}){
+                require(memory.write32(entry+24,opacity),"zero or negative signed number opacity");
+                t3knative::Picture cpu,gpu;t3knative::PictureBuildClocks clocks{};clocks.gpuNumbers=true;
+                require(build_renderer_picture(memory.renderer_view(),8,cpu,error)&&build_renderer_picture(memory.renderer_view(),8,gpu,error,clocks),"decode signed number opacity in CPU and GPU paths");
+                for(const auto& glyph:cpu.glyphs)require(std::all_of(glyph.rgba.begin(),glyph.rgba.end(),[](uint32_t p){return p==0;}),"negative signed opacity must not wrap into opaque score panels");
+                t3knative::Renderer draw;auto pixels=capture_cached(renderer,draw,gpu);for(size_t pixel=0;pixel<pixels.size();pixel+=4)require(pixels[pixel]<=1&&pixels[pixel+1]<=1&&pixels[pixel+2]<=1,"GPU score is invisible at zero and negative opacity");
             }
         }
         {
@@ -147,9 +224,13 @@ int main(){
             require(memory.write32(entry,0x00B40078)&&memory.write32(entry+16,0x00800080)&&memory.write32(entry+20,0x4FFF0002)&&memory.write32(entry+28,stream)&&memory.write32(entry+60,0x00710001)&&memory.write32(entry+64,0x80070000)&&memory.write32(entry+124,0x0011000B)&&memory.write32(entry+188,0xFF),"seed vector and textured web records");
             require(memory.write32(stream,0x00010000)&&memory.write32(stream+4,0x00010002)&&memory.write32(stream+8,0x80000001),"seed unchanged packed geometry");
             for(unsigned k=0;k<4;++k)require(memory.write32(WebRenderPrecision::base+k*8,k==0||k==3?0x00010002:0x00010000),"seed web quad positions");
+            require(memory.write32(entry+8,0xA080803F)&&memory.write32(entry+12,0xA080803F),"vector colour Z fixture");
             auto bank=memory.bank(NativeFrameMemory::system);std::vector<uint8_t> before(bank.begin(),bank.end());
             t3knative::Picture legacy,first,second;t3knative::PictureBuildClocks precise{};precise.preciseWeb=true;
             require(build_renderer_picture(memory.renderer_view(),0,legacy,error)&&legacy.segs.size()==1&&legacy.webs.size()==1,"decode coarse fixture");
+            t3knative::Picture stroke;
+            require(build_renderer_picture(memory.renderer_view(),0,stroke,error)&&stroke.segs[0].originalGradient&&stroke.segs[0].r==2&&std::abs(stroke.segs[0].c0.a-(float(0x4FFF0002u>>2)/1073741824.f*63/32))<1e-6f,"vector decoding uses original width, Z and intensity equation rather than fitted opacity");
+
             auto point=[&](double delta){memory.web_render_point(stream,0x00010000,delta,1.2);memory.web_render_point(stream+4,0x00010002,2+delta,1.2);
                 for(unsigned k=0;k<4;++k)memory.web_render_point(WebRenderPrecision::base+k*8,k==0||k==3?0x00010002:0x00010000,(k==0||k==3?2:0)+delta,1.2);};
             point(.1);require(build_renderer_picture(memory.renderer_view(),0,first,error,precise),"first true subpixel geometry");
@@ -188,6 +269,43 @@ int main(){
                 auto a=capture(expected),b=capture(actual);double total=0;unsigned maximum=0,count=0;for(size_t i=0;i<a.size();++i)if(compare[i/4]){unsigned delta=unsigned(std::abs(int(a[i])-int(b[i])));total+=delta;maximum=std::max(maximum,delta);++count;}
                 std::printf("Web analytic comparison variant=%u mean=%.6f max=%u\n",variant,total/count,maximum);require(total/count<.5&&maximum<10,"web shader analytic scanline agreement");
             }
+        }
+        {
+            // The original UV load can exceed the normalized output range.
+            // Clipping the source to 255 before alpha blending would produce
+            // Cr=191 rather than 200 at half coverage in this fixture.
+            for(bool gpu:{false,true}){
+                t3knative::Picture picture;t3knative::Web web;web.gpuMapping=gpu;web.unsignedChromaLanes=1;
+                web.quads={{20,20,0,16},{150,20,0,16},{150,210,0,16},{20,210,0,16},{200,20,0,16},{330,20,0,16},{330,210,0,16},{200,210,0,16}};
+                std::fill(std::begin(web.texture),std::end(web.texture),0x4090A0FF);picture.webs.push_back(web);picture.ops.push_back(t3knative::Op{t3knative::Op::kWeb});
+                t3knative::Renderer draw;capture_cached(renderer,draw,picture);t3knative::FeedbackState history;require(draw.CaptureFeedback(renderer,history,error),"masked web feedback");
+                std::vector<float> pixels(360*240*4);require(SDL_ConvertPixelsAndColorspace(360,240,SDL_PixelFormat(history.format),SDL_COLORSPACE_SRGB,0,history.pixels.data(),360*SDL_BYTESPERPIXEL(SDL_PixelFormat(history.format)),SDL_PIXELFORMAT_RGBA128_FLOAT,SDL_COLORSPACE_SRGB,0,pixels.data(),360*16),"masked web float readback");
+                for(auto sample:{std::pair{80u,200.f},std::pair{260u,136.f}}){unsigned at=(100*360+sample.first)*4;std::printf("chroma gpu=%u x=%u actual=%f expected=%f\n",unsigned(gpu),sample.first,pixels[at+1]*255,sample.second);require(std::abs(pixels[at+1]*255-sample.second)<1.5f,"per-lane UV chroma is interpreted before blending without early clipping");}
+            }
+            std::printf("Web chroma: CPU mesh and GPU preserve unsigned source range and lane selection\n");
+        }
+        {
+          t3knative::Picture p;t3knative::Seg s{40,80,80,80,{.8f,128.f/255,128.f/255,1.5f},{.8f,128.f/255,128.f/255,1.5f}};s.r=4;p.segs.push_back(s);t3knative::Op op{t3knative::Op::kSegs};op.count=1;p.ops.push_back(op);
+          t3knative::Renderer draw;capture_cached(renderer,draw,p);t3knative::FeedbackState history;require(draw.CaptureFeedback(renderer,history,error),"capsule stroke feedback");std::vector<float> pixels(360*240*4);
+          require(SDL_ConvertPixelsAndColorspace(360,240,SDL_PixelFormat(history.format),SDL_COLORSPACE_SRGB,0,history.pixels.data(),360*SDL_BYTESPERPIXEL(SDL_PixelFormat(history.format)),SDL_PIXELFORMAT_RGBA128_FLOAT,SDL_COLORSPACE_SRGB,0,pixels.data(),360*16),"capsule stroke conversion");
+          for(auto point:{std::pair{38u,78u},std::pair{60u,83u},std::pair{36u,80u},std::pair{60u,80u}}){float dx=point.first<40?40-float(point.first):point.first>80?float(point.first)-80:0,dy=float(point.second)-80;float weight=1.5f*std::max(0.f,1-std::hypot(dx,dy)/4);float expected=16+188*weight;require(std::abs(pixels[(point.second*360+point.first)*4]*255-expected)<.8f,"circular vector caps and bright stroke sides retain analytic coverage");}
+          std::printf("Vector shader: circular end caps, bright off-centre coverage and zero support boundary passed\n");
+        }
+        {
+          t3knative::Picture seed;t3knative::Op fill{t3knative::Op::kFill};fill.w=360;fill.h=240;fill.colour={.5f,128.f/255,128.f/255,1};seed.ops.push_back(fill);
+          t3knative::Picture source;t3knative::Op zoom{t3knative::Op::kZoom};zoom.cx=180;zoom.cy=120;source.ops.push_back(zoom);t3knative::Seg s{40,80,80,80,{.8f,128.f/255,128.f/255,-.25f},{.8f,128.f/255,128.f/255,-.25f}};s.r=5;source.segs.push_back(s);t3knative::Op lines{t3knative::Op::kSegs};lines.count=1;source.ops.push_back(lines);
+          SDL_FRect dst{0,0,360,240};t3knative::Renderer full,fine;full.Draw(renderer,seed,seed.segs,dst,1);fine.Draw(renderer,seed,seed.segs,dst,1);full.Draw(renderer,source,source.segs,dst,1);auto expected=read_output(renderer);
+          for(unsigned i=0;i<5;++i)require(fine.DrawSimulationSample(renderer,source,dst,i,5,error,nullptr,1,t3knative::FeedbackSampling::timeIntegrated),"signed-paint fractional feedback");auto actual=read_output(renderer);unsigned at=(80*360+60)*4;for(unsigned c=0;c<3;++c){std::printf("signed paint channel=%u full=%u fine=%u\n",c,unsigned(expected[at+c]),unsigned(actual[at+c]));require(std::abs(int(expected[at+c])-int(actual[at+c]))<=4,"negative vector weight retains its coupled gain in fine feedback");}
+          std::printf("Signed paint: five fine feedback samples match one original frozen stroke update\n");
+        }
+        {
+          for(bool flat:{false,true}){
+            t3knative::Picture p;t3knative::Blob b;b.x=90.5f;b.y=80.5f;b.r=12;b.colour={.8f,128.f/255,128.f/255,.6f};b.flat=flat;p.blobs.push_back(b);t3knative::Op op{t3knative::Op::kBlobs};op.count=1;p.ops.push_back(op);
+            t3knative::Renderer draw;capture_cached(renderer,draw,p);t3knative::FeedbackState history;require(draw.CaptureFeedback(renderer,history,error),"analytic disc readback");std::vector<float> pixels(360*240*4);
+            require(SDL_ConvertPixelsAndColorspace(360,240,SDL_PixelFormat(history.format),SDL_COLORSPACE_SRGB,0,history.pixels.data(),360*SDL_BYTESPERPIXEL(SDL_PixelFormat(history.format)),SDL_PIXELFORMAT_RGBA128_FLOAT,SDL_COLORSPACE_SRGB,0,pixels.data(),360*16),"analytic disc conversion");
+            for(unsigned dx:{0u,3u,8u,11u,13u}){float coverage=dx>=12?0:flat?1:1-float(dx*dx)/144;float expected=16+(204-16)*.6f*coverage;require(std::abs(pixels[(80*360+90+dx)*4]*255-expected)<.6f,"radial and flat disc pixel weights follow original row equations");}
+          }
+          std::printf("Particle shader: analytic radial falloff and alternate flat circular coverage passed\n");
         }
         {
             t3knative::Renderer reused;
@@ -369,6 +487,25 @@ int main(){
         // Deliberately report rather than assert equal variance: extra spatial
         // diffusion from repeated fractional bilinear sampling remains open.
     }
+    // Actual particle decoding and drawing must retain particles outside the
+    // old 4:3 bounds; merely testing synthetic rectangles would miss a cutoff
+    // in the point decoder. Keep the original projection and particle stream.
+    for(unsigned width:{960u,1260u}){
+        NativeFrameMemory memory;uint32_t entry=0x8004E040,points=0x80070000;
+        require(memory.write32(entry+48,points)&&memory.write32(entry+60,0x00310309)&&memory.write32(entry+64+60,0xFF),"wide particle display records");
+        for(unsigned i=0;i<2;++i){uint32_t x=i?100:uint16_t(-100);require(memory.write32(points+i*16,x<<16)&&memory.write32(points+i*16+4,0x400000)&&memory.write32(points+i*16+8,0xC0808000)&&memory.write32(points+i*16+12,4),"wide particle input");}
+        require(memory.write32(points+32,0x80000000),"wide particle sentinel");
+        t3knative::Picture picture;std::string error;require(build_renderer_picture(memory.renderer_view(),0,picture,error)&&picture.blobs.size()==2,"original particle decoder preserves both off-4:3 points");
+        require(picture.blobs[0].x<0&&picture.blobs[1].x>360,"probe particles lie outside original horizontal bounds");
+        auto* target=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_TARGET,width,540);require(target,"wide particle target");
+        SDL_SetRenderTarget(renderer,target);SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);
+        SDL_FRect dst{(float(width)-720)/2,0,720,540},view{0,0,float(width),540};
+        {t3knative::Renderer draw;draw.Draw(renderer,picture,picture.segs,dst,1,&view);auto pixels=read_output(renderer);
+         for(auto& particle:picture.blobs){unsigned x=unsigned(dst.x+particle.x*2),y=unsigned(particle.y*2.25f);auto at=(size_t(y)*width+x)*4;
+          require(pixels.at(at)+pixels.at(at+1)+pixels.at(at+2)>100,"particle outside legacy screen is visible in expanded viewport");}}
+        SDL_SetRenderTarget(renderer,nullptr);SDL_DestroyTexture(target);
+    }
+    std::printf("Wide particle decoder/render: both old-edge crossings remain visible at 16:9 and 21:9\n");
     t3knative::ShutdownPipeline();SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
     std::printf("Render clock independence: %u native states, irregular 0/1/2/5/9 presentations, exact feedback match\n",comparisons);
 }

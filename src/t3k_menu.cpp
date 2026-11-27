@@ -7,6 +7,7 @@
 #include "settings.h"
 #include <algorithm>
 #include "t3k_runtime/native_timing_profile.h"
+#include "t3k_runtime/native_aspect.h"
 
 namespace t3k_menu {
 namespace {
@@ -66,17 +67,17 @@ void Install(bool from_launcher,bool profile_mode) {
   p.Header("PICTURE");
   if(profile_mode)p.Choice("Framerate (restart to apply)", "native_high_framerate", {"0","60","1"}, {"Original","60Hz","120Hz"})->def_value="1";
   p.Button("Fullscreen", menu::kToggleFullscreen);
-  // the picture drawn at most this tall, then stretched over the window (lighter for weaker GPUs)
+  // the picture drawn at most this tall, then scaled to fit the selected viewport (lighter for weaker GPUs)
   p.Choice("Resolution", "resolution", {"0", "1440", "1080", "900", "720", "540"},
            {"Window (full)", "1440p", "1080p", "900p", "720p (lighter)", "540p (lightest)"});
   // Both modes use the native renderer; the second retains original resolution.
   auto rem = [] { return settings::Num("native_view", 1) == 1; };
   auto sharp = [] { return settings::Num("native_view", 1) == 1 && settings::Num("sharp_vectors", 1) != 0; };
   p.Choice("Renderer", "native_view", {"1", "0"}, {"Remaster", "Original resolution (native)"});
-  p.Choice("  Wide screens", "widescreen", {"1", "0"}, {"Fill the width", "4:3 with bars"})->when = rem;
-#ifndef TEMPEST_T3K_TIMING_RESEARCH
-  p.Choice("  Smooth motion", "native_interpolate", {"1", "0"}, {"On", "Off"})->when = rem;
-#endif
+  auto* aspect=p.Choice("  Aspect ratio", "native_aspect", {"4:3","16:9","21:9"}, {"4:3 (original)","16:9","21:9"});
+  aspect->when=rem;aspect->refresh=[](menu::Item& item){item.def_value=tempest_native::native_aspect_choice();};
+  p.Choice("    HUD layout", "native_wide_hud", {"1","0"}, {"Wide corners","Original"})->when=[] {return settings::Num("native_view",1)==1&&tempest_native::native_aspect_choice()!="4:3";};
+
 #ifdef TEMPEST_T3K_TIMING_RESEARCH
   p.Choice("  Geometry precision", "native_precise_web", {"1", "0"}, {"Subpixel", "Original grid"});
 #endif

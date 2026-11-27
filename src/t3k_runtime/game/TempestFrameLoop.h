@@ -91,7 +91,7 @@ inline bool run_frame_object_pass(CommandMemory& m,const FramePassInput& input,F
     for(unsigned count=0;count<budget;++count){
         FrameObjectLayout layout;if(!prepare_frame_object(m,object,false,layout,&services))return services.frame_failure("object attributes",object,0);
         uint32_t source;if(!m.read32(object+0x18,source))return false;
-        if(source){for(unsigned i=0;i<4;++i){std::array<uint32_t,4> words;if(!callback_vector(m,source+i*16,words)||!frame_vector_store(m,draw+i*16,words))return false;}arguments.second=0;}
+        if(source){for(unsigned i=0;i<4;++i){std::array<uint32_t,4> words;if(!callback_vector(m,source+i*16,words)||!frame_vector_store(m,draw+i*16,words))return false;}m.render_draw_source(draw,object,source,layout.parameters);arguments.second=0;}
         // The shared save vector's r21/r23 are opaque scratch. The pass assigns
         // them below only where their values are semantically established.
         std::array<uint32_t,4> save{records,input.scratch21,scratch22,input.scratch23};

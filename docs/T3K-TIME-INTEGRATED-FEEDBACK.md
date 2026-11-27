@@ -149,3 +149,13 @@ scene 7 (including relevant entry/transition work), excluding the first 30
 samples of each scene. These are capacity figures on this machine, not pacing
 reference measurements. Evidence is in `time-integrated-1080-cost.json` and
 its CSV in `research/tempest-profile`.
+
+## Rendering coverage follow-up
+
+The later rendering correction pass replaces the scene-name gate with
+`SupportsTimeIntegratedFeedback`: any picture with one leading zoom/ripple
+and no subsequent clear/feedback operation can use the elapsed-time path.
+This includes course/death/menu particle pictures with that structure.
+Signed vector paint also preserves uncovered gain above one for negative
+weights. Original-rate updates still take the original full update path.
+See `T3K-RENDERING-CORRECTIONS.md` for motion results and remaining limits.

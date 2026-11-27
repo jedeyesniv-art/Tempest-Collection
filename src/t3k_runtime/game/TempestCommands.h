@@ -14,6 +14,7 @@ struct SimulationStep {
 // Interpreter for the GAME'S object command language, not Nuon instructions.
 // Memory is an explicit data interface; a standalone corpus can supply it.
 struct CommandMemory {
+    virtual void render_draw_source(uint32_t,uint32_t,uint32_t,uint32_t){}
     virtual bool precise_web_geometry()const{return false;}
     virtual void web_render_point(uint32_t,uint32_t,double,double){}
     virtual void render_transform_point(uint32_t,uint32_t,double,double){}

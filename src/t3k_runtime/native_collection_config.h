@@ -43,7 +43,6 @@ warp_speed = 60
 warp_ramp = 0.5
 volume = 1
 native_view = 1
-native_interpolate = 1
 native_precise_web = 1
 sharp_vectors = 1
 sharp_core = 0.35

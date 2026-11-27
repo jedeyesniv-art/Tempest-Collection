@@ -1,6 +1,6 @@
 # Tempest Collection — stable native T3K handoff
 
-Checkpoint: **2026-11-26**. This is a contribution to John's Tempest Collection,
+Checkpoint: **2026-11-26, revision 2 (aspect selection and corner HUD)**. This is a contribution to John's Tempest Collection,
 not a separate collection or competing project. The isolated binary package
 updates only its T3K component. No game image, BIOS, private save, extracted asset
 or captured reference fixture is included.
@@ -65,6 +65,21 @@ strength. Both high-rate choices execute 120 Hz internal updates; 60Hz caps
 presentation at 60. No interpolation is used. Feedback paint, decay and
 transport are adjusted for elapsed time in the audited effects.
 
+Picture > Aspect ratio offers **4:3 (original), 16:9, 21:9**. Each choice fits
+inside the output window without changing proportions; mismatched window shapes
+receive symmetric bars. Existing wide preferences default to 16:9 and existing
+4:3 preferences remain 4:3 until an explicit choice is saved. The selected ratio
+is stored in `native_aspect`; the older `widescreen` key is kept for compatibility.
+
+Score, lives, web number and resource/status HUD groups retain their original
+size and corner insets relative to the selected viewport. Picture > HUD layout
+can retain the original layout for comparison. Titles and menus remain centered.
+Gameplay and menu particle coverage was verified in both wider ratios; the
+particle decoder and producer behavior were not changed. Source identities,
+not guessed screen positions, select which primitives belong to the HUD. The
+HUD remains in the original feedback pass so its trails/score echoes survive.
+The selected view and output fit also preserve framing on cached-frame resize.
+
 Timing follows Controls and replaces Game's Menu animation speed row. Defaults:
 24 ticks/s for gameplay and menus, 20 for level travel, 48 for level clear,
 36 for bonus sequences, and 24 for remaining phases. Further scene rows are
@@ -77,6 +92,21 @@ R/jump by default), with remapping. Stick curve is 1–5 (default 2.5); gain appli
 to the selected stick/mouse path. Existing scores and ordinary picture/audio/
 controller preferences remain in their collection locations. Saved On=1/Off=0
 framerate settings migrate to 120Hz/Original; 60 selects the middle mode.
+
+Revision 2 includes the four core suites, HUD provenance/anchoring contracts,
+real particle decoder/GPU old-edge checks, selected-aspect/window combinations,
+and menu particle coverage checks. It also fixes the shared shader lifetime
+issue behind the earlier intermittent GPU feedback-test failure. See
+[T3K-RENDERER-LIFETIME.md](T3K-RENDERER-LIFETIME.md). The fix reuses the pipeline
+for the same renderer instead of replacing shaders still referenced by live
+feedback states and SDL's pointer-keyed cache. No shader/effect math changes.
+
+For the LAST stable handoff (revision 1), the separate
+`tempest-native-aspect-over-stable-r1.patch` contains only the aspect/HUD/menu
+feature and its supporting tests. `tempest-native-renderer-lifetime.patch` is
+independent and may be applied as well. These are already included in the full
+revision-2 patches: do not combine them with those overlapping patches.
+Current build/application checks and runtime results are in validation.json.
 
 ## Known limits
 
@@ -94,5 +124,7 @@ framerate settings migrate to 120Hz/Original; 60 selects the middle mode.
   and the inherited disc-reader notices and licensing terms.
 
 The archive's `validation.json`, file hashes and source manifests identify the
-frozen checkpoint. The earlier handoff remains unchanged. Future experiments
+frozen checkpoint. The original native integration handoff remains unchanged. The first stable
+packages are retained under previous-revision-1; these same-name archives now
+contain revision 2, as requested before delivery to John. Future experiments
 should build on this snapshot without replacing these stable archives.

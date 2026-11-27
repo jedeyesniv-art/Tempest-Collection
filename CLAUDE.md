@@ -28,6 +28,12 @@ Hz, no interpolation; restart to apply), mouse / trackball, stick curve + gain. 
 --logic-hz=24 --scene-hz=0 path. As received = local branch frog-stable (47bdc7a + both patches + our two commits).
 Old game_speed / menu_speed rows only show in that legacy path. Checks: ctest in build\ (4 tests); his
 tools\run_t3k_*_checks.ps1; smoke t3k play = --check --fine-check-limit=600 (plain --check plays forever now).
+**2026-11-27: his STABLE REVISION 3** (R3 handoff zip, tempest-native-stable-r3-full.patch over 47bdc7a; we never got R2 -
+R3 full includes it) merged: ring mini-game fixes, web draw coverage, vector stroke / particle feedback fidelity,
+time-integrated feedback, framebuffer copy (type 00100100), Z-weighted nearest planes, aspect / HUD + renderer-lifetime
+(R2). Native interpolation and F6 removed by him. As received = local branch frog-r3. His recompiled T2K shader headers
+(crt / glow / m7 / psy_* / scar .dxil.h: same HLSL) were NOT taken. Web quad count unchanged (leftover-web bug open).
+His tools\run_t3k_*_checks.ps1 need his folders (tempest-profile\runs); use smoke_test.py.
 Plan and open items: PLAN.md. **Since 2026-11-13 this is a Tempest Collection** (owner): arcade Tempest (1981, MAME),
 T2K (Jaguar), T3K (Nuon), Space Giraffe (Steam), TxK (Vita), Tempest 4000 (Steam) - all six run from the launcher;
 PLAN.md "Tempest Collection" and "Collection status and open items".

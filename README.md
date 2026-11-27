@@ -33,11 +33,9 @@ latency and to give the game a feel that sits somewhere between the stiffer feel
 movement of TxK. The game is found online as a disc image; this project also includes a tool that unpacks and
 compresses it to save disc space.
 
-At this point Tempest 3000 is highly playable, incredibly beautiful and runs fantastically well. The general feel of
-the game is configurable, since the game's speed is set by its internal frame rate. The original most likely ran at
-around 30 fps; I prefer it slower at 21, but you can choose. Smooth motion interpolation means play still
-feels smooth, and run-ahead is available to reduce latency further if you have the CPU for it. Run-ahead is too much for
-the Steam Deck, but testing shows the game plays well there without it.
+The native Tempest 3000 implementation separates authored gameplay/effect timing from presentation. Picture >
+Framerate selects Original, 60Hz or 120Hz; the higher modes use fresh simulation samples. Motion interpolation and
+emulator run-ahead are retired. Timing values can be adjusted separately and apply on restart.
 
 The original 1981 arcade Tempest is also included, through MAME emulation, with some added work to thicken the vector
 graphics and make better use of modern displays.
@@ -136,7 +134,9 @@ shows the exact line to paste when it is missing.
 - Native Nuon gamepad input: A fires, B activates the zapper, RB is R/jump; buttons are remappable.
   Mouse/trackball is another controller choice: left click fires, right click jumps, middle click zaps.
   Stick response curve (1–5, default 2.5) and sensitivity are adjustable.
-- High scores, volume, resolution, widescreen, vector style and optional CRT settings remain integrated.
+- Aspect ratio choices: 4:3 (original), 16:9 and 21:9, with proportional framing and responsive corner HUD placement.
+  Menus remain centered; their particle effects already extend into the wider view.
+- High scores, volume, resolution, vector style and optional CRT settings remain integrated.
   Save states are unavailable in the normal scene-timing mode; existing state files remain untouched.
 - The disc compression tool (`.nuz`: the music re-encoded as Ogg Vorbis, the rest untouched).
 

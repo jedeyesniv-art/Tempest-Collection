@@ -14,19 +14,23 @@ struct PreparationDepth{
     void bonus_slot(uint32_t phase,uint32_t y,uint32_t depth,uint32_t rowSpacing,uint32_t frequency,unsigned row){
         uint32_t index=int32_t(phase)>0?(phase>>1)&127:0,address=0x201009C0+index*4,word=read(address);store(0x2010082C,0);store(0x20100874,address);store(0x20100834,word);
         int32_t velocity=int32_t((word>>8)&15)-8;
-        uint32_t visiblePosition=word&0xFF000000;
+        uint32_t visiblePosition=word&0xFF000000,collisionWord=word;
         if(velocity){uint32_t previous=uint32_t(int32_t(word)>>24),next=(previous+uint32_t(velocity))<<24;
             if((previous>>31)!=(next>>31)&&((int32_t(next)<0&&velocity>=0)||(int32_t(next)>=0&&velocity<0))){velocity=-velocity;next+=uint32_t(velocity)<<24;}
             uint32_t endWord=(word&0x00FFF0FF)|next|((uint32_t(velocity+8)&15)<<8);
             int64_t displacement=int64_t(int32_t(next))-int32_t(word&0xFF000000);
             visiblePosition=uint32_t(int64_t(int32_t(word&0xFF000000))+displacement*(simulation.index+simulation.numerator)/simulation.divisions);
+            // The original tests shots against the position read before this
+            // sample's movement, then draws the advanced position. Preserve
+            // that ordering, including the packed coordinate's low bits.
+            collisionWord=uint32_t(int64_t(int32_t(word&0xFF000000))+displacement*simulation.index/simulation.divisions)+(word&0x00FFFFFF);
             if(simulation.legacy_boundary()){word=endWord;store(address,word);}
         }
         if(!(word&255))return;
         for(unsigned i=0;i<8;++i){uint32_t bulletAddress=0x201009A0+i*4,bullet=read(bulletAddress);if(!(bullet&255))continue;
             uint32_t target=read(0x20100820)+(rowSpacing<<3)-command_mul(uint32_t(int32_t(rowSpacing)>>2),bullet&255,0);
             if(std::abs(int64_t(int32_t(target-depth)))>0x80000)continue;
-            uint32_t observed=read(0x20100834);if(std::abs(int64_t(int32_t(visiblePosition)>>23)-int64_t(int32_t(bullet)>>16))>int64_t((observed>>16)&255))continue;
+            uint32_t observed=read(0x20100834);if(std::abs(int64_t(int32_t(collisionWord)>>23)-int64_t(int32_t(bullet)>>16))>int64_t((observed>>16)&255))continue;
             if(word&0x1000){unsigned width=(word>>16)&255;if(width<=128)width+=5;word=(word&0xFF00FFFF)|(width<<16);store(address,word);}
             if(word&0x2000){word=(word&0xFFFFF0FF)|0x800;store(address,word);}
             store(0x20100834,word);store(0x201008B0,read(0x201008B0)|0x80000000);store(bulletAddress,bullet|0x100);break;

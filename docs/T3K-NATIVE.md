@@ -55,7 +55,7 @@ supported disc reader in this native backend.
 | --- | --- |
 | Play/menu/warp speeds and ramp | Retained; defaults 21/30/60 pictures per second and a 0.5 second ramp. These control original logic-picture steps, not a new 120 Hz simulation. |
 | Resolution, widescreen, vector core/glow/size | Retained on the GPU renderer. |
-| Optional smooth motion | Retained as presentation interpolation. It does not generate logic ticks or change game movement rules. Existing settings retain their choice. |
+| Motion | Fresh native simulation samples at the selected cadence. The retired interpolation setting is ignored. |
 | CRT+ and its tuning | Retained through the collection's CRT pipeline. |
 | Volume and even loudness | Retained through the shared collection volume helper; original stereo mixing is native NISE at 32 kHz. |
 | Fullscreen and vsync | Retained. `--winsize=WxH` starts windowed; `--novsync` disables display sync. |
@@ -79,8 +79,8 @@ are selected by this toggle, rather than OR-ing analog and spinner capabilities.
 Keyboard gameplay also retains Z fire, X zapper, E jump, Tab NUON, Q L, J/I/K/L
 C-buttons, arrows and Enter.
 
-F11 toggles fullscreen, F5 reloads settings, F4 toggles rates, F6 toggles optional
-interpolation, and F7 switches the two presentation modes.
+F11 toggles fullscreen, F5 reloads settings, F4 toggles rates, and F7 switches
+the two presentation modes. F6 and generated motion frames are retired.
 
 ### Explicit migrations
 
@@ -90,8 +90,8 @@ interpolation, and F7 switches the two presentation modes.
   with it. Diagnostic overlay views 2/3 and software-picture blending are retired.
 - Emulator work scheduling (`timing`, `nuon_rounds`, `buffer_fields`, `native_skip`,
   `run_ahead`, emulated-frame logging) is no longer a runtime option. Its old keys
-  are left untouched. F3's software-frame cross-fade is retired; F6 remains the
-  optional native presentation interpolation control.
+  are left untouched. F3's software-frame cross-fade, F6, and native presentation
+  interpolation are retired. Settled native state files retain their wire layout.
 - The old host-side claw models (`stick_mode`, `sp_*`, `st_*`, `lr_*`) are replaced
   by the game's native analog/digital handling. Their tuning keys are preserved
   in the file but not applied to the native controller.
@@ -147,7 +147,7 @@ framebuffer-independence, and read-only-decoder checks.
 Runtime validation exercises boot, menus, level selection, name entry, session
 return, native controller and mouse paths, tools, two-player flow, jumping and
 zapper input. Disk save/load checks include opening and session phases, a fresh
-process loading an earlier process's state, and live interpolation/audio pacing.
+process loading an earlier process's state, and live presentation/audio pacing.
 Each accepted load verifies RAM, mixer/preparation/media/driver state and raw GPU
 feedback. This is regression evidence, not exhaustive all-level/input coverage.
 
