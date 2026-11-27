@@ -54,6 +54,9 @@ void Install(bool from_launcher,bool profile_mode) {
   p.Choice("Controller", "controller", {"auto", "mouse"}, {"Any gamepad (last used)", "Mouse / trackball"})->refresh = FillControllerChoice;
   p.Number("Stick response curve", "t3k_stick_curve", 1, 5, 0.1, "%.1f", 2.5)->when=[] { return settings::Str("controller","auto")!="mouse"; };
   p.Number("Sensitivity", "t3k_input_gain", 0.25, 3, 0.05, "%.2fx", 1);
+  auto pad = [] { return settings::Str("controller","auto")!="mouse"; };
+  p.Choice("Nudge assist (a tap = one lane)", "t3k_nudge", {"1", "0"}, {"On", "Off"})->when = pad;
+  p.Number("  Hold to sweep after", "t3k_nudge_hold", 0, 0.5, 0.01, "%.2f s", 0.08)->when = [pad] { return pad() && settings::Num("t3k_nudge",1)!=0; };
   p.Binds();
   if(profile_mode){
     p.Header("TIMING");

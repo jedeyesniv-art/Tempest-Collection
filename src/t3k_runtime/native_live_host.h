@@ -50,7 +50,7 @@ public:
     }
     bool restore(const Checkpoint& in){
         if(active_||in.rate<15||in.rate>60||!std::isfinite(in.speedFrom)||!std::isfinite(in.speedTo)||!mouse_.restore(in.mouse))return false;
-        frames_=in.frames;record_=in.record;pending_=in.pending;mouseDelta_=in.mouseDelta;sampled_=in.sampled;mouseMode_=in.mouseMode;reseed_=in.reseed;naming_=in.naming;
+        nudge_=Nudge{};frames_=in.frames;record_=in.record;pending_=in.pending;mouseDelta_=in.mouseDelta;sampled_=in.sampled;mouseMode_=in.mouseMode;reseed_=in.reseed;naming_=in.naming;
         rateFrom_=rateFrames_=displayFrames_=0;pauseStart_=0;rate_=in.rate;speedFrom_=in.speedFrom;speedTo_=in.speedTo;epoch_=SDL_GetTicksNS()-in.elapsed;due_=speedTime_=SDL_GetTicksNS();failed_=quit_=false;
         return true;
     }
@@ -91,7 +91,7 @@ public:
         if(bench_)benchStart_=SDL_GetTicksNS();
         if(active_||quit_)return false;
         if(journal.at_boundary()){if(resumeContinuation)resumeContinuation();journal.finish_replay();}
-        if(!journal.replaying()&&!sampled_){if(!events())return false;sampled_=true;}
+        if(!journal.replaying()&&!sampled_){if(!events())return false;sampled_=true;stick_frame();}
         std::array<uint32_t,8> input{};for(unsigned i=0;i<4;++i)input[i]=record_.words[i];input[4]=uint32_t(mouseDelta_);input[5]=reseed_;input[6]=mouseMode_;input[7]=sampled_;
         if(!journal.exchange(NativeServiceKind::input,input))return false;
         if(journal.replaying()){for(unsigned i=0;i<4;++i)record_.words[i]=input[i];mouseDelta_=int32_t(input[4]);reseed_=input[5]!=0;mouseMode_=input[6]!=0;sampled_=input[7]!=0;}
@@ -120,6 +120,7 @@ public:
     }
     void abort_frame()override{media_.abort_frame();active_=false;}
     bool poll_inputs(NativeFrameMemory& memory)override{profiling::Scope profile(profiling::input_media);
+        mem_=&memory;
         for(const auto& read:pending_)if(!media_.accept(read))return false;
         unsigned completed;if(!media_.deliver(memory,stream_,2048,completed))return false;
         if(reseed_){uint32_t position=uint32_t(int32_t(int8_t(record_.words[2]>>8)))&~1U;
@@ -206,6 +207,7 @@ public:
                 if(memory.read32(at+12,flags)&&flags==0x80000401&&memory.read32(at,slotPosition)&&slotPosition==position){claw=true;break;}
             }
         }
+        inPlay_=web&&claw;
         auto clamp=[](double value){return (std::clamp)(value,15.0,60.0);};
         double play=clamp(settings::Num("game_speed",20)),warp=settings::Num("warp_speed",60),menus=settings::Num("menu_speed",30);
         double target=stepScene_.referenceHz?stepScene_.sample_hz():timing_profile()?gameplay_rate():step_.divisions>1?120:zoom&&!web?(warp>0?clamp(warp):play):web&&claw?play:menus>0?clamp(menus):play;
@@ -235,6 +237,57 @@ public:
     }
     void name_entry(bool active)override{naming_=active;if(active&&check_)std::printf("Native original name entry at frame %llu\n",frames_);}
 private:
+    // Nudge assist (owner 2026-11-27: small nudges sometimes moved two lanes). The game moves the claw by
+    // axis * 768/65536 lanes a tick (spread over the fine steps) and never settles it on a lane, so an
+    // 80-100 ms flick at full push covers ~2 lanes. Here a push from neutral = exactly one lane, driven at
+    // top speed to just past the lane's whole number (the game's lane = floor(position)); held for
+    // t3k_nudge_hold seconds it becomes the plain stick (sweep: same speed / curve / sensitivity); release
+    // after a sweep stops where it is. Taps during a nudge add a lane. Runs once per frame, before the
+    // journal records the input, so save-state replays see the filtered axis.
+    // Tests: T3K_NUDGE_SCRIPT=start,period,len,axis (check runs: a flick of len frames every period, four
+    // right then four left), T3K_CLAW_LOG=1 (per frame: raw / sent axis, claw position).
+    NativeFrameMemory* mem_=nullptr;bool inPlay_=false;uint64_t playFrames_=0;
+    struct Nudge{bool active=false,sweeping=false;int dir=0,lastSign=0;double cmd=0,target=0,held=0;std::array<int,4> recent{};unsigned at=0;};
+    Nudge nudge_;
+    void stick_frame(){
+        if(!mem_)return;
+        if(!inPlay_){nudge_=Nudge{};return;}
+        ++playFrames_;
+        static const char* script=std::getenv("T3K_NUDGE_SCRIPT");
+        if(check_&&script){unsigned start=0,period=0,len=0;int axis=0;
+            if(std::sscanf(script,"%u,%u,%u,%d",&start,&period,&len,&axis)==4&&period&&playFrames_>=start){
+                uint64_t k=(playFrames_-start)%period,n=(playFrames_-start)/period;int sign=(n/4)%2?-1:1;
+                int8_t value=k<len?int8_t(sign*axis):0;record_.words[1]=(0x4000u<<16)|(uint32_t(uint8_t(value))<<8);}
+        }
+        int raw=int8_t(record_.words[1]>>8),out=raw;
+        uint32_t position=0;bool known=mem_->read32(0x800DC100,position);
+        if(!mouseMode_&&known&&settings::Num("t3k_nudge",1)!=0){
+            auto& n=nudge_;
+            double perUnit=768.0/65536*(step_.divisions?step_.fraction():1.0),dt=1.0/(std::max)(rate_,1.0);
+            int top=(std::clamp)(shape_stick_axis(32767,settings::Num("t3k_stick_curve",2.5),settings::Num("t3k_input_gain",1))/256,40,90);
+            bool quiet=true;for(int v:n.recent)quiet&=v==0;
+            if(quiet&&!n.active)n.cmd=int32_t(position)/65536.0; // nothing in flight: the game's own position
+            int sign=raw>19?1:raw<-19?-1:0;
+            if(sign&&sign!=n.lastSign){
+                if(n.active&&sign==n.dir)n.target+=sign;
+                else{n.dir=sign;n.target=sign>0?std::ceil(n.cmd+0.25):std::floor(n.cmd-0.25);n.active=true;}
+                n.sweeping=false;n.held=0;
+            }
+            if(sign){n.held+=dt;if(!n.sweeping&&sign==n.dir&&n.held>=(std::clamp)(settings::Num("t3k_nudge_hold",0.08),0.0,1.0)){n.sweeping=true;n.active=false;}}
+            else if(n.sweeping)n.sweeping=false;
+            n.lastSign=sign;
+            if(n.sweeping)out=raw;
+            else if(n.active){
+                double units=(n.target+0.03-n.cmd)/perUnit; // aim just past the whole number: floor() = the lane
+                if(std::abs(units)<10){out=0;n.active=false;}
+                else{out=int(std::lround(units));if(std::abs(out)<20)out=out<0?-20:20;out=(std::clamp)(out,-top,top);}
+            }else out=0; // the nudge is done: wait on its lane until the hold turns it into a sweep
+            n.cmd+=out*perUnit;n.recent[n.at++%n.recent.size()]=out;
+            record_.words[1]=(record_.words[1]&~0xFF00U)|(uint32_t(uint8_t(int8_t(out)))<<8);
+        }
+        static bool log=std::getenv("T3K_CLAW_LOG")!=nullptr;
+        if(log)std::printf("claw f%llu p%llu step%u/%u raw %d sent %d pos %.4f cmd %.4f rate %.1f held %.3f\n",frames_,playFrames_,step_.index,step_.divisions,raw,out,int32_t(position)/65536.0,nudge_.cmd,rate_,nudge_.held);
+    }
     std::FILE* profile_=nullptr;uint64_t profileLast_=0;
     std::FILE* bench_=nullptr;uint64_t benchStart_=0,benchLast_=0;
     bool events(){

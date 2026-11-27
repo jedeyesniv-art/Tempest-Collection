@@ -244,6 +244,19 @@ framing in play on Tempest Tubes.
   in place, ROMs checked by CRC first), CRT+ / CRT++ (GPU renderer). All: the menus, the run logs.
 - Tools from the session: tools/iso_list.py, t3k_datmap.py, t3k_musicrate.py, wav_compare.py.
 
+## T3K native nudge assist (2026-11-27; owner: "perfect", hold 0.08 s)
+- Measured: the native game moves the claw by axis x 768/65536 lanes a tick (SimulationStep spreads it over the fine
+  steps: 0.21 lanes a 120 Hz step at axis 90) and NEVER settles it on a lane (lane = floor(position $800DC100, 16.16));
+  a sample shows in the position 3 frames later. So a 50 / 75 / 100 ms full flick moved 1.27 / 1.90 / 2.53 lanes.
+- NativeLiveHost::stick_frame (once per frame, before the journal records the input, so replays match): a push from
+  neutral = one lane - target ceil(cmd + 0.25) / floor(cmd - 0.25), driven at the user's top speed to target + 0.03
+  (floor = the lane; the last sample >= 20, the game's deadzone); cmd = the predicted position (sum of sent axis x
+  per-unit), re-synced from $800DC100 when the last 4 samples were 0. Held t3k_nudge_hold (default 0.08) -> the plain
+  stick (sweep); release after a sweep stops where it is; taps during a nudge add a lane; until the hold the claw waits
+  on its lane. Settings t3k_nudge (1) / t3k_nudge_hold; menu CONTROLS. Mouse mode untouched.
+- Test: python -I tools/t3k_nudgetest.py [--lens 3,6,9 --axis 90 --off --hold S --log] (parallel --check runs,
+  T3K_NUDGE_SCRIPT + T3K_CLAW_LOG; ~40 s). Result: every flick shorter than the hold = exactly one lane, both ways.
+
 ## T3K nudges adding up (2026-11-24)
 - Owner: a few small nudges sometimes made a 2-lane move. A flick held just past sp_repeat_delay (7+ fields) became a
   sweep; the model had already finished the nudge (it runs ~4 fields ahead of the seen claw), so sp_release off ("stop

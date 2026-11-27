@@ -1147,7 +1147,8 @@ To do, at the end:
 
 ## Native T3K: next (owner, 2026-11-25; branch t3k-native, commit 000dacf, NOT pushed)
 Frogacuda's native T3K is in (CLAUDE.md "NATIVE T3K"). The owner's plan, in order:
-1. Controls again: tune the top speed, and sort out nudges - the native analog path is more accurate but a step back
+1. DONE 2026-11-27 (owner: "perfect"): NUDGE ASSIST (CLAUDE.md "T3K native nudge assist"); speed stays the stick
+   curve + Sensitivity. Was: controls again: tune the top speed, and sort out nudges - the native analog path is more accurate but a step back
    from our Step mode there (measured 2026-11-25: speed = x * 768/65536 lanes a picture, deadzone ~20/127, cap at
    x 90; nothing below 0.234 lanes a picture). Also ask: jump on RT as well as RB (our old layout; native has RT =
    C-right).
