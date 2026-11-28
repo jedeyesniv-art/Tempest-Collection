@@ -119,11 +119,14 @@ The Tempest Collection comes without any games. Put your own copies in this fold
   Tempest 2000 (Jaguar)   <name>.jag or .j64      the cartridge image; the file name must contain "Tempest"
   Tempest 3000 (Nuon)     <name>.iso or .mdf      the disc image; the file name must contain "Tempest"
                                                   (the launcher offers to compress it on its first start)
-  TxK (PS Vita)           PCSB00494\              the game's folder (eboot.bin, sce_sys\ ...); TxK also needs the
-                                                  PS Vita firmware: see ..\vita_firmware\
+  TxK (PS Vita)           PCSB00494\              the game's folder (eboot.bin, sce_sys\ ...), or the PSN package
+                          or <name>.pkg           <name>.pkg with its licence beside it (the zRIF text in a .zrif
+                                                  file, or work.bin / a .rif); TxK also needs the PS Vita firmware:
+                                                  see ..\vita_firmware\
 
 The launcher greys out a game until its files are here, and says what it is looking for.
-Space Giraffe and Tempest 4000 are not files: install them in Steam.
+Space Giraffe and Tempest 4000 are not files: install them in Steam, or anywhere else (Amazon Games, GOG: the
+launcher finds them, or choose the game's program in its settings: "Games from outside Steam").
 "@ | Set-Content -Encoding ascii (Join-Path $dist "game\PUT YOUR GAMES HERE.txt")
     $vf = Join-Path $dist "vita_firmware"
     New-Item -ItemType Directory -Force $vf | Out-Null
@@ -301,9 +304,10 @@ $gamesText = @"
   TEMPEST (1981 arcade)       MAME core           game\tempest.zip
   TEMPEST 2000 (Jaguar)       Virtual Jaguar      game\<name>.jag  (or .j64)
   TEMPEST 3000 (Nuon)         Native reconstruction              game\<name>.iso  (or .mdf)
-  SPACE GIRAFFE               opens Steam (if it is installed there); "Space Giraffe helper\" sets it up
-  TxK (PS Vita)               Vita3K              game\PCSB00494\  + the PS Vita firmware in vita_firmware\
-  TEMPEST 4000                opens Steam (if it is installed there); "Tempest 4000 helper\" skips its
+  SPACE GIRAFFE               your copy (Steam, or elsewhere); "Space Giraffe helper\" sets it up
+  TxK (PS Vita)               Vita3K              game\PCSB00494\  (or a .pkg + its licence)
+                                                  + the PS Vita firmware in vita_firmware\
+  TEMPEST 4000                your copy (Steam, Amazon, GOG...); "Tempest 4000 helper\" skips its
                               video-mode window and starts at the screen's own mode (see its README)
 
 NO GAMES ARE INCLUDED: bring your own. game\PUT YOUR GAMES HERE.txt says what goes where; the launcher greys out a
@@ -317,9 +321,9 @@ $gamesText = @"
   TEMPEST (1981 arcade)       MAME core           game\tempest.zip
   TEMPEST 2000 (Jaguar)       Virtual Jaguar      game\Tempest 2000 (1994).jag
   TEMPEST 3000 (Nuon)         Native reconstruction              game\$t3kDisc
-  SPACE GIRAFFE               opens Steam (if it is installed there); "Space Giraffe helper\" sets it up
+  SPACE GIRAFFE               your copy (Steam, or elsewhere); "Space Giraffe helper\" sets it up
   TxK (PS Vita)               Vita3K              game\PCSB00494\  (firmware already installed in system\vita3k)
-  TEMPEST 4000                opens Steam (if it is installed there); "Tempest 4000 helper\" skips its
+  TEMPEST 4000                your copy (Steam, Amazon, GOG...); "Tempest 4000 helper\" skips its
                               video-mode window and starts at the screen's own mode (see its README)
 
 Settings, saves and save states live in userdata\. This folder is a private copy: do not share it.
@@ -331,7 +335,7 @@ TEMPEST COLLECTION
 ==================
 
 Run TempestCollection.exe and pick a game. Each game runs fullscreen on top of the launcher and comes back to it
-when you quit (Back / View opens settings in the other games; T3K uses Guide / Esc and keeps Back as NUON).
+when you quit. Back (View) opens each game's settings menu (the game pauses).
 
 $gamesText
 
@@ -357,11 +361,11 @@ PAD (each game's menu can remap its buttons)
  Tempest (1981): left stick / d-pad spin, A / RT fire, B / RB / X Superzapper, Y coin, Start start.
  Tempest 2000: A fire, X / RT jump, B / RB Superzapper, Y Option, Start pause, LB camera view.
  Tempest 3000: left stick claw, A fire, B Superzapper, RB jump (Nuon R), X / Y as the Nuon C-left / C-up,
-               LB L, LT C-down, RT C-right, Start start, Back NUON. Guide / Esc opens settings.
+               LB the Nuon button, LT C-down, RT C-right, Start start. Back / Guide / Esc opens settings.
                 Select mouse / trackball in settings: left fire, right jump, middle Superzapper.
  TxK: A Cross, B Circle, X Square, Y Triangle, LB Select, LT hold (L), RT jump (R), Start start, sticks;
       touch the screen (or click) for the touchscreen.
- Back (View) = settings in the other games; Guide / Esc in Tempest 3000 (the game pauses).
+ Back (View) = the game's settings in every game (the game pauses).
 "@ | Set-Content -Encoding ascii (Join-Path $dist "README.txt")
 
 $files = Get-ChildItem $dist -Recurse -File
