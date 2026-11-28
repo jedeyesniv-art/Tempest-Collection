@@ -1165,7 +1165,7 @@ the launcher's MORE LLAMASOFT list), commit author
 commits authored as Frogacuda <115885173+Frogacuda@users.noreply.github.com>; the owner's JohnGames tunes are the
 defaults (gameplay 22, travel 22, entry 30, sensitivity 0.9); Framerate default 120Hz (60Hz for a while; back to 120 after the pacing fix, owner); Nuance credit / licence out
 (nothing of Nuance is built or shipped; disc_image is our own code). Smoke test: T3K play picture 3700 at 8 %, stale
-pictures deleted before each run. LEFT: merge to main, package + smoke test, play folder / Deck.
+pictures deleted before each run. DONE 2026-11-28: merged to main, smoke test 10/10, released as v1.3.0 (pushed). LEFT: play folder / Deck.
 Open (not for this release unless the owner says):
 - 120Hz mode runs at HALF SPEED on the Deck's 90 Hz screen (owner). FOUND + FIXED 2026-11-27 (owner tested on the
   Deck: "works perfectly"): gameplay and bonus already skipped presents when behind, but every other scene (menus, level entry /

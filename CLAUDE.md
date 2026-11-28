@@ -68,7 +68,7 @@ next", "Collection status and open items", "Ideas from Frogacuda's native T3K").
   -Release -> dist\release + dist\TempestCollection-<date>.zip (no game files; ends with a check that refuses them).
 
 ## Where we are (2026-11-27)
-- Branch **t3k-native** (not merged to main, not pushed): native T3K = Frogacuda's reconstruction (initial 2026-11-25,
+- 2026-11-28: **v1.3.0 released** (native T3K on main, pushed). Native T3K = native T3K = Frogacuda's reconstruction (initial 2026-11-25,
   stable checkpoint 2026-11-26, final revision R3 2026-11-27; as received = local branches frog-stable / frog-r3). R3
   fixed the leftover web and the bonus rounds (owner tested). His work is finished; T3K is ours from here.
 - Done 2026-11-27: T3K nudge assist (a tap = one lane, hold 0.08 s to sweep; owner: "perfect"); the launcher runs
