@@ -67,11 +67,10 @@ next", "Collection status and open items", "Ideas from Frogacuda's native T3K").
 - Packaging: tools\package_collection.ps1 [-SkipBuild] -> dist\TempestCollection (the full play folder, never publish);
   -Release -> dist\release + dist\TempestCollection-<date>.zip (no game files; ends with a check that refuses them).
 
-## Where we are (2026-11-27)
-- 2026-11-28: **v1.3.0 released** (native T3K on main, pushed). Native T3K = native T3K = Frogacuda's reconstruction (initial 2026-11-25,
+## Where we are (2026-11-28)
+- 2026-11-28: **v1.3.0 released** (native T3K on main, pushed). Native T3K = Frogacuda's reconstruction (initial 2026-11-25,
   stable checkpoint 2026-11-26, final revision R3 2026-11-27; as received = local branches frog-stable / frog-r3). R3
   fixed the leftover web and the bonus rounds (owner tested). His work is finished; T3K is ours from here.
 - Done 2026-11-27: T3K nudge assist (a tap = one lane, hold 0.08 s to sweep; owner: "perfect"); the launcher runs
   Space Giraffe / Tempest 4000 copies from outside Steam (Amazon / GOG; untested with a real copy - wait for reports).
-- Next (PLAN.md "Native T3K: next"): general performance; before a release: README (T3K paragraphs), credit Frogacuda
-  + OpenMinotaur in the README and the launcher's MORE LLAMASOFT list, merge t3k-native, package + smoke test, Deck.
+- Next (PLAN.md "Native T3K: next"): general performance; refresh the play folder / Deck with v1.3.0.
